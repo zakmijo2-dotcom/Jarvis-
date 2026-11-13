@@ -2,10 +2,13 @@ package com.example.ui.screens.voice
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,13 +31,16 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -49,25 +56,40 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.core.voice.VoiceConversationMode
 import com.example.core.voice.VoiceEngineState
+import com.example.core.voice.VoiceLanguageOption
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
-import com.example.ui.components.HudPanel
 import com.example.ui.components.JarvisOrb
 import com.example.ui.components.OrbMode
-import com.example.ui.components.TelemetryProgressBar
 
 @Composable
 fun VoiceScreen(
     uiState: VoiceUiState,
+    onMicPermissionChanged: (Boolean) -> Unit,
     onToggleListening: () -> Unit,
+    onPushToTalkPressed: () -> Unit,
+    onPushToTalkReleased: () -> Unit,
+    onInterruptAllVoice: () -> Unit,
     onSpeakStatus: () -> Unit,
     onSpeakTranscript: (String) -> Unit,
     onStopSpeaking: () -> Unit,
     onDismissError: () -> Unit,
+    onSubmitTextFallback: (String) -> Unit,
+    onSelectConversationMode: (VoiceConversationMode) -> Unit,
+    onSelectLanguage: (VoiceLanguageOption) -> Unit,
+    onSelectTtsVoice: (String) -> Unit,
+    onSetSpeechRate: (Float) -> Unit,
+    onSetAutoSpeak: (Boolean) -> Unit,
+    onToggleWakeWordStandby: (Boolean) -> Unit,
+    onTogglePauseInBackground: (Boolean) -> Unit,
     onLogTranscriptToChat: (String) -> Unit
 ) {
     val context = LocalContext.current
+    var fallbackInput by remember { mutableStateOf("") }
+    var showVoicePicker by remember { mutableStateOf(false) }
+
     var hasMicPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -77,37 +99,78 @@ fun VoiceScreen(
         )
     }
 
+    LaunchedEffect(hasMicPermission) {
+        onMicPermissionChanged(hasMicPermission)
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    fun ensurePostNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    var pendingActionAfterMic by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasMicPermission = granted
-        if (granted) {
-            onToggleListening()
+        onMicPermissionChanged(granted)
+        val pending = pendingActionAfterMic
+        pendingActionAfterMic = null
+        if (granted && pending != null) {
+            pending()
+        }
+    }
+
+    fun requestMicThen(action: () -> Unit) {
+        if (hasMicPermission) {
+            action()
+        } else {
+            pendingActionAfterMic = action
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
     val engineState = uiState.engineState
-    val orbMode = when (engineState) {
-        is VoiceEngineState.Listening -> OrbMode.LISTENING
-        is VoiceEngineState.Processing -> OrbMode.PROCESSING
-        is VoiceEngineState.Speaking -> OrbMode.SPEAKING
-        is VoiceEngineState.Error, is VoiceEngineState.Unavailable -> OrbMode.WARNING
-        is VoiceEngineState.Idle -> OrbMode.IDLE
+    val orbMode = when {
+        uiState.isGeneratingReply -> OrbMode.PROCESSING
+        engineState is VoiceEngineState.Listening -> OrbMode.LISTENING
+        engineState is VoiceEngineState.Processing -> OrbMode.PROCESSING
+        engineState is VoiceEngineState.Speaking -> OrbMode.SPEAKING
+        engineState is VoiceEngineState.Error || engineState is VoiceEngineState.Unavailable -> OrbMode.WARNING
+        else -> OrbMode.IDLE
     }
     val rmsDb = (engineState as? VoiceEngineState.Listening)?.rmsDb ?: 0f
 
-    val statusText = when (engineState) {
-        is VoiceEngineState.Idle -> if (hasMicPermission) {
-            stringResource(R.string.voice_tap_to_listen)
+    val statusText = when {
+        uiState.isGeneratingReply -> "Local AI generating spoken response…"
+        engineState is VoiceEngineState.Idle -> if (hasMicPermission) {
+            if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
+                if (uiState.isContinuousSessionActive) "Continuous mode armed — listening loop active"
+                else "Tap orb or Start Continuous Conversation"
+            } else {
+                stringResource(R.string.voice_tap_to_listen)
+            }
         } else {
             stringResource(R.string.voice_permission_needed)
         }
-
-        is VoiceEngineState.Listening -> stringResource(R.string.voice_listening)
-        is VoiceEngineState.Processing -> "Processing speech buffer…"
-        is VoiceEngineState.Speaking -> "Speaking via Android TextToSpeech…"
-        is VoiceEngineState.Unavailable -> engineState.reason
-        is VoiceEngineState.Error -> engineState.message
+        engineState is VoiceEngineState.Listening -> stringResource(R.string.voice_listening)
+        engineState is VoiceEngineState.Processing -> "Processing speech buffer…"
+        engineState is VoiceEngineState.Speaking -> "Speaking via Android TextToSpeech…"
+        engineState is VoiceEngineState.Unavailable -> engineState.reason
+        engineState is VoiceEngineState.Error -> engineState.message
+        else -> ""
     }
 
     HudBackground {
@@ -118,7 +181,7 @@ fun VoiceScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -142,11 +205,19 @@ fun VoiceScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            PersistentMicStatusBanner(
+                micStatus = uiState.micStatus,
+                isFgsRunning = uiState.isForegroundServiceRunning,
+                isContinuousActive = uiState.isContinuousSessionActive,
+                detectedLanguage = uiState.detectedLanguage,
+                restrictionNotice = uiState.serviceRestrictionNotice,
+                onDisableListening = onInterruptAllVoice,
+                onDismissNotice = onDismissError
+            )
 
             JarvisOrb(
                 mode = orbMode,
-                size = 240.dp,
+                size = 216.dp,
                 audioLevel = rmsDb,
                 animationEnabled = uiState.settings.orbAnimationEnabled,
                 glowIntensity = uiState.settings.orbGlowIntensity,
@@ -155,10 +226,15 @@ fun VoiceScreen(
                     .clip(CircleShape)
                     .clickable {
                         onDismissError()
-                        if (hasMicPermission) {
-                            onToggleListening()
+                        if (engineState is VoiceEngineState.Speaking) {
+                            onStopSpeaking()
                         } else {
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            requestMicThen {
+                                if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
+                                    ensurePostNotificationsIfNeeded()
+                                }
+                                onToggleListening()
+                            }
                         }
                     }
                     .testTag("voice_orb_button")
@@ -189,45 +265,7 @@ fun VoiceScreen(
                 }
             }
 
-            HudPanel(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 720.dp)
-            ) {
-                TelemetryProgressBar(
-                    label = "AUDIO INPUT RMS",
-                    valueText = String.format("%.1f dB", rmsDb),
-                    progress = (rmsDb / 12f).coerceIn(0f, 1f),
-                    accentColor = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = "TRANSCRIPT BUFFER",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                val displayedTranscript = when {
-                    engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank() ->
-                        engineState.partialTranscript
-
-                    uiState.lastTranscript.isNotBlank() -> uiState.lastTranscript
-                    else -> "No speech captured yet. Tap the central orb or press Listen to capture real audio via Android SpeechRecognizer."
-                }
-                Text(
-                    text = displayedTranscript,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (uiState.lastTranscript.isNotBlank() ||
-                        (engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank())
-                    ) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.testTag("voice_transcript_text")
-                )
-            }
-
+            // Primary voice action row: Push-to-Talk Hold / Continuous Toggle + Stop Speaking
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,10 +275,11 @@ fun VoiceScreen(
                 Button(
                     onClick = {
                         onDismissError()
-                        if (hasMicPermission) {
+                        requestMicThen {
+                            if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
+                                ensurePostNotificationsIfNeeded()
+                            }
                             onToggleListening()
-                        } else {
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
                     modifier = Modifier
@@ -249,46 +288,121 @@ fun VoiceScreen(
                         .testTag("voice_listen_button")
                 ) {
                     Icon(
-                        imageVector = if (engineState is VoiceEngineState.Listening) Icons.Filled.Stop else Icons.Filled.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (engineState is VoiceEngineState.Listening) "Stop" else "Listen")
-                }
-
-                FilledTonalButton(
-                    onClick = {
-                        if (engineState is VoiceEngineState.Speaking) {
-                            onStopSpeaking()
-                        } else {
-                            onSpeakStatus()
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .minimumInteractiveComponentSize()
-                        .testTag("voice_tts_button")
-                ) {
-                    Icon(
-                        imageVector = if (engineState is VoiceEngineState.Speaking) {
+                        imageVector = if (engineState is VoiceEngineState.Listening || uiState.isContinuousSessionActive) {
                             Icons.Filled.Stop
                         } else {
-                            Icons.AutoMirrored.Filled.VolumeUp
+                            Icons.Filled.Mic
                         },
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        if (engineState is VoiceEngineState.Speaking) {
-                            stringResource(R.string.voice_stop_tts)
-                        } else {
-                            stringResource(R.string.voice_speak_status)
+                        when {
+                            uiState.conversationMode == VoiceConversationMode.CONTINUOUS && uiState.isContinuousSessionActive -> "Stop Loop"
+                            uiState.conversationMode == VoiceConversationMode.CONTINUOUS -> "Start Loop"
+                            engineState is VoiceEngineState.Listening -> "Stop"
+                            else -> "Listen"
                         }
                     )
                 }
+
+                if (engineState is VoiceEngineState.Speaking || uiState.isGeneratingReply) {
+                    Button(
+                        onClick = onInterruptAllVoice,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("voice_stop_speaking_button")
+                    ) {
+                        Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.voice_stop_tts))
+                    }
+                } else {
+                    FilledTonalButton(
+                        onClick = onSpeakStatus,
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("voice_tts_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.voice_speak_status))
+                    }
+                }
             }
+
+            // Dedicated Press-and-Hold Push-to-Talk surface when in PTT mode
+            if (uiState.conversationMode == VoiceConversationMode.PUSH_TO_TALK) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = if (engineState is VoiceEngineState.Listening) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .minimumInteractiveComponentSize()
+                        .pointerInput(hasMicPermission) {
+                            detectTapGestures(
+                                onPress = {
+                                    if (hasMicPermission) {
+                                        onPushToTalkPressed()
+                                        tryAwaitRelease()
+                                        onPushToTalkReleased()
+                                    } else {
+                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            )
+                        }
+                        .testTag("voice_ptt_hold_button")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 14.dp, horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Filled.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = if (engineState is VoiceEngineState.Listening) {
+                                    "Release Push-to-Talk to Send"
+                                } else {
+                                    "Hold for Push-to-Talk"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            VoiceTranscriptAndConversationCard(
+                engineState = engineState,
+                lastTranscript = uiState.lastTranscript,
+                isGeneratingReply = uiState.isGeneratingReply,
+                streamingReply = uiState.streamingReply,
+                voiceTurns = uiState.voiceTurns,
+                onSpeakTurn = onSpeakTranscript
+            )
 
             if (uiState.lastTranscript.isNotBlank()) {
                 Row(
@@ -322,6 +436,67 @@ fun VoiceScreen(
                     }
                 }
             }
+
+            VoiceTextFallbackBar(
+                inputText = fallbackInput,
+                isGenerating = uiState.isGeneratingReply,
+                onInputChange = { fallbackInput = it },
+                onSubmit = {
+                    val text = fallbackInput.trim()
+                    if (text.isNotEmpty()) {
+                        fallbackInput = ""
+                        onSubmitTextFallback(text)
+                    }
+                }
+            )
+
+            VoiceConversationControlsCard(
+                conversationMode = uiState.conversationMode,
+                selectedLanguage = uiState.selectedLanguage,
+                localeChecks = uiState.localeChecks,
+                ttsAutoSpeak = uiState.settings.ttsAutoSpeak,
+                ttsSpeechRate = uiState.settings.ttsSpeechRate,
+                selectedVoiceName = uiState.settings.selectedTtsVoiceName,
+                availableVoicesCount = uiState.availableVoices.size,
+                onSelectMode = { mode ->
+                    if (mode == VoiceConversationMode.CONTINUOUS) {
+                        ensurePostNotificationsIfNeeded()
+                    }
+                    onSelectConversationMode(mode)
+                },
+                onSelectLanguage = onSelectLanguage,
+                onSetAutoSpeak = onSetAutoSpeak,
+                onSetSpeechRate = onSetSpeechRate,
+                onOpenVoicePicker = { showVoicePicker = true }
+            )
+
+            WakeWordEvaluationCard(
+                wakeWordEnabled = uiState.settings.wakeWordStandbyEnabled,
+                wakeWordState = uiState.wakeWordState,
+                metrics = uiState.wakeWordMetrics,
+                report = uiState.wakeWordReport,
+                pauseMicInBackground = uiState.settings.pauseMicInBackground,
+                onToggleStandby = { enabled ->
+                    if (enabled) {
+                        ensurePostNotificationsIfNeeded()
+                        requestMicThen { onToggleWakeWordStandby(true) }
+                    } else {
+                        onToggleWakeWordStandby(false)
+                    }
+                },
+                onTogglePauseInBackground = onTogglePauseInBackground
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
         }
+    }
+
+    if (showVoicePicker) {
+        TtsVoicePickerDialog(
+            voices = uiState.availableVoices,
+            selectedVoiceName = uiState.settings.selectedTtsVoiceName,
+            onSelectVoice = onSelectTtsVoice,
+            onDismiss = { showVoicePicker = false }
+        )
     }
 }

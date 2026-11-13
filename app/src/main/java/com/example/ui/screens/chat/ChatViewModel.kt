@@ -12,6 +12,12 @@ import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
 import com.example.core.model.ModelSlot
 import com.example.core.model.RuntimeFormatId
+import com.example.core.tools.NotificationBridge
+import com.example.core.tools.PendingToolConfirmation
+import com.example.core.tools.SpecialAccessType
+import com.example.core.tools.ToolCallRequest
+import com.example.core.tools.ToolExecutionResult
+import com.example.core.tools.ToolExecutionStatus
 import com.example.data.local.db.ConversationWithPreview
 import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
@@ -21,6 +27,7 @@ import com.example.data.repository.ConversationRepository
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +53,20 @@ data class ChatUiState(
     val streamingBackend: String? = null,
     val streamingEstimatedTokens: Int = 0,
     val lastBenchmark: GenerationBenchmark? = null,
-    val nativeMemoryMb: Float = 0f
+    val nativeMemoryMb: Float = 0f,
+    val pendingToolConfirmation: PendingToolConfirmation? = null,
+    val activeToolName: String? = null,
+    val pendingRuntimePermission: String? = null,
+    val pendingSpecialAccess: SpecialAccessType? = null,
+    val permissionRationale: String? = null
+)
+
+private data class ChatToolOverlayState(
+    val pendingConfirmation: PendingToolConfirmation? = null,
+    val activeToolName: String? = null,
+    val pendingRuntimePermission: String? = null,
+    val pendingSpecialAccess: SpecialAccessType? = null,
+    val permissionRationale: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -64,71 +84,96 @@ class ChatViewModel(
     private val streamingReply = MutableStateFlow<String?>(null)
     private val streamingBackend = MutableStateFlow<String?>(null)
     private val streamingTokenEstimate = MutableStateFlow(0)
+    private val toolOverlayState = MutableStateFlow(ChatToolOverlayState())
     private var generationJob: Job? = null
+    private var toolJob: Job? = null
+    private var lastPermissionDeniedRequest: Pair<String, ToolCallRequest>? = null
 
     private val activeMessagesFlow = activeConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else conversationRepository.observeMessages(id)
     }
 
-    val uiState: StateFlow<ChatUiState> = combine(
+    private val baseDataFlow = combine(
         activeConversationId,
         conversationRepository.observeConversations(),
         activeMessagesFlow,
         drawerSearchQuery,
         modelManager.observeActiveModel(),
-        settingsRepository.settingsFlow,
+        settingsRepository.settingsFlow
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val allConversations = values[1] as List<ConversationWithPreview>
+        @Suppress("UNCHECKED_CAST")
+        val messages = values[2] as List<MessageEntity>
+        val settings = values[5] as JarvisSettings
+        NotificationBridge.syncPrivacyControls(
+            enabled = settings.notificationReaderEnabled,
+            maskEnabled = settings.notificationPrivacyMaskEnabled
+        )
+        BaseDataSnapshot(
+            activeId = values[0] as String?,
+            allConversations = allConversations,
+            messages = messages,
+            query = values[3] as String,
+            activeModel = values[4] as ModelSlot?,
+            settings = settings
+        )
+    }
+
+    val uiState: StateFlow<ChatUiState> = combine(
+        baseDataFlow,
         aiEngine.loadState,
         aiEngine.isGenerating,
         streamingReply,
         streamingBackend,
         streamingTokenEstimate,
         aiEngine.lastBenchmark,
-        aiEngine.nativeMemoryMb
+        aiEngine.nativeMemoryMb,
+        toolOverlayState
     ) { values ->
-        val activeId = values[0] as String?
-        @Suppress("UNCHECKED_CAST")
-        val allConversations = values[1] as List<ConversationWithPreview>
-        @Suppress("UNCHECKED_CAST")
-        val messages = values[2] as List<MessageEntity>
-        val query = values[3] as String
-        val activeModel = values[4] as ModelSlot?
-        val settings = values[5] as JarvisSettings
-        val loadState = values[6] as EngineLoadState
-        val isGen = values[7] as Boolean
-        val streamText = values[8] as String?
-        val streamBackend = values[9] as String?
-        val streamTok = values[10] as Int
-        val lastBench = values[11] as GenerationBenchmark?
-        val nativeMem = values[12] as Float
+        val base = values[0] as BaseDataSnapshot
+        val loadState = values[1] as EngineLoadState
+        val isGen = values[2] as Boolean
+        val streamText = values[3] as String?
+        val streamBackend = values[4] as String?
+        val streamTok = values[5] as Int
+        val lastBench = values[6] as GenerationBenchmark?
+        val nativeMem = values[7] as Float
+        val toolOverlay = values[8] as ChatToolOverlayState
 
-        val resolvedId = activeId ?: allConversations.firstOrNull()?.id
-        val filteredConversations = if (query.isBlank()) {
-            allConversations
+        val resolvedId = base.activeId ?: base.allConversations.firstOrNull()?.id
+        val filteredConversations = if (base.query.isBlank()) {
+            base.allConversations
         } else {
-            val needle = query.trim().lowercase()
-            allConversations.filter {
+            val needle = base.query.trim().lowercase()
+            base.allConversations.filter {
                 it.title.lowercase().contains(needle) ||
                     (it.lastMessage?.lowercase()?.contains(needle) == true)
             }
         }
-        val activeTitle = allConversations.firstOrNull { it.id == resolvedId }?.title
+        val activeTitle = base.allConversations.firstOrNull { it.id == resolvedId }?.title
             ?: "Primary Core Session"
 
         ChatUiState(
             activeConversationId = resolvedId,
             activeConversationTitle = activeTitle,
-            messages = messages,
+            messages = base.messages,
             conversations = filteredConversations,
-            drawerSearchQuery = query,
-            activeModel = activeModel,
-            settings = settings,
+            drawerSearchQuery = base.query,
+            activeModel = base.activeModel,
+            settings = base.settings,
             engineLoadState = loadState,
             isGenerating = isGen || streamText != null,
             streamingReply = streamText,
             streamingBackend = streamBackend,
             streamingEstimatedTokens = streamTok,
             lastBenchmark = lastBench,
-            nativeMemoryMb = nativeMem
+            nativeMemoryMb = nativeMem,
+            pendingToolConfirmation = toolOverlay.pendingConfirmation,
+            activeToolName = toolOverlay.activeToolName,
+            pendingRuntimePermission = toolOverlay.pendingRuntimePermission,
+            pendingSpecialAccess = toolOverlay.pendingSpecialAccess,
+            permissionRationale = toolOverlay.permissionRationale
         )
     }.stateIn(
         scope = viewModelScope,
@@ -162,6 +207,13 @@ class ChatViewModel(
                 content = text,
                 modelLabel = "Operator"
             )
+
+            // Direct /tool pipeline: AgentCore -> ToolRegistry -> PermissionValidator -> Android API
+            val directToolRequest = agentCore.parseDirectToolCommand(text)
+            if (directToolRequest != null) {
+                dispatchToolInternal(convId, directToolRequest, currentSettings, userConfirmed = false)
+                return@launch
+            }
 
             // Auto-load or hot-swap local verified LiteRT-LM model if active slot changed or isn't loaded
             val readyState = aiEngine.loadState.value as? EngineLoadState.Ready
@@ -248,6 +300,15 @@ class ChatViewModel(
                                         timestamp = System.currentTimeMillis()
                                     )
                                 )
+                                val modelToolCall = agentCore.extractModelToolCall(finalContent)
+                                if (modelToolCall != null) {
+                                    dispatchToolInternal(
+                                        convId = convId,
+                                        request = modelToolCall,
+                                        settings = currentSettings,
+                                        userConfirmed = false
+                                    )
+                                }
                             } else {
                                 conversationRepository.appendMessage(
                                     conversationId = convId,
@@ -298,6 +359,151 @@ class ChatViewModel(
             }
         }
     }
+
+    fun confirmPendingTool() {
+        val pending = toolOverlayState.value.pendingConfirmation ?: return
+        val convId = activeConversationId.value ?: return
+        val settings = uiState.value.settings
+        toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = null)
+        toolJob = viewModelScope.launch {
+            dispatchToolInternal(convId, pending.request, settings, userConfirmed = true)
+        }
+    }
+
+    fun cancelPendingTool() {
+        val pending = toolOverlayState.value.pendingConfirmation ?: return
+        val convId = activeConversationId.value
+        toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = null)
+        if (convId != null) {
+            viewModelScope.launch {
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    role = MessageRole.TOOL_SNAPSHOT,
+                    content = "Action '${pending.request.toolName}' cancelled by user before execution.",
+                    modelLabel = "Tool // Cancelled"
+                )
+            }
+        }
+    }
+
+    fun cancelActiveTool() {
+        val activeName = toolOverlayState.value.activeToolName
+        agentCore.cancelActiveTool()
+        toolJob?.cancel()
+        toolOverlayState.value = toolOverlayState.value.copy(activeToolName = null)
+        val convId = activeConversationId.value
+        if (convId != null && activeName != null) {
+            viewModelScope.launch {
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    role = MessageRole.TOOL_SNAPSHOT,
+                    content = "Tool execution '$activeName' cancelled.",
+                    modelLabel = "Tool // Cancelled"
+                )
+            }
+        }
+    }
+
+    fun dismissPermissionPrompt() {
+        lastPermissionDeniedRequest = null
+        toolOverlayState.value = toolOverlayState.value.copy(
+            pendingRuntimePermission = null,
+            pendingSpecialAccess = null,
+            permissionRationale = null
+        )
+    }
+
+    fun onRuntimePermissionResult(permission: String, granted: Boolean) {
+        val deferred = lastPermissionDeniedRequest
+        lastPermissionDeniedRequest = null
+        toolOverlayState.value = toolOverlayState.value.copy(
+            pendingRuntimePermission = null,
+            pendingSpecialAccess = null,
+            permissionRationale = null
+        )
+        if (deferred != null) {
+            val (convId, req) = deferred
+            viewModelScope.launch {
+                if (granted) {
+                    dispatchToolInternal(convId, req, uiState.value.settings, userConfirmed = false)
+                } else {
+                    conversationRepository.appendMessage(
+                        conversationId = convId,
+                        role = MessageRole.SYSTEM_NOTICE,
+                        content = "Permission $permission was denied; tool '${req.toolName}' did not run.",
+                        modelLabel = "Permission Validator"
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun dispatchToolInternal(
+        convId: String,
+        request: ToolCallRequest,
+        settings: JarvisSettings,
+        userConfirmed: Boolean
+    ) {
+        toolOverlayState.value = toolOverlayState.value.copy(activeToolName = request.toolName)
+        val result: ToolExecutionResult = try {
+            agentCore.executeTool(
+                request = request,
+                settings = settings,
+                userConfirmed = userConfirmed
+            )
+        } catch (_: CancellationException) {
+            ToolExecutionResult(
+                toolName = request.toolName,
+                status = ToolExecutionStatus.CANCELLED,
+                summary = "Tool execution '${request.toolName}' was cancelled."
+            )
+        } finally {
+            toolOverlayState.value = toolOverlayState.value.copy(activeToolName = null)
+        }
+
+        when (result.status) {
+            ToolExecutionStatus.CONFIRMATION_REQUIRED -> {
+                val pending = agentCore.describeConfirmation(request)
+                toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = pending)
+            }
+
+            ToolExecutionStatus.PERMISSION_DENIED -> {
+                if (result.missingRuntimePermission != null || result.missingSpecialAccess != null) {
+                    lastPermissionDeniedRequest = convId to request
+                    toolOverlayState.value = toolOverlayState.value.copy(
+                        pendingRuntimePermission = result.missingRuntimePermission,
+                        pendingSpecialAccess = result.missingSpecialAccess,
+                        permissionRationale = result.summary
+                    )
+                }
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    role = MessageRole.TOOL_SNAPSHOT,
+                    content = formatToolResultForChat(result),
+                    modelLabel = "Permission Validator // ${result.toolName}"
+                )
+            }
+
+            else -> {
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    role = MessageRole.TOOL_SNAPSHOT,
+                    content = formatToolResultForChat(result),
+                    modelLabel = "Tool // ${result.toolName} (${result.status.name})"
+                )
+            }
+        }
+    }
+
+    private fun formatToolResultForChat(result: ToolExecutionResult): String = buildString {
+        appendLine("STATUS: ${result.status.name}")
+        append(result.summary)
+        if (result.verifiedFacts.isNotEmpty()) {
+            appendLine()
+            append("Verified: ")
+            append(result.verifiedFacts.entries.joinToString(" • ") { "${it.key}=${it.value}" })
+        }
+    }.trim()
 
     fun cancelGeneration() {
         viewModelScope.launch {
@@ -389,6 +595,15 @@ class ChatViewModel(
     fun updateSearchQuery(query: String) {
         drawerSearchQuery.value = query
     }
+
+    private data class BaseDataSnapshot(
+        val activeId: String?,
+        val allConversations: List<ConversationWithPreview>,
+        val messages: List<MessageEntity>,
+        val query: String,
+        val activeModel: ModelSlot?,
+        val settings: JarvisSettings
+    )
 
     companion object {
         fun factory(

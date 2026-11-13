@@ -3,6 +3,7 @@ package com.example.di
 import android.content.Context
 import com.example.core.agent.AgentCore
 import com.example.core.agent.Phase2AgentCore
+import com.example.core.agent.ToolRegistryFactory
 import com.example.core.ai.AiEngine
 import com.example.core.ai.LiteRtLmAiEngine
 import com.example.core.cloud.CloudProviderRegistry
@@ -19,9 +20,10 @@ import com.example.core.model.RoomModelManager
 import com.example.core.security.SecureCredentialStore
 import com.example.core.tools.AndroidSystemTools
 import com.example.core.tools.AndroidTools
+import com.example.core.tools.ToolRegistry
 import com.example.core.voice.AndroidVoiceEngine
 import com.example.core.voice.VoiceEngine
-import com.example.core.wakeword.Phase1WakeWordEngine
+import com.example.core.wakeword.ModularWakeWordEngine
 import com.example.core.wakeword.WakeWordEngine
 import com.example.data.local.db.JarvisDatabase
 import com.example.data.local.db.ModelBenchmarkDao
@@ -82,11 +84,15 @@ open class JarvisContainer(context: Context) {
     }
 
     open val wakeWordEngine: WakeWordEngine by lazy {
-        Phase1WakeWordEngine()
+        ModularWakeWordEngine()
     }
 
     open val androidTools: AndroidTools by lazy {
         AndroidSystemTools(appContext)
+    }
+
+    open val toolRegistry: ToolRegistry by lazy {
+        ToolRegistryFactory.createDefault(androidTools)
     }
 
     open val cloudProviderRegistry: CloudProviderRegistry by lazy {
@@ -104,7 +110,9 @@ open class JarvisContainer(context: Context) {
             androidTools = androidTools,
             cloudProviderRegistry = cloudProviderRegistry,
             wakeWordEngine = wakeWordEngine,
-            localMemory = localMemory
+            localMemory = localMemory,
+            appContext = appContext,
+            toolRegistry = toolRegistry
         )
     }
 }

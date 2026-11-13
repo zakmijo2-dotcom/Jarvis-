@@ -32,14 +32,17 @@
 
     <!-- Voice Screen -->
     <string name="voice_title">VOICE CONSOLE</string>
-    <string name="voice_tap_to_listen">Tap orb to start speech capture</string>
+    <string name="voice_tap_to_listen">Tap orb or Hold Push-to-Talk to speak</string>
     <string name="voice_listening">Listening… speak clearly</string>
-    <string name="voice_permission_needed">Microphone permission required for real-time SpeechRecognizer capture.</string>
+    <string name="voice_permission_needed">Microphone permission required for SpeechRecognizer and voice standby.</string>
     <string name="voice_grant_permission">Grant Microphone</string>
     <string name="voice_speak_status">Speak Status</string>
-    <string name="voice_stop_tts">Stop Speech</string>
-    <string name="voice_send_to_chat">Log Transcript to Chat</string>
+    <string name="voice_stop_tts">Stop Speaking</string>
+    <string name="voice_send_to_chat">Open in Chat</string>
     <string name="cd_voice_orb">Toggle voice recognition</string>
+    <string name="voice_fallback_hint">Text fallback (if mic unavailable or denied)…</string>
+    <string name="voice_fgs_channel_name">JARVIS Microphone Service</string>
+    <string name="voice_fgs_channel_desc">Persistent OS indicator while continuous voice or wake-word standby is active.</string>
 
     <!-- Model Manager Screen -->
     <string name="models_title">MODEL REGISTRY</string>
@@ -56,4 +59,9 @@
     <!-- Settings Screen -->
     <string name="settings_title">CORE CONFIGURATION</string>
     <string name="settings_clear_history">Purge Conversation Archive</string>
+
+    <!-- Device Control & Accessibility -->
+    <string name="notification_listener_label">JARVIS Notification Reader</string>
+    <string name="accessibility_service_label">JARVIS Device Automation</string>
+    <string name="accessibility_service_description">User-authorized navigation assistance (Home, Back, Recents, Notifications) triggered only on explicit confirmation. Screen content capture is disabled.</string>
 </resources>

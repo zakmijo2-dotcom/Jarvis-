@@ -1,5 +1,8 @@
 package com.example.ui.screens.chat
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,10 +32,14 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -41,10 +48,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -56,6 +65,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -87,10 +97,25 @@ fun ChatScreen(
     onRunSystemSnapshot: () -> Unit,
     onRunReadinessAudit: () -> Unit,
     onNavigateToVoice: () -> Unit,
-    onNavigateToModels: () -> Unit
+    onNavigateToModels: () -> Unit,
+    onConfirmPendingTool: () -> Unit = {},
+    onCancelPendingTool: () -> Unit = {},
+    onCancelActiveTool: () -> Unit = {},
+    onDismissPermissionPrompt: () -> Unit = {},
+    onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
+    onOpenDeviceControls: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     var inputText by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val perm = uiState.pendingRuntimePermission
+        if (perm != null) {
+            onRuntimePermissionResult(perm, granted)
+        }
+    }
 
     val streamingText = uiState.streamingReply
     val totalItemCount = uiState.messages.size + if (streamingText != null) 1 else 0
@@ -179,6 +204,41 @@ fun ChatScreen(
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceContainer
                 )
+            }
+
+            if (uiState.activeToolName != null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("active_tool_banner"),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Executing tool: ${uiState.activeToolName}…",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        OutlinedButton(
+                            onClick = onCancelActiveTool,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("cancel_active_tool_button")
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                }
             }
 
             Box(
@@ -472,6 +532,112 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
+
+            val pendingConfirm = uiState.pendingToolConfirmation
+            if (pendingConfirm != null) {
+                AlertDialog(
+                    onDismissRequest = onCancelPendingTool,
+                    modifier = Modifier.testTag("tool_confirmation_dialog"),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Filled.Security,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    title = {
+                        Text("Confirm Device Action (${pendingConfirm.request.toolName})")
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = pendingConfirm.confirmationMessage,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = pendingConfirm.sensitivityWarning,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = onConfirmPendingTool,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.testTag("confirm_tool_button")
+                        ) {
+                            Text("Confirm & Run")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = onCancelPendingTool,
+                            modifier = Modifier.testTag("cancel_tool_button")
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            val pendingPerm = uiState.pendingRuntimePermission
+            val pendingSpecial = uiState.pendingSpecialAccess
+            if (pendingPerm != null || pendingSpecial != null) {
+                AlertDialog(
+                    onDismissRequest = onDismissPermissionPrompt,
+                    modifier = Modifier.testTag("tool_permission_dialog"),
+                    title = {
+                        Text(
+                            if (pendingPerm != null) "Permission Required"
+                            else "${pendingSpecial?.label} Required"
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = uiState.permissionRationale
+                                ?: "JARVIS requires explicit authorization before accessing this Android API.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                if (pendingPerm != null) {
+                                    permissionLauncher.launch(pendingPerm)
+                                } else if (pendingSpecial != null) {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(pendingSpecial.settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                    onDismissPermissionPrompt()
+                                }
+                            },
+                            modifier = Modifier.testTag("grant_tool_permission_button")
+                        ) {
+                            Text(if (pendingPerm != null) "Grant Permission" else "Open Android Settings")
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            if (pendingSpecial != null) {
+                                TextButton(onClick = {
+                                    onDismissPermissionPrompt()
+                                    onOpenDeviceControls()
+                                }) {
+                                    Text("Privacy Controls")
+                                }
+                            }
+                            TextButton(onClick = onDismissPermissionPrompt) {
+                                Text("Dismiss")
+                            }
+                        }
+                    }
+                )
             }
         }
     }

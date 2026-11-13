@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
@@ -42,6 +43,14 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("nav_tab_voice").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("VOICE CONSOLE").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("mic_status_indicator").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_listen_button").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_fallback_input_field").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_mode_ptt").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_mode_continuous").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_lang_ar-dz").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_lang_fr-fr").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("wake_word_evaluation_card").performScrollTo().assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("nav_tab_models").performClick()
         composeTestRule.waitForIdle()
@@ -97,6 +106,16 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("nav_tab_device").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("SYSTEM TELEMETRY").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("device_tab_controls").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("device_controls_list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("device_controls_list")
+            .performScrollToNode(hasTestTag("switch_notification_reader"))
+        composeTestRule.onNodeWithTag("switch_notification_reader").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("device_controls_list")
+            .performScrollToNode(hasTestTag("accessibility_disclosure_card"))
+        composeTestRule.onNodeWithTag("accessibility_disclosure_card").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("nav_tab_settings").performClick()
         composeTestRule.waitForIdle()

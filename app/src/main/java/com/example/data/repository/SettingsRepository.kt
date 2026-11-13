@@ -26,7 +26,14 @@ data class JarvisSettings(
     val orbGlowIntensity: Float = 0.85f,
     val ttsAutoSpeak: Boolean = true,
     val ttsSpeechRate: Float = 1.0f,
+    val voiceLanguageTag: String = "auto",
+    val selectedTtsVoiceName: String = "",
+    val voiceContinuousMode: Boolean = false,
+    val pauseMicInBackground: Boolean = true,
     val wakeWordStandbyEnabled: Boolean = false,
+    val notificationReaderEnabled: Boolean = false,
+    val notificationPrivacyMaskEnabled: Boolean = true,
+    val accessibilityAutomationEnabled: Boolean = false,
     val telemetryPollingSeconds: Int = 5,
     val hapticsEnabled: Boolean = true,
     val inferenceBackend: InferenceBackendPreference = InferenceBackendPreference.AUTO_GPU_FALLBACK,
@@ -49,7 +56,14 @@ class SettingsRepository(
         val ORB_GLOW_INTENSITY = floatPreferencesKey("orb_glow_intensity")
         val TTS_AUTO_SPEAK = booleanPreferencesKey("tts_auto_speak")
         val TTS_SPEECH_RATE = floatPreferencesKey("tts_speech_rate")
+        val VOICE_LANGUAGE_TAG = stringPreferencesKey("voice_language_tag")
+        val SELECTED_TTS_VOICE = stringPreferencesKey("selected_tts_voice")
+        val VOICE_CONTINUOUS_MODE = booleanPreferencesKey("voice_continuous_mode")
+        val PAUSE_MIC_IN_BACKGROUND = booleanPreferencesKey("pause_mic_in_background")
         val WAKE_WORD_STANDBY = booleanPreferencesKey("wake_word_standby")
+        val NOTIFICATION_READER_ENABLED = booleanPreferencesKey("notification_reader_enabled")
+        val NOTIFICATION_PRIVACY_MASK = booleanPreferencesKey("notification_privacy_mask")
+        val ACCESSIBILITY_AUTOMATION_ENABLED = booleanPreferencesKey("accessibility_automation_enabled")
         val TELEMETRY_POLLING_SECONDS = intPreferencesKey("telemetry_polling_seconds")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val INFERENCE_BACKEND = stringPreferencesKey("inference_backend")
@@ -81,7 +95,14 @@ class SettingsRepository(
             orbGlowIntensity = (prefs[Keys.ORB_GLOW_INTENSITY] ?: 0.85f).coerceIn(0.2f, 1.0f),
             ttsAutoSpeak = prefs[Keys.TTS_AUTO_SPEAK] ?: true,
             ttsSpeechRate = (prefs[Keys.TTS_SPEECH_RATE] ?: 1.0f).coerceIn(0.6f, 1.6f),
+            voiceLanguageTag = prefs[Keys.VOICE_LANGUAGE_TAG] ?: "auto",
+            selectedTtsVoiceName = prefs[Keys.SELECTED_TTS_VOICE] ?: "",
+            voiceContinuousMode = prefs[Keys.VOICE_CONTINUOUS_MODE] ?: false,
+            pauseMicInBackground = prefs[Keys.PAUSE_MIC_IN_BACKGROUND] ?: true,
             wakeWordStandbyEnabled = prefs[Keys.WAKE_WORD_STANDBY] ?: false,
+            notificationReaderEnabled = prefs[Keys.NOTIFICATION_READER_ENABLED] ?: false,
+            notificationPrivacyMaskEnabled = prefs[Keys.NOTIFICATION_PRIVACY_MASK] ?: true,
+            accessibilityAutomationEnabled = prefs[Keys.ACCESSIBILITY_AUTOMATION_ENABLED] ?: false,
             telemetryPollingSeconds = (prefs[Keys.TELEMETRY_POLLING_SECONDS] ?: 5).coerceIn(2, 30),
             hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
             inferenceBackend = backend,
@@ -110,8 +131,36 @@ class SettingsRepository(
         dataStore.edit { it[Keys.TTS_SPEECH_RATE] = rate.coerceIn(0.6f, 1.6f) }
     }
 
+    suspend fun setVoiceLanguageTag(tag: String) {
+        dataStore.edit { it[Keys.VOICE_LANGUAGE_TAG] = tag.ifBlank { "auto" } }
+    }
+
+    suspend fun setSelectedTtsVoiceName(voiceName: String) {
+        dataStore.edit { it[Keys.SELECTED_TTS_VOICE] = voiceName }
+    }
+
+    suspend fun setVoiceContinuousMode(enabled: Boolean) {
+        dataStore.edit { it[Keys.VOICE_CONTINUOUS_MODE] = enabled }
+    }
+
+    suspend fun setPauseMicInBackground(enabled: Boolean) {
+        dataStore.edit { it[Keys.PAUSE_MIC_IN_BACKGROUND] = enabled }
+    }
+
     suspend fun setWakeWordStandbyEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.WAKE_WORD_STANDBY] = enabled }
+    }
+
+    suspend fun setNotificationReaderEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.NOTIFICATION_READER_ENABLED] = enabled }
+    }
+
+    suspend fun setNotificationPrivacyMaskEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.NOTIFICATION_PRIVACY_MASK] = enabled }
+    }
+
+    suspend fun setAccessibilityAutomationEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.ACCESSIBILITY_AUTOMATION_ENABLED] = enabled }
     }
 
     suspend fun setTelemetryPollingSeconds(seconds: Int) {

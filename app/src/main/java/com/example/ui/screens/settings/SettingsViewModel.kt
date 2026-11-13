@@ -19,8 +19,8 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val settings: JarvisSettings = JarvisSettings(),
-    val wakeWordState: WakeWordState = WakeWordState.DORMANT_PHASE_2,
-    val wakeWordKeyword: String = "Hey Jarvis",
+    val wakeWordState: WakeWordState = WakeWordState.DORMANT,
+    val wakeWordKeyword: String = "Jarvis",
     val memoryFactsCount: Int = 0,
     val statusBannerMessage: String? = null
 )
@@ -67,6 +67,14 @@ class SettingsViewModel(
 
     fun setTtsSpeechRate(rate: Float) {
         viewModelScope.launch { settingsRepository.setTtsSpeechRate(rate) }
+    }
+
+    fun setVoiceLanguageTag(tag: String) {
+        viewModelScope.launch { settingsRepository.setVoiceLanguageTag(tag) }
+    }
+
+    fun setPauseMicInBackground(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setPauseMicInBackground(enabled) }
     }
 
     fun setWakeWordStandbyEnabled(enabled: Boolean) {

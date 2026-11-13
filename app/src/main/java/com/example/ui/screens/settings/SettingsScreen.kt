@@ -322,8 +322,8 @@ fun SettingsScreen(
                     icon = Icons.Filled.Radar
                 ) {
                     SettingsSwitchRow(
-                        label = "Wake Word Standby (${uiState.wakeWordKeyword})",
-                        description = "Boundary state: ${uiState.wakeWordState.name} (DSP activates in Phase 3)",
+                        label = "Wake Word Standby (\"${uiState.wakeWordKeyword}\")",
+                        description = "Interface status: ${uiState.wakeWordState.label} (KWS requires Porcupine key / ONNX mic test)",
                         checked = settings.wakeWordStandbyEnabled,
                         onCheckedChange = onSetWakeWordStandby,
                         testTag = "switch_wake_word"

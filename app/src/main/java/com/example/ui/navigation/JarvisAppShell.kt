@@ -27,15 +27,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -48,6 +53,7 @@ import com.example.ui.screens.chat.ChatScreen
 import com.example.ui.screens.chat.ChatViewModel
 import com.example.ui.screens.chat.HistoryDrawerContent
 import com.example.ui.screens.device.DeviceDashboardScreen
+import com.example.ui.screens.device.DeviceDashboardTab
 import com.example.ui.screens.device.DeviceDashboardViewModel
 import com.example.ui.screens.models.ModelManagerScreen
 import com.example.ui.screens.models.ModelManagerViewModel
@@ -61,6 +67,8 @@ import kotlinx.coroutines.launch
 fun JarvisAppShell(
     container: JarvisContainer
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -78,10 +86,31 @@ fun JarvisAppShell(
     )
     val voiceViewModel: VoiceViewModel = viewModel(
         factory = VoiceViewModel.factory(
+            context = context,
             voiceEngine = container.voiceEngine,
-            settingsRepository = container.settingsRepository
+            wakeWordEngine = container.wakeWordEngine,
+            settingsRepository = container.settingsRepository,
+            agentCore = container.agentCore,
+            aiEngine = container.aiEngine,
+            modelManager = container.modelManager,
+            conversationRepository = container.conversationRepository,
+            modelBenchmarkDao = container.modelBenchmarkDao
         )
     )
+
+    DisposableEffect(lifecycleOwner, voiceViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> voiceViewModel.onAppLifecycleChanged(true)
+                Lifecycle.Event.ON_STOP -> voiceViewModel.onAppLifecycleChanged(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val modelManagerViewModel: ModelManagerViewModel = viewModel(
         factory = ModelManagerViewModel.factory(
             modelManager = container.modelManager,
@@ -100,9 +129,22 @@ fun JarvisAppShell(
     val deviceDashboardViewModel: DeviceDashboardViewModel = viewModel(
         factory = DeviceDashboardViewModel.factory(
             androidTools = container.androidTools,
-            settingsRepository = container.settingsRepository
+            settingsRepository = container.settingsRepository,
+            context = context,
+            agentCore = container.agentCore
         )
     )
+    DisposableEffect(lifecycleOwner, deviceDashboardViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                deviceDashboardViewModel.refreshAuthorizationStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val settingsViewModel: SettingsViewModel = viewModel(
         factory = SettingsViewModel.factory(
             settingsRepository = container.settingsRepository,
@@ -116,6 +158,7 @@ fun JarvisAppShell(
     val voiceState by voiceViewModel.uiState.collectAsStateWithLifecycle()
     val modelState by modelManagerViewModel.uiState.collectAsStateWithLifecycle()
     val deviceState by deviceDashboardViewModel.uiState.collectAsStateWithLifecycle()
+    val deviceControlsState by deviceDashboardViewModel.controlsState.collectAsStateWithLifecycle()
     val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -276,17 +319,38 @@ fun JarvisAppShell(
                                 onRunSystemSnapshot = chatViewModel::runSystemSnapshot,
                                 onRunReadinessAudit = chatViewModel::runEngineReadinessAudit,
                                 onNavigateToVoice = { navigateToDestination(TopDestination.VOICE) },
-                                onNavigateToModels = { navigateToDestination(TopDestination.MODELS) }
+                                onNavigateToModels = { navigateToDestination(TopDestination.MODELS) },
+                                onConfirmPendingTool = chatViewModel::confirmPendingTool,
+                                onCancelPendingTool = chatViewModel::cancelPendingTool,
+                                onCancelActiveTool = chatViewModel::cancelActiveTool,
+                                onDismissPermissionPrompt = chatViewModel::dismissPermissionPrompt,
+                                onRuntimePermissionResult = chatViewModel::onRuntimePermissionResult,
+                                onOpenDeviceControls = {
+                                    deviceDashboardViewModel.selectTab(DeviceDashboardTab.CONTROLS)
+                                    navigateToDestination(TopDestination.DEVICE)
+                                }
                             )
                         }
                         composable<VoiceRoute> {
                             VoiceScreen(
                                 uiState = voiceState,
+                                onMicPermissionChanged = voiceViewModel::onMicPermissionChanged,
                                 onToggleListening = voiceViewModel::toggleListening,
+                                onPushToTalkPressed = voiceViewModel::onPushToTalkPressed,
+                                onPushToTalkReleased = voiceViewModel::onPushToTalkReleased,
+                                onInterruptAllVoice = voiceViewModel::interruptAllVoice,
                                 onSpeakStatus = voiceViewModel::speakStatusReadback,
                                 onSpeakTranscript = voiceViewModel::speakTranscript,
                                 onStopSpeaking = voiceViewModel::stopSpeaking,
                                 onDismissError = voiceViewModel::dismissError,
+                                onSubmitTextFallback = voiceViewModel::submitTextFallback,
+                                onSelectConversationMode = voiceViewModel::setConversationMode,
+                                onSelectLanguage = voiceViewModel::setLanguageOption,
+                                onSelectTtsVoice = voiceViewModel::selectTtsVoice,
+                                onSetSpeechRate = voiceViewModel::setSpeechRate,
+                                onSetAutoSpeak = voiceViewModel::setAutoSpeak,
+                                onToggleWakeWordStandby = voiceViewModel::setWakeWordStandbyEnabled,
+                                onTogglePauseInBackground = voiceViewModel::setPauseMicInBackground,
                                 onLogTranscriptToChat = { transcript ->
                                     chatViewModel.sendMessage(transcript)
                                     navigateToDestination(TopDestination.CHAT)
@@ -331,7 +395,19 @@ fun JarvisAppShell(
                             DeviceDashboardScreen(
                                 uiState = deviceState,
                                 onRefreshNow = deviceDashboardViewModel::refreshNow,
-                                onToggleAutoPolling = deviceDashboardViewModel::toggleAutoPolling
+                                onToggleAutoPolling = deviceDashboardViewModel::toggleAutoPolling,
+                                controlsState = deviceControlsState,
+                                onSelectTab = deviceDashboardViewModel::selectTab,
+                                onRunTool = deviceDashboardViewModel::executeDeviceTool,
+                                onConfirmPendingTool = deviceDashboardViewModel::confirmPendingTool,
+                                onCancelPendingTool = deviceDashboardViewModel::cancelPendingTool,
+                                onCancelActiveTool = deviceDashboardViewModel::cancelActiveTool,
+                                onDismissPermissionPrompt = deviceDashboardViewModel::dismissPermissionPrompt,
+                                onRuntimePermissionResult = deviceDashboardViewModel::onRuntimePermissionResult,
+                                onSetNotificationReaderEnabled = deviceDashboardViewModel::setNotificationReaderEnabled,
+                                onSetNotificationPrivacyMaskEnabled = deviceDashboardViewModel::setNotificationPrivacyMaskEnabled,
+                                onClearNotificationBuffer = deviceDashboardViewModel::clearNotificationBuffer,
+                                onSetAccessibilityAutomationEnabled = deviceDashboardViewModel::setAccessibilityAutomationEnabled
                             )
                         }
                         composable<SettingsRoute> {

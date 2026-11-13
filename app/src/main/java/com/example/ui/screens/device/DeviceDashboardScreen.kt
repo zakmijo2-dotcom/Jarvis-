@@ -1,5 +1,7 @@
 package com.example.ui.screens.device
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -54,8 +56,29 @@ import java.util.Locale
 fun DeviceDashboardScreen(
     uiState: DeviceTelemetryUiState,
     onRefreshNow: () -> Unit,
-    onToggleAutoPolling: () -> Unit
+    onToggleAutoPolling: () -> Unit,
+    controlsState: DeviceControlsState = DeviceControlsState(),
+    onSelectTab: (DeviceDashboardTab) -> Unit = {},
+    onRunTool: (String, Map<String, String>) -> Unit = { _, _ -> },
+    onConfirmPendingTool: () -> Unit = {},
+    onCancelPendingTool: () -> Unit = {},
+    onCancelActiveTool: () -> Unit = {},
+    onDismissPermissionPrompt: () -> Unit = {},
+    onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
+    onSetNotificationReaderEnabled: (Boolean) -> Unit = {},
+    onSetNotificationPrivacyMaskEnabled: (Boolean) -> Unit = {},
+    onClearNotificationBuffer: () -> Unit = {},
+    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit = {}
 ) {
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val perm = controlsState.pendingRuntimePermission
+        if (perm != null) {
+            onRuntimePermissionResult(perm, granted)
+        }
+    }
+
     HudBackground {
         Column(
             modifier = Modifier
@@ -122,29 +145,56 @@ fun DeviceDashboardScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            DeviceModeChips(
+                selectedTab = controlsState.activeTab,
+                onSelectTab = onSelectTab
+            )
+
             Spacer(modifier = Modifier.height(10.dp))
 
-            when (uiState) {
-                is DeviceTelemetryUiState.Loading -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Querying Android system telemetry…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            if (controlsState.activeTab == DeviceDashboardTab.CONTROLS) {
+                DeviceControlsConsole(
+                    controlsState = controlsState,
+                    onRunTool = onRunTool,
+                    onCancelActiveTool = onCancelActiveTool,
+                    onSetNotificationReaderEnabled = onSetNotificationReaderEnabled,
+                    onSetNotificationPrivacyMaskEnabled = onSetNotificationPrivacyMaskEnabled,
+                    onClearNotificationBuffer = onClearNotificationBuffer,
+                    onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled
+                )
+            } else {
+                when (uiState) {
+                    is DeviceTelemetryUiState.Loading -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Querying Android system telemetry…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    is DeviceTelemetryUiState.Ready -> {
+                        TelemetryGrid(telemetry = uiState.telemetry)
                     }
                 }
-
-                is DeviceTelemetryUiState.Ready -> {
-                    TelemetryGrid(telemetry = uiState.telemetry)
-                }
             }
+
+            DeviceToolDialogs(
+                controlsState = controlsState,
+                onConfirmPendingTool = onConfirmPendingTool,
+                onCancelPendingTool = onCancelPendingTool,
+                onDismissPermissionPrompt = onDismissPermissionPrompt,
+                onLaunchRuntimePermission = { perm -> permissionLauncher.launch(perm) }
+            )
         }
     }
 }
