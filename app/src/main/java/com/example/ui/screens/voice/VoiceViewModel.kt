@@ -11,6 +11,8 @@ import com.example.core.ai.EngineLoadState
 import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
 import com.example.core.model.RuntimeFormatId
+import com.example.core.tools.AndroidTools
+import java.io.File
 import com.example.core.voice.JarvisVoiceService
 import com.example.core.voice.MicStatus
 import com.example.core.voice.TtsVoiceInfo
@@ -79,7 +81,8 @@ class VoiceViewModel(
     private val conversationRepository: ConversationRepository,
     private val modelBenchmarkDao: ModelBenchmarkDao? = null,
     private val serviceStarter: (modeLabel: String, capturePcmGate: Boolean) -> Boolean = { _, _ -> false },
-    private val serviceStopper: () -> Unit = {}
+    private val serviceStopper: () -> Unit = {},
+    private val androidTools: AndroidTools? = null
 ) : ViewModel() {
 
     private val micPermissionGranted = MutableStateFlow(false)
@@ -528,6 +531,20 @@ class VoiceViewModel(
                                     outputTokens = event.benchmark.outputTokens,
                                     backendUsed = event.benchmark.backendUsed
                                 )
+                                val telemetry = androidTools?.let { tools ->
+                                    runCatching { tools.readDeviceTelemetry() }.getOrNull()
+                                }
+                                val resolvedModelSize = event.benchmark.modelSizeBytes.takeIf { it > 0L }
+                                    ?: activeModel?.localFilePath?.let { path ->
+                                        runCatching { File(path).length() }.getOrNull()?.takeIf { it > 0L }
+                                    }
+                                    ?: activeModel?.expectedSizeBytes
+                                    ?: 0L
+                                val resolvedInitTime = event.benchmark.initTimeMs.takeIf { it > 0L }
+                                    ?: (aiEngine.loadState.value as? EngineLoadState.Ready)?.loadTimeMs
+                                    ?: 0L
+                                val resolvedThermal = telemetry?.thermalStatusLabel?.takeIf { it != "Unavailable" }
+                                    ?: event.benchmark.thermalStatus
                                 modelBenchmarkDao?.insertBenchmark(
                                     ModelBenchmarkEntity(
                                         id = UUID.randomUUID().toString(),
@@ -539,7 +556,13 @@ class VoiceViewModel(
                                         outputTokens = event.benchmark.outputTokens,
                                         prefillTokens = event.benchmark.prefillTokens,
                                         nativeHeapMb = event.benchmark.nativeHeapMb,
-                                        timestamp = System.currentTimeMillis()
+                                        timestamp = System.currentTimeMillis(),
+                                        initTimeMs = resolvedInitTime,
+                                        peakMemoryMb = maxOf(event.benchmark.peakMemoryMb, event.benchmark.nativeHeapMb),
+                                        modelSizeBytes = resolvedModelSize,
+                                        thermalStatus = resolvedThermal,
+                                        batteryPercent = telemetry?.batteryPercent ?: event.benchmark.batteryPercent,
+                                        batteryTempCelsius = telemetry?.batteryTempCelsius ?: event.benchmark.batteryTempCelsius
                                     )
                                 )
                                 appendTurn(
@@ -798,7 +821,8 @@ class VoiceViewModel(
             aiEngine: AiEngine,
             modelManager: ModelManager,
             conversationRepository: ConversationRepository,
-            modelBenchmarkDao: ModelBenchmarkDao
+            modelBenchmarkDao: ModelBenchmarkDao,
+            androidTools: AndroidTools? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             private val appContext = context.applicationContext
 
@@ -818,7 +842,8 @@ class VoiceViewModel(
                     },
                     serviceStopper = {
                         JarvisVoiceService.stop(appContext)
-                    }
+                    },
+                    androidTools = androidTools
                 ) as T
             }
         }

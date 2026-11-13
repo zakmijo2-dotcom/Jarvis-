@@ -62,6 +62,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,11 +71,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.core.agent.AgentRoutingMode
@@ -811,11 +814,19 @@ private fun StreamingAssistantBubble(
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
-                Text(
-                    text = if (text.isEmpty()) "Prefilling prompt…" else "$text▌",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                val streamDirection = if (containsArabicScript(text)) {
+                    LayoutDirection.Rtl
+                } else {
+                    LocalLayoutDirection.current
+                }
+                CompositionLocalProvider(LocalLayoutDirection provides streamDirection) {
+                    Text(
+                        text = if (text.isEmpty()) "Prefilling prompt…" else "$text▌",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }
@@ -880,15 +891,23 @@ private fun ChatMessageBubble(message: MessageEntity) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = message.content,
-                    style = if (isToolSnapshot) {
-                        MaterialTheme.typography.labelLarge
-                    } else {
-                        MaterialTheme.typography.bodyMedium
-                    },
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                val messageDirection = if (containsArabicScript(message.content)) {
+                    LayoutDirection.Rtl
+                } else {
+                    LocalLayoutDirection.current
+                }
+                CompositionLocalProvider(LocalLayoutDirection provides messageDirection) {
+                    Text(
+                        text = message.content,
+                        style = if (isToolSnapshot) {
+                            MaterialTheme.typography.labelLarge
+                        } else {
+                            MaterialTheme.typography.bodyMedium
+                        },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 if (message.role == MessageRole.ASSISTANT &&
                     (message.ttftMs != null || message.tokensPerSecond != null)
                 ) {
@@ -922,3 +941,6 @@ private fun ChatMessageBubble(message: MessageEntity) {
         }
     }
 }
+
+private fun containsArabicScript(text: String): Boolean =
+    text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }

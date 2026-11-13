@@ -79,53 +79,61 @@ fun JarvisOrb(
         label = "orbScale"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "jarvisOrbMotion")
-    val outerAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (mode) {
-                    OrbMode.PROCESSING -> 4500
-                    OrbMode.LISTENING -> 7000
-                    OrbMode.SPEAKING -> 6000
-                    else -> 14000
-                },
-                easing = LinearEasing
+    val effectiveOuter: Float
+    val effectiveInner: Float
+    val effectivePulse: Float
+    if (animationEnabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "jarvisOrbMotion")
+        val outerAngle by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = when (mode) {
+                        OrbMode.PROCESSING -> 4500
+                        OrbMode.LISTENING -> 7000
+                        OrbMode.SPEAKING -> 6000
+                        else -> 14000
+                    },
+                    easing = LinearEasing
+                ),
+                repeatMode = RepeatMode.Restart
             ),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "outerRotation"
-    )
-    val innerAngle by infiniteTransition.animateFloat(
-        initialValue = 360f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (mode) {
-                    OrbMode.PROCESSING -> 3200
-                    OrbMode.LISTENING -> 5000
-                    else -> 10000
-                },
-                easing = LinearEasing
+            label = "outerRotation"
+        )
+        val innerAngle by infiniteTransition.animateFloat(
+            initialValue = 360f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = when (mode) {
+                        OrbMode.PROCESSING -> 3200
+                        OrbMode.LISTENING -> 5000
+                        else -> 10000
+                    },
+                    easing = LinearEasing
+                ),
+                repeatMode = RepeatMode.Restart
             ),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "innerRotation"
-    )
-    val pulseFactor by infiniteTransition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseFactor"
-    )
-
-    val effectiveOuter = if (animationEnabled) outerAngle else 24f
-    val effectiveInner = if (animationEnabled) innerAngle else 160f
-    val effectivePulse = if (animationEnabled) pulseFactor else 0.95f
+            label = "innerRotation"
+        )
+        val pulseFactor by infiniteTransition.animateFloat(
+            initialValue = 0.88f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1800),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseFactor"
+        )
+        effectiveOuter = outerAngle
+        effectiveInner = innerAngle
+        effectivePulse = pulseFactor
+    } else {
+        effectiveOuter = 24f
+        effectiveInner = 160f
+        effectivePulse = 0.95f
+    }
     val coreSurface = MaterialTheme.colorScheme.surfaceContainerLow
 
     Box(

@@ -66,8 +66,15 @@ open class JarvisContainer(context: Context) {
         ModelCompatibilityEngine(formatRegistry)
     }
 
+    open val sharedOkHttpClient: okhttp3.OkHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectionPool(okhttp3.ConnectionPool(4, 3, java.util.concurrent.TimeUnit.MINUTES))
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
     open val huggingFaceApiClient: HuggingFaceApiClient by lazy {
-        HuggingFaceApiClient()
+        HuggingFaceApiClient(httpClient = sharedOkHttpClient)
     }
 
     open val modelArtifactManager: ModelArtifactManager by lazy {
@@ -84,9 +91,9 @@ open class JarvisContainer(context: Context) {
 
     open val aiEngine: AiEngine by lazy { LiteRtLmAiEngine(appContext) }
 
-    open val cloudAiClient: CloudAiClient by lazy { OkHttpCloudAiClient() }
+    open val cloudAiClient: CloudAiClient by lazy { OkHttpCloudAiClient(baseClient = sharedOkHttpClient) }
 
-    open val webResearchService: WebResearchService by lazy { OkHttpWebResearchService() }
+    open val webResearchService: WebResearchService by lazy { OkHttpWebResearchService(baseClient = sharedOkHttpClient) }
 
     open val voiceEngine: VoiceEngine by lazy {
         AndroidVoiceEngine(appContext)

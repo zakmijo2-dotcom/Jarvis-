@@ -1,0 +1,67 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="hud_brand_title">J.A.R.V.I.S.</string>
+    <string name="hud_phase_badge">هجين // ذكاء محلي</string>
+
+    <!-- Navigation -->
+    <string name="nav_chat">المحادثة</string>
+    <string name="nav_voice">الصوت</string>
+    <string name="nav_models">النماذج</string>
+    <string name="nav_device">الجهاز</string>
+    <string name="nav_settings">الإعدادات</string>
+
+    <!-- History Drawer -->
+    <string name="drawer_title">أرشيف الجلسات</string>
+    <string name="drawer_new_session">جلسة جديدة</string>
+    <string name="drawer_search_hint">تصفية الجلسات…</string>
+    <string name="drawer_empty">لا توجد جلسات محفوظة بعد.</string>
+    <string name="cd_open_history">فتح سجل المحادثات</string>
+    <string name="cd_delete_session">حذف الجلسة</string>
+    <string name="cd_rename_session">إعادة تسمية الجلسة</string>
+    <string name="cd_pin_session">تثبيت الجلسة</string>
+
+    <!-- Chat Screen -->
+    <string name="chat_input_hint">أدخل أمرًا أو رسالة…</string>
+    <string name="cd_send_message">إرسال الرسالة</string>
+    <string name="cd_voice_handoff">التبديل إلى وحدة الصوت</string>
+    <string name="chat_empty_title">النظام في وضع الاستعداد</string>
+    <string name="chat_empty_subtitle">محرك LiteRT-LM المحلي، مستودع Hugging Face، الصوت متعدد اللغات، وأدوات أندرويد جاهزة.</string>
+    <string name="chip_telemetry_snapshot">حالة النظام</string>
+    <string name="chip_engine_status">جاهزية المحرك</string>
+    <string name="chip_open_models">استعراض النماذج</string>
+
+    <!-- Voice Screen -->
+    <string name="voice_title">وحدة الصوت</string>
+    <string name="voice_tap_to_listen">اضغط على الدائرة أو استمر بالضغط للتحدث</string>
+    <string name="voice_listening">جارٍ الاستماع… تحدث بوضوح</string>
+    <string name="voice_permission_needed">مطلوب إذن الميكروفون للتعرف على الكلام والاستماع المستمر.</string>
+    <string name="voice_grant_permission">منح إذن الميكروفون</string>
+    <string name="voice_speak_status">قراءة الحالة</string>
+    <string name="voice_stop_tts">إيقاف النطق</string>
+    <string name="voice_send_to_chat">فتح في المحادثة</string>
+    <string name="cd_voice_orb">تبديل التعرف الصوتي</string>
+    <string name="voice_fallback_hint">إدخال نصي بديل (عند تعذر الميكروفون)…</string>
+    <string name="voice_fgs_channel_name">خدمة ميكروفون JARVIS</string>
+    <string name="voice_fgs_channel_desc">مؤشر نظام دائم أثناء المحادثة الصوتية المستمرة أو الاستماع.</string>
+
+    <!-- Model Manager Screen -->
+    <string name="models_title">سجل النماذج</string>
+    <string name="models_filter_all">الكل</string>
+    <string name="models_filter_local">على الجهاز</string>
+    <string name="models_filter_cloud">سحابي</string>
+    <string name="models_add_slot">إضافة نموذج</string>
+    <string name="models_phase2_notice">يتم حفظ النماذج وتنزيلات Hugging Face وتجزئات التحقق محليًا في Room.</string>
+
+    <!-- Device Dashboard Screen -->
+    <string name="device_title">قياسات النظام</string>
+    <string name="cd_refresh_telemetry">تحديث قياسات الجهاز</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">إعدادات النواة</string>
+    <string name="settings_clear_history">مسح أرشيف المحادثات</string>
+
+    <!-- Device Control & Accessibility -->
+    <string name="notification_listener_label">قارئ إشعارات JARVIS</string>
+    <string name="accessibility_service_label">أتمتة جهاز JARVIS</string>
+    <string name="accessibility_service_description">مساعدة تنقل بتفويض المستخدم (الرئيسية، الرجوع، التطبيقات الحديثة، الإشعارات) فقط عند التأكيد الصريح. جمع محتوى الشاشة معطل.</string>
+</resources>

@@ -60,6 +60,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.core.ai.EngineLoadState
+import com.example.core.ai.GenerationBenchmark
 import com.example.core.hf.HfRepoDetail
 import com.example.core.hf.HfRepoFile
 import com.example.core.hf.HfRepoSummary
@@ -68,6 +70,7 @@ import com.example.core.model.CompatibilityReport
 import com.example.core.model.CompatibilityVerdict
 import com.example.core.model.DownloadQueueItem
 import com.example.core.model.DownloadQueueStatus
+import com.example.core.model.ModelSlot
 import com.example.core.model.RuntimeFormatAdapter
 import com.example.core.model.RuntimeFormatId
 import com.example.data.local.db.ModelBenchmarkEntity
@@ -435,19 +438,54 @@ fun DownloadQueueCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BenchmarkHistoryCard(
     benchmarks: List<ModelBenchmarkEntity>,
     formatAdapters: List<RuntimeFormatAdapter>,
-    onClearBenchmarks: () -> Unit
+    onClearBenchmarks: () -> Unit,
+    activeModel: ModelSlot? = null,
+    engineLoadState: EngineLoadState = EngineLoadState.Unloaded,
+    nativeMemoryMb: Float = 0f,
+    lastBenchmark: GenerationBenchmark? = null
 ) {
+    val avgTtftMs = remember(benchmarks) {
+        if (benchmarks.isEmpty()) null else benchmarks.map { it.ttftMs }.average().toLong()
+    }
+    val avgTps = remember(benchmarks) {
+        if (benchmarks.isEmpty()) null else benchmarks.map { it.tokensPerSecond.toDouble() }.average().toFloat()
+    }
+    val peakMemMb = remember(benchmarks, nativeMemoryMb, lastBenchmark) {
+        val historyMax = benchmarks.maxOfOrNull { maxOf(it.peakMemoryMb, it.nativeHeapMb) } ?: 0f
+        maxOf(historyMax, nativeMemoryMb, lastBenchmark?.peakMemoryMb ?: 0f)
+    }
+    val activeInitMs = (engineLoadState as? EngineLoadState.Ready)?.loadTimeMs
+        ?: lastBenchmark?.initTimeMs
+        ?: benchmarks.firstOrNull { it.initTimeMs > 0L }?.initTimeMs
+        ?: 0L
+    val activeFileSizeBytes = activeModel?.expectedSizeBytes?.takeIf { it > 0L }
+        ?: lastBenchmark?.modelSizeBytes?.takeIf { it > 0L }
+        ?: benchmarks.firstOrNull { it.modelSizeBytes > 0L }?.modelSizeBytes
+        ?: 0L
+    val latestThermal = lastBenchmark?.thermalStatus
+        ?: benchmarks.firstOrNull()?.thermalStatus
+        ?: "Nominal"
+    val activeBackend = (engineLoadState as? EngineLoadState.Ready)?.backendUsed
+        ?: lastBenchmark?.backendUsed
+        ?: benchmarks.firstOrNull()?.backendUsed
+        ?: "Idle"
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 840.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        HudPanel(modifier = Modifier.fillMaxWidth()) {
+        HudPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("benchmark_summary_panel")
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -472,26 +510,92 @@ fun BenchmarkHistoryCard(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Aggregate Benchmark KPIs Row 1
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BenchmarkKpiTile(
+                    label = "AVG TTFT",
+                    value = avgTtftMs?.let { "${it} ms" } ?: "—",
+                    modifier = Modifier.weight(1f)
+                )
+                BenchmarkKpiTile(
+                    label = "AVG DECODE",
+                    value = avgTps?.let { String.format(Locale.US, "%.1f tok/s", it) } ?: "—",
+                    modifier = Modifier.weight(1f)
+                )
+                BenchmarkKpiTile(
+                    label = "PEAK MEMORY",
+                    value = String.format(Locale.US, "%.1f MB", peakMemMb),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Aggregate Benchmark KPIs Row 2
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BenchmarkKpiTile(
+                    label = "INIT TIME",
+                    value = if (activeInitMs > 0L) "${activeInitMs} ms" else "—",
+                    modifier = Modifier.weight(1f)
+                )
+                BenchmarkKpiTile(
+                    label = "MODEL SIZE",
+                    value = if (activeFileSizeBytes > 0L) formatFileSize(activeFileSizeBytes) else "Not Installed",
+                    modifier = Modifier.weight(1f)
+                )
+                BenchmarkKpiTile(
+                    label = "THERMAL / BACKEND",
+                    value = "$latestThermal • ${activeBackend.substringBefore(" (")}",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+            Spacer(modifier = Modifier.height(8.dp))
+
             if (benchmarks.isEmpty()) {
                 Text(
-                    text = "No inference runs recorded yet. Send prompts using a loaded LiteRT-LM model to measure TTFT, decode tok/s, and native heap memory.",
+                    text = "No inference runs recorded yet. Send prompts using a loaded LiteRT-LM or Cloud model to log init latency, TTFT, decode tok/s, peak heap, artifact size, and thermal/battery telemetry.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 benchmarks.forEach { entry ->
                     val timeLabel = SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date(entry.timestamp))
-                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                    val sizeLabel = if (entry.modelSizeBytes > 0L) formatFileSize(entry.modelSizeBytes) else "Cloud/Stream"
+                    val effectivePeak = maxOf(entry.peakMemoryMb, entry.nativeHeapMb)
+                    val batteryNote = if (entry.batteryPercent >= 0) {
+                        "${entry.batteryPercent}% (${String.format(Locale.US, "%.1f", entry.batteryTempCelsius)}°C)"
+                    } else {
+                        "Battery N/A"
+                    }
+
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = entry.modelName,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = timeLabel,
@@ -499,16 +603,33 @@ fun BenchmarkHistoryCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            HudBadge(text = entry.backendUsed, color = MaterialTheme.colorScheme.primary)
+                            HudBadge(
+                                text = "Thermal: ${entry.thermalStatus}",
+                                color = if (entry.thermalStatus == "Nominal" || entry.thermalStatus == "Light") {
+                                    NominalGreen
+                                } else {
+                                    SignalAmber
+                                }
+                            )
+                            HudBadge(text = batteryNote, color = MaterialTheme.colorScheme.secondary)
+                        }
                         Text(
                             text = String.format(
                                 Locale.US,
-                                "TTFT %d ms • %.1f tok/s • %d out / %d prefill • %.1f MB heap • %s",
+                                "Init %d ms • TTFT %d ms • %.1f tok/s • %d out / %d prefill • Peak %.1f MB (Heap %.1f MB) • Size %s",
+                                entry.initTimeMs,
                                 entry.ttftMs,
                                 entry.tokensPerSecond,
                                 entry.outputTokens,
                                 entry.prefillTokens,
+                                effectivePeak,
                                 entry.nativeHeapMb,
-                                entry.backendUsed
+                                sizeLabel
                             ),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.secondary
@@ -552,6 +673,40 @@ fun BenchmarkHistoryCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BenchmarkKpiTile(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

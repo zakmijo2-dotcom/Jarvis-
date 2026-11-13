@@ -45,10 +45,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.core.voice.MicStatus
@@ -365,30 +368,48 @@ fun VoiceTranscriptAndConversationCard(
             lastTranscript.isNotBlank() -> lastTranscript
             else -> "No speech captured yet. Use Push-to-Talk, Continuous mode, or the text fallback below."
         }
-        Text(
-            text = displayedTranscript,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (lastTranscript.isNotBlank() || (engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank())) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.testTag("voice_transcript_text")
-        )
+        val transcriptDirection = if (containsArabicVoiceScript(displayedTranscript)) {
+            LayoutDirection.Rtl
+        } else {
+            LocalLayoutDirection.current
+        }
+        CompositionLocalProvider(LocalLayoutDirection provides transcriptDirection) {
+            Text(
+                text = displayedTranscript,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (lastTranscript.isNotBlank() || (engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank())) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("voice_transcript_text")
+            )
+        }
 
         if (isGeneratingReply) {
             Spacer(modifier = Modifier.height(10.dp))
+            val replyDirection = if (containsArabicVoiceScript(streamingReply)) {
+                LayoutDirection.Rtl
+            } else {
+                LocalLayoutDirection.current
+            }
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = if (streamingReply.isBlank()) "JARVIS generating reply…" else streamingReply,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(10.dp)
-                )
+                CompositionLocalProvider(LocalLayoutDirection provides replyDirection) {
+                    Text(
+                        text = if (streamingReply.isBlank()) "JARVIS generating reply…" else streamingReply,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp)
+                    )
+                }
             }
         }
 
@@ -424,11 +445,19 @@ fun VoiceTranscriptAndConversationCard(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (turn.isUser) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
                                 )
-                                Text(
-                                    text = turn.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                val turnDir = if (containsArabicVoiceScript(turn.text)) {
+                                    LayoutDirection.Rtl
+                                } else {
+                                    LocalLayoutDirection.current
+                                }
+                                CompositionLocalProvider(LocalLayoutDirection provides turnDir) {
+                                    Text(
+                                        text = turn.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                             if (!turn.isUser) {
                                 IconButton(
@@ -690,3 +719,6 @@ fun TtsVoicePickerDialog(
         }
     )
 }
+
+private fun containsArabicVoiceScript(text: String): Boolean =
+    text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }

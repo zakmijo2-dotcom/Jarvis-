@@ -25,7 +25,13 @@ data class GenerationBenchmark(
     val outputTokens: Int,
     val prefillTokens: Int,
     val backendUsed: String,
-    val nativeHeapMb: Float
+    val nativeHeapMb: Float,
+    val initTimeMs: Long = 0L,
+    val peakMemoryMb: Float = nativeHeapMb,
+    val modelSizeBytes: Long = 0L,
+    val thermalStatus: String = "Nominal",
+    val batteryPercent: Int = -1,
+    val batteryTempCelsius: Float = 0f
 )
 
 sealed interface AiStreamEvent {
@@ -58,6 +64,7 @@ interface AiEngine {
     suspend fun loadModel(slot: ModelSlot, settings: JarvisSettings): Result<Unit>
     suspend fun unloadModel()
     suspend fun reloadModel(slot: ModelSlot, settings: JarvisSettings): Result<Unit>
+    suspend fun trimMemory(level: Int) {}
 
     fun streamReply(
         conversationId: String,

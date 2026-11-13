@@ -28,7 +28,7 @@ class JarvisTypeConverters {
         MemoryNoteEntity::class,
         AgentExecutionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -149,13 +149,26 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN initTimeMs INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN peakMemoryMb REAL NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE model_benchmarks SET peakMemoryMb = nativeHeapMb WHERE peakMemoryMb = 0")
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN modelSizeBytes INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN thermalStatus TEXT NOT NULL DEFAULT 'Nominal'")
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN batteryPercent INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE model_benchmarks ADD COLUMN batteryTempCelsius REAL NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 JarvisDatabase::class.java,
                 "jarvis_foundation.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

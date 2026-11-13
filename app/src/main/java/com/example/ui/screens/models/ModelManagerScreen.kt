@@ -464,7 +464,11 @@ fun ModelManagerScreen(
                         BenchmarkHistoryCard(
                             benchmarks = uiState.benchmarks,
                             formatAdapters = uiState.formatAdapters,
-                            onClearBenchmarks = onClearBenchmarks
+                            onClearBenchmarks = onClearBenchmarks,
+                            activeModel = uiState.activeModel,
+                            engineLoadState = uiState.engineLoadState,
+                            nativeMemoryMb = uiState.nativeMemoryMb,
+                            lastBenchmark = uiState.lastBenchmark
                         )
                     }
                 }

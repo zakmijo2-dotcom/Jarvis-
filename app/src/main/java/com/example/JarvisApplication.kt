@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import com.example.di.JarvisContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,23 +10,36 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-class JarvisApplication : Application() {
+class JarvisApplication : Application(), ComponentCallbacks2 {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    lateinit var container: JarvisContainer
+    val container: JarvisContainer by lazy { JarvisContainer(this) }
 
     override fun onCreate() {
         super.onCreate()
-        container = JarvisContainer(this)
         applicationScope.launch {
             container.modelManager.ensureSeeded()
             container.conversationRepository.ensureDefaultConversation()
+            container.settingsRepository.settingsFlow
+                .onEach { settings ->
+                    container.wakeWordEngine.syncStandbyPreference(settings.wakeWordStandbyEnabled)
+                }
+                .launchIn(this)
         }
-        container.settingsRepository.settingsFlow
-            .onEach { settings ->
-                container.wakeWordEngine.syncStandbyPreference(settings.wakeWordStandbyEnabled)
-            }
-            .launchIn(applicationScope)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        applicationScope.launch {
+            container.aiEngine.trimMemory(level)
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        applicationScope.launch {
+            container.aiEngine.unloadModel()
+        }
     }
 
     override fun onTerminate() {

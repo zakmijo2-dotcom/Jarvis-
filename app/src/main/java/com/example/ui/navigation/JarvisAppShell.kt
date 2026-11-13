@@ -1,6 +1,9 @@
 package com.example.ui.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -82,7 +85,8 @@ fun JarvisAppShell(
             aiEngine = container.aiEngine,
             settingsRepository = container.settingsRepository,
             modelBenchmarkDao = container.modelBenchmarkDao,
-            localMemory = container.localMemory
+            localMemory = container.localMemory,
+            androidTools = container.androidTools
         )
     )
     val voiceViewModel: VoiceViewModel = viewModel(
@@ -95,7 +99,8 @@ fun JarvisAppShell(
             aiEngine = container.aiEngine,
             modelManager = container.modelManager,
             conversationRepository = container.conversationRepository,
-            modelBenchmarkDao = container.modelBenchmarkDao
+            modelBenchmarkDao = container.modelBenchmarkDao,
+            androidTools = container.androidTools
         )
     )
 
@@ -306,6 +311,10 @@ fun JarvisAppShell(
                     NavHost(
                         navController = navController,
                         startDestination = ChatRoute,
+                        enterTransition = { fadeIn(animationSpec = tween(180)) },
+                        exitTransition = { fadeOut(animationSpec = tween(140)) },
+                        popEnterTransition = { fadeIn(animationSpec = tween(180)) },
+                        popExitTransition = { fadeOut(animationSpec = tween(140)) },
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()

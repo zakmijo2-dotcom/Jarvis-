@@ -1,0 +1,67 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="hud_brand_title">J.A.R.V.I.S.</string>
+    <string name="hud_phase_badge">HYBRIDE // IA LOCALE</string>
+
+    <!-- Navigation -->
+    <string name="nav_chat">Chat</string>
+    <string name="nav_voice">Voix</string>
+    <string name="nav_models">Modèles</string>
+    <string name="nav_device">Appareil</string>
+    <string name="nav_settings">Paramètres</string>
+
+    <!-- History Drawer -->
+    <string name="drawer_title">ARCHIVE DES SESSIONS</string>
+    <string name="drawer_new_session">Nouvelle session</string>
+    <string name="drawer_search_hint">Filtrer les sessions…</string>
+    <string name="drawer_empty">Aucune session archivée pour le moment.</string>
+    <string name="cd_open_history">Ouvrir l\'historique des conversations</string>
+    <string name="cd_delete_session">Supprimer la session</string>
+    <string name="cd_rename_session">Renommer la session</string>
+    <string name="cd_pin_session">Épingler la session</string>
+
+    <!-- Chat Screen -->
+    <string name="chat_input_hint">Entrez une commande ou un message…</string>
+    <string name="cd_send_message">Envoyer le message</string>
+    <string name="cd_voice_handoff">Passer à la console vocale</string>
+    <string name="chat_empty_title">NOYAU EN VEILLE</string>
+    <string name="chat_empty_subtitle">Moteur local LiteRT-LM, Hub Hugging Face, console vocale multilingue et outils Android prêts.</string>
+    <string name="chip_telemetry_snapshot">État système</string>
+    <string name="chip_engine_status">État moteur</string>
+    <string name="chip_open_models">Voir les modèles</string>
+
+    <!-- Voice Screen -->
+    <string name="voice_title">CONSOLE VOCALE</string>
+    <string name="voice_tap_to_listen">Touchez l\'orbe ou maintenez Appuyer-pour-parler</string>
+    <string name="voice_listening">Écoute en cours… parlez clairement</string>
+    <string name="voice_permission_needed">L\'autorisation du microphone est requise pour la reconnaissance vocale.</string>
+    <string name="voice_grant_permission">Autoriser le micro</string>
+    <string name="voice_speak_status">Lire le statut</string>
+    <string name="voice_stop_tts">Arrêter la lecture</string>
+    <string name="voice_send_to_chat">Ouvrir dans le chat</string>
+    <string name="cd_voice_orb">Basculer la reconnaissance vocale</string>
+    <string name="voice_fallback_hint">Saisie texte (si micro indisponible)…</string>
+    <string name="voice_fgs_channel_name">Service microphone JARVIS</string>
+    <string name="voice_fgs_channel_desc">Indicateur système persistant pendant la conversation vocale continue.</string>
+
+    <!-- Model Manager Screen -->
+    <string name="models_title">REGISTRE DES MODÈLES</string>
+    <string name="models_filter_all">Tous</string>
+    <string name="models_filter_local">Local</string>
+    <string name="models_filter_cloud">Cloud</string>
+    <string name="models_add_slot">Ajouter</string>
+    <string name="models_phase2_notice">Les emplacements de modèles, téléchargements Hugging Face et sommes SHA-256 sont stockés localement dans Room.</string>
+
+    <!-- Device Dashboard Screen -->
+    <string name="device_title">TÉLÉMÉTRIE SYSTÈME</string>
+    <string name="cd_refresh_telemetry">Actualiser la télémétrie</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">CONFIGURATION DU NOYAU</string>
+    <string name="settings_clear_history">Purger l\'archive des conversations</string>
+
+    <!-- Device Control & Accessibility -->
+    <string name="notification_listener_label">Lecteur de notifications JARVIS</string>
+    <string name="accessibility_service_label">Automatisation JARVIS</string>
+    <string name="accessibility_service_description">Assistance de navigation autorisée (Accueil, Retour, Récents, Notifications) sur confirmation explicite uniquement. Aucune collecte du contenu d\'écran.</string>
+</resources>

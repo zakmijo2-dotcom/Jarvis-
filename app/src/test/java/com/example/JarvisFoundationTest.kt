@@ -57,8 +57,13 @@ import com.example.data.repository.InferenceBackendPreference
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.os.PowerManager
+import com.example.core.ai.ThermalAndMemoryPolicy
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
@@ -1829,5 +1834,123 @@ class JarvisFoundationTest {
             assertTrue(c.moveToFirst())
         }
         helper.close()
+    }
+
+    @Test
+    fun `phase 7 thermal and memory policy enforces low ram guard and thermal token throttling`() {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val lowMemInfo = ActivityManager.MemoryInfo().apply {
+            totalMem = 12L * 1024L * 1024L * 1024L
+            availMem = 256L * 1024L * 1024L
+            lowMemory = true
+        }
+        shadowOf(am).setMemoryInfo(lowMemInfo)
+
+        val blockedReport = ThermalAndMemoryPolicy.assessMemoryHeadroom(context, 612L * 1024L * 1024L)
+        assertFalse(blockedReport.canLoadModel)
+        assertTrue(blockedReport.isLowMemory)
+        assertNotNull(blockedReport.reason)
+
+        val healthyInfo = ActivityManager.MemoryInfo().apply {
+            totalMem = 12L * 1024L * 1024L * 1024L
+            availMem = 4096L * 1024L * 1024L
+            lowMemory = false
+        }
+        shadowOf(am).setMemoryInfo(healthyInfo)
+
+        val healthyReport = ThermalAndMemoryPolicy.assessMemoryHeadroom(context, 612L * 1024L * 1024L)
+        assertTrue(healthyReport.canLoadModel)
+        assertFalse(healthyReport.isLowMemory)
+
+        val baseSettings = JarvisSettings(
+            inferenceBackend = InferenceBackendPreference.AUTO_GPU_FALLBACK,
+            maxOutputTokens = 512
+        )
+        val moderateAdapt = ThermalAndMemoryPolicy.applyThermalAdaptation(
+            settings = baseSettings,
+            thermalCode = PowerManager.THERMAL_STATUS_MODERATE,
+            thermalLabel = "Moderate"
+        )
+        assertTrue(moderateAdapt.wasThrottled)
+        assertEquals(384, moderateAdapt.effectiveSettings.maxOutputTokens)
+
+        val criticalAdapt = ThermalAndMemoryPolicy.applyThermalAdaptation(
+            settings = baseSettings,
+            thermalCode = PowerManager.THERMAL_STATUS_CRITICAL,
+            thermalLabel = "Critical"
+        )
+        assertTrue(criticalAdapt.wasThrottled)
+        assertEquals(256, criticalAdapt.effectiveSettings.maxOutputTokens)
+        assertEquals(InferenceBackendPreference.CPU_ONLY, criticalAdapt.effectiveSettings.inferenceBackend)
+    }
+
+    @Test
+    fun `phase 7 migration 4 to 5 upgrades model_benchmarks with init memory size thermal and battery columns`() {
+        val dbFile = File(tmpFolder.root, "migration_v4_v5.db")
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val helper = factory.create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbFile.absolutePath)
+                .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE model_benchmarks (
+                                id TEXT NOT NULL PRIMARY KEY,
+                                modelId TEXT NOT NULL,
+                                modelName TEXT NOT NULL,
+                                backendUsed TEXT NOT NULL,
+                                ttftMs INTEGER NOT NULL,
+                                tokensPerSecond REAL NOT NULL,
+                                outputTokens INTEGER NOT NULL,
+                                prefillTokens INTEGER NOT NULL,
+                                nativeHeapMb REAL NOT NULL,
+                                timestamp INTEGER NOT NULL
+                            )
+                            """.trimIndent()
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO model_benchmarks
+                            (id, modelId, modelName, backendUsed, ttftMs, tokensPerSecond, outputTokens, prefillTokens, nativeHeapMb, timestamp)
+                            VALUES ('b1', 'slot_gemma3_1b_int4', 'Gemma 3 1B', 'GPU (OpenCL)', 120, 31.5, 48, 24, 412.5, 5000)
+                            """.trimIndent()
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+        val sqlite = helper.writableDatabase
+        JarvisDatabase.MIGRATION_4_5.migrate(sqlite)
+
+        sqlite.query(
+            "SELECT initTimeMs, peakMemoryMb, modelSizeBytes, thermalStatus, batteryPercent, batteryTempCelsius FROM model_benchmarks WHERE id = 'b1'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(0L, c.getLong(0))
+            assertEquals(412.5f, c.getFloat(1), 0.1f)
+            assertEquals(0L, c.getLong(2))
+            assertEquals("Nominal", c.getString(3))
+            assertEquals(-1, c.getInt(4))
+            assertEquals(0f, c.getFloat(5), 0.01f)
+        }
+        helper.close()
+    }
+
+    @Test
+    fun `phase 7 litertlm engine trimMemory handles background and critical pressure cleanly`() = runTest {
+        val engine = LiteRtLmAiEngine(context)
+        engine.trimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+        engine.trimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+        assertTrue(engine.loadState.value is EngineLoadState.Unloaded)
+        engine.release()
+    }
+
+    @Test
+    fun `phase 7 manifest disables allowBackup for security hardening`() {
+        val appInfo = context.applicationInfo
+        assertEquals(0, appInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP)
     }
 }

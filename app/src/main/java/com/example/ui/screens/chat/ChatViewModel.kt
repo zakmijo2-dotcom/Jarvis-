@@ -15,12 +15,14 @@ import com.example.core.ai.GenerationBenchmark
 import com.example.core.memory.LocalMemory
 import com.example.core.model.ModelManager
 import com.example.core.model.ModelSlot
+import com.example.core.tools.AndroidTools
 import com.example.core.tools.NotificationBridge
 import com.example.core.tools.PendingToolConfirmation
 import com.example.core.tools.SpecialAccessType
 import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
+import java.io.File
 import com.example.data.local.db.ConversationWithPreview
 import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
@@ -92,7 +94,8 @@ class ChatViewModel(
     private val aiEngine: AiEngine,
     private val settingsRepository: SettingsRepository,
     private val modelBenchmarkDao: ModelBenchmarkDao? = null,
-    private val localMemory: LocalMemory? = null
+    private val localMemory: LocalMemory? = null,
+    private val androidTools: AndroidTools? = null
 ) : ViewModel() {
 
     private val activeConversationId = MutableStateFlow<String?>(null)
@@ -344,6 +347,20 @@ class ChatViewModel(
                                         outputTokens = event.benchmark.outputTokens,
                                         backendUsed = event.benchmark.backendUsed
                                     )
+                                    val telemetry = androidTools?.let { tools ->
+                                        runCatching { tools.readDeviceTelemetry() }.getOrNull()
+                                    }
+                                    val resolvedModelSize = event.benchmark.modelSizeBytes.takeIf { it > 0L }
+                                        ?: activeModel?.localFilePath?.let { path ->
+                                            runCatching { File(path).length() }.getOrNull()?.takeIf { it > 0L }
+                                        }
+                                        ?: activeModel?.expectedSizeBytes
+                                        ?: 0L
+                                    val resolvedInitTime = event.benchmark.initTimeMs.takeIf { it > 0L }
+                                        ?: (aiEngine.loadState.value as? EngineLoadState.Ready)?.loadTimeMs
+                                        ?: 0L
+                                    val resolvedThermal = telemetry?.thermalStatusLabel?.takeIf { it != "Unavailable" }
+                                        ?: event.benchmark.thermalStatus
                                     modelBenchmarkDao?.insertBenchmark(
                                         ModelBenchmarkEntity(
                                             id = UUID.randomUUID().toString(),
@@ -355,7 +372,13 @@ class ChatViewModel(
                                             outputTokens = event.benchmark.outputTokens,
                                             prefillTokens = event.benchmark.prefillTokens,
                                             nativeHeapMb = event.benchmark.nativeHeapMb,
-                                            timestamp = System.currentTimeMillis()
+                                            timestamp = System.currentTimeMillis(),
+                                            initTimeMs = resolvedInitTime,
+                                            peakMemoryMb = maxOf(event.benchmark.peakMemoryMb, event.benchmark.nativeHeapMb),
+                                            modelSizeBytes = resolvedModelSize,
+                                            thermalStatus = resolvedThermal,
+                                            batteryPercent = telemetry?.batteryPercent ?: event.benchmark.batteryPercent,
+                                            batteryTempCelsius = telemetry?.batteryTempCelsius ?: event.benchmark.batteryTempCelsius
                                         )
                                     )
                                     val modelToolCall = agentCore.extractModelToolCall(finalContent)
@@ -729,7 +752,8 @@ class ChatViewModel(
             aiEngine: AiEngine,
             settingsRepository: SettingsRepository,
             modelBenchmarkDao: ModelBenchmarkDao? = null,
-            localMemory: LocalMemory? = null
+            localMemory: LocalMemory? = null,
+            androidTools: AndroidTools? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -740,7 +764,8 @@ class ChatViewModel(
                     aiEngine = aiEngine,
                     settingsRepository = settingsRepository,
                     modelBenchmarkDao = modelBenchmarkDao,
-                    localMemory = localMemory
+                    localMemory = localMemory,
+                    androidTools = androidTools
                 ) as T
             }
         }

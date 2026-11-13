@@ -102,6 +102,8 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("model_manager_list")
             .performScrollToNode(hasText("MODEL BENCHMARK HISTORY"))
         composeTestRule.onNodeWithText("MODEL BENCHMARK HISTORY").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("benchmark_summary_panel").assertIsDisplayed()
+        composeTestRule.onNodeWithText("AVG TTFT").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("nav_tab_device").performClick()
         composeTestRule.waitForIdle()
@@ -177,5 +179,20 @@ class ExampleRobolectricTest {
 
         composeTestRule.onNodeWithTag("history_drawer_sheet").assertIsDisplayed()
         composeTestRule.onNodeWithTag("new_session_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun `arabic message renders cleanly in chat with rtl auto direction`() {
+        composeTestRule.waitForIdle()
+        val arabicPrompt = "مرحبا جارفيس ما حالة البطارية"
+        composeTestRule.onNodeWithTag("chat_input_field").performTextInput(arabicPrompt)
+        composeTestRule.onNodeWithTag("chat_send_button").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule
+                .onAllNodesWithText(arabicPrompt)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText(arabicPrompt).assertIsDisplayed()
     }
 }

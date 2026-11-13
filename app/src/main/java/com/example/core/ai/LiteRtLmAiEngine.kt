@@ -1,5 +1,6 @@
 package com.example.core.ai
 
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Debug
 import com.example.core.model.ArtifactState
@@ -56,6 +57,8 @@ class LiteRtLmAiEngine(
     private var activeContextCeiling: Int = 4096
     private var activeConversationId: String? = null
     private var activeSamplerSignature: String? = null
+    private var activeInitTimeMs: Long = 0L
+    private var activeModelSizeBytes: Long = 0L
 
     private val _loadState = MutableStateFlow<EngineLoadState>(EngineLoadState.Unloaded)
     override val loadState: StateFlow<EngineLoadState> = _loadState.asStateFlow()
@@ -121,13 +124,30 @@ class LiteRtLmAiEngine(
             return Result.success(Unit)
         }
 
+        val headroom = ThermalAndMemoryPolicy.assessMemoryHeadroom(appContext, modelFile.length())
+        if (!headroom.canLoadModel) {
+            val msg = headroom.reason ?: "Insufficient free system RAM to initialize ${slot.displayName}."
+            _loadState.value = EngineLoadState.Error(msg)
+            return Result.failure(IllegalStateException(msg))
+        }
+
         releaseInternalLocked()
 
+        val (thermalCode, _) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
         val candidates: List<Pair<Backend, String>> = when (settings.inferenceBackend) {
-            InferenceBackendPreference.AUTO_GPU_FALLBACK -> listOf(
-                Backend.GPU() to "GPU (OpenCL)",
-                Backend.CPU() to "CPU (XNNPACK)"
-            )
+            InferenceBackendPreference.AUTO_GPU_FALLBACK -> {
+                if (thermalCode >= android.os.PowerManager.THERMAL_STATUS_CRITICAL) {
+                    listOf(
+                        Backend.CPU() to "CPU (XNNPACK Thermal)",
+                        Backend.GPU() to "GPU (OpenCL)"
+                    )
+                } else {
+                    listOf(
+                        Backend.GPU() to "GPU (OpenCL)",
+                        Backend.CPU() to "CPU (XNNPACK)"
+                    )
+                }
+            }
             InferenceBackendPreference.GPU_ONLY -> listOf(Backend.GPU() to "GPU (OpenCL)")
             InferenceBackendPreference.CPU_ONLY -> listOf(Backend.CPU() to "CPU (XNNPACK)")
         }
@@ -158,6 +178,8 @@ class LiteRtLmAiEngine(
                 conversation = null
 
                 val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                activeInitTimeMs = elapsedMs
+                activeModelSizeBytes = modelFile.length()
                 _loadState.value = EngineLoadState.Ready(
                     modelId = slot.id,
                     modelName = slot.displayName,
@@ -243,11 +265,19 @@ class LiteRtLmAiEngine(
                         }
                     }
 
+                    val (thermalCode, thermalLabel) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
+                    val adaptedSettings = ThermalAndMemoryPolicy.applyThermalAdaptation(
+                        settings = settings,
+                        thermalCode = thermalCode,
+                        thermalLabel = thermalLabel
+                    ).effectiveSettings
+
                     val startNs = System.nanoTime()
                     var firstTokenNs: Long? = null
                     val buffer = StringBuilder()
                     var chunkCount = 0
                     var hitTokenCeiling = false
+                    var peakHeapMb = readNativeHeapMb()
 
                     activeConv.sendMessageAsync(prompt).collect { chunkMessage ->
                         val delta = chunkMessage.toString()
@@ -256,6 +286,9 @@ class LiteRtLmAiEngine(
                         }
                         buffer.append(delta)
                         chunkCount++
+                        if (chunkCount % 6 == 0) {
+                            peakHeapMb = maxOf(peakHeapMb, readNativeHeapMb())
+                        }
 
                         val estimatedTokens = estimateTokenCount(buffer.toString()).coerceAtLeast(chunkCount)
                         trySend(
@@ -266,7 +299,7 @@ class LiteRtLmAiEngine(
                             )
                         )
 
-                        if (estimatedTokens >= settings.maxOutputTokens && !hitTokenCeiling) {
+                        if (estimatedTokens >= adaptedSettings.maxOutputTokens && !hitTokenCeiling) {
                             hitTokenCeiling = true
                             cancelRequested.set(true)
                             runCatching { activeConv.cancelProcess() }
@@ -274,13 +307,16 @@ class LiteRtLmAiEngine(
                     }
 
                     val endNs = System.nanoTime()
+                    peakHeapMb = maxOf(peakHeapMb, readNativeHeapMb())
                     val benchmark = extractBenchmark(
                         conversation = activeConv,
                         startNs = startNs,
                         firstTokenNs = firstTokenNs,
                         endNs = endNs,
                         outputText = buffer.toString(),
-                        fallbackTokenCount = chunkCount
+                        fallbackTokenCount = chunkCount,
+                        peakHeapMb = peakHeapMb,
+                        thermalLabel = thermalLabel
                     )
                     _lastBenchmark.value = benchmark
                     refreshMemoryUsage()
@@ -320,6 +356,29 @@ class LiteRtLmAiEngine(
 
     override fun refreshMemoryUsage() {
         _nativeMemoryMb.value = readNativeHeapMb()
+    }
+
+    @Suppress("DEPRECATION")
+    override suspend fun trimMemory(level: Int) {
+        if (_isGenerating.value) return
+        withContext(engineDispatcher) {
+            mutex.withLock {
+                if (_isGenerating.value) return@withLock
+                when {
+                    level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                        releaseInternalLocked()
+                    }
+                    level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
+                        level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
+                        conversation?.let { runCatching { it.close() } }
+                        conversation = null
+                        activeConversationId = null
+                        refreshMemoryUsage()
+                    }
+                }
+            }
+        }
     }
 
     override fun release() {
@@ -401,7 +460,9 @@ class LiteRtLmAiEngine(
         firstTokenNs: Long?,
         endNs: Long,
         outputText: String,
-        fallbackTokenCount: Int
+        fallbackTokenCount: Int,
+        peakHeapMb: Float,
+        thermalLabel: String
     ): GenerationBenchmark {
         val nativeBench = runCatching { conversation.getBenchmarkInfo() }.getOrNull()
         val fallbackTtftMs = ((firstTokenNs ?: endNs) - startNs) / 1_000_000L
@@ -423,6 +484,7 @@ class LiteRtLmAiEngine(
             ?: (outTokens.toFloat() / decodeDurationSec.toFloat()).coerceAtLeast(0.1f)
 
         val prefillTokens = nativeBench?.lastPrefillTokenCount ?: 0
+        val currentHeapMb = readNativeHeapMb()
 
         return GenerationBenchmark(
             ttftMs = ttftMs,
@@ -430,7 +492,11 @@ class LiteRtLmAiEngine(
             outputTokens = outTokens,
             prefillTokens = prefillTokens,
             backendUsed = activeBackendLabel,
-            nativeHeapMb = readNativeHeapMb()
+            nativeHeapMb = currentHeapMb,
+            initTimeMs = activeInitTimeMs,
+            peakMemoryMb = maxOf(peakHeapMb, currentHeapMb),
+            modelSizeBytes = activeModelSizeBytes,
+            thermalStatus = thermalLabel
         )
     }
 

@@ -111,7 +111,13 @@ data class ModelBenchmarkEntity(
     val outputTokens: Int,
     val prefillTokens: Int,
     val nativeHeapMb: Float,
-    val timestamp: Long
+    val timestamp: Long,
+    val initTimeMs: Long = 0L,
+    val peakMemoryMb: Float = nativeHeapMb,
+    val modelSizeBytes: Long = 0L,
+    val thermalStatus: String = "Nominal",
+    val batteryPercent: Int = -1,
+    val batteryTempCelsius: Float = 0f
 )
 
 @Entity(

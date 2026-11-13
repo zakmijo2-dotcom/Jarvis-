@@ -19,35 +19,35 @@ class Phase1CloudProviderRegistry : CloudProviderRegistry {
             name = CloudProviderKind.OPENAI_COMPATIBLE.label,
             protocol = "HTTPS / SSE Streaming",
             authRequirement = "Encrypted User API Key",
-            phaseStatus = "Active (Phase 6)"
+            phaseStatus = "Active (Hybrid)"
         ),
         CloudProviderDescriptor(
             id = CloudProviderKind.OPENROUTER.id,
             name = CloudProviderKind.OPENROUTER.label,
             protocol = "HTTPS / SSE Streaming",
             authRequirement = "Encrypted User API Key",
-            phaseStatus = "Active (Phase 6)"
+            phaseStatus = "Active (Hybrid)"
         ),
         CloudProviderDescriptor(
             id = CloudProviderKind.GEMINI_REST.id,
             name = CloudProviderKind.GEMINI_REST.label,
             protocol = "HTTPS / SSE Streaming",
             authRequirement = "Encrypted User API Key",
-            phaseStatus = "Active (Phase 6)"
+            phaseStatus = "Active (Hybrid)"
         ),
         CloudProviderDescriptor(
             id = CloudProviderKind.ANTHROPIC.id,
             name = CloudProviderKind.ANTHROPIC.label,
             protocol = "HTTPS / SSE Streaming",
             authRequirement = "Encrypted User API Key",
-            phaseStatus = "Active (Phase 6)"
+            phaseStatus = "Active (Hybrid)"
         ),
         CloudProviderDescriptor(
             id = CloudProviderKind.CUSTOM_ENDPOINT.id,
             name = CloudProviderKind.CUSTOM_ENDPOINT.label,
             protocol = "Configurable OpenAI SSE",
             authRequirement = "Encrypted User API Key",
-            phaseStatus = "Active (Phase 6)"
+            phaseStatus = "Active (Hybrid)"
         )
     )
 }
