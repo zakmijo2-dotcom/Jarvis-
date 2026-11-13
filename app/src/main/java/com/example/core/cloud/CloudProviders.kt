@@ -15,25 +15,39 @@ interface CloudProviderRegistry {
 class Phase1CloudProviderRegistry : CloudProviderRegistry {
     override fun listProviders(): List<CloudProviderDescriptor> = listOf(
         CloudProviderDescriptor(
-            id = "firebase_ai_gemini",
-            name = "Google Gemini (Firebase AI Logic)",
-            protocol = "Managed SDK / Streaming",
-            authRequirement = "Firebase App Check",
-            phaseStatus = "Boundary Ready (Phase 2)"
+            id = CloudProviderKind.OPENAI_COMPATIBLE.id,
+            name = CloudProviderKind.OPENAI_COMPATIBLE.label,
+            protocol = "HTTPS / SSE Streaming",
+            authRequirement = "Encrypted User API Key",
+            phaseStatus = "Active (Phase 6)"
         ),
         CloudProviderDescriptor(
-            id = "openai_compatible",
-            name = "OpenAI-Compatible Gateway",
-            protocol = "HTTPS / SSE",
-            authRequirement = "Bearer Secret",
-            phaseStatus = "Boundary Ready (Phase 2)"
+            id = CloudProviderKind.OPENROUTER.id,
+            name = CloudProviderKind.OPENROUTER.label,
+            protocol = "HTTPS / SSE Streaming",
+            authRequirement = "Encrypted User API Key",
+            phaseStatus = "Active (Phase 6)"
         ),
         CloudProviderDescriptor(
-            id = "anthropic_claude",
-            name = "Anthropic Messages Gateway",
-            protocol = "HTTPS / SSE",
-            authRequirement = "API Key Secret",
-            phaseStatus = "Boundary Ready (Phase 2)"
+            id = CloudProviderKind.GEMINI_REST.id,
+            name = CloudProviderKind.GEMINI_REST.label,
+            protocol = "HTTPS / SSE Streaming",
+            authRequirement = "Encrypted User API Key",
+            phaseStatus = "Active (Phase 6)"
+        ),
+        CloudProviderDescriptor(
+            id = CloudProviderKind.ANTHROPIC.id,
+            name = CloudProviderKind.ANTHROPIC.label,
+            protocol = "HTTPS / SSE Streaming",
+            authRequirement = "Encrypted User API Key",
+            phaseStatus = "Active (Phase 6)"
+        ),
+        CloudProviderDescriptor(
+            id = CloudProviderKind.CUSTOM_ENDPOINT.id,
+            name = CloudProviderKind.CUSTOM_ENDPOINT.label,
+            protocol = "Configurable OpenAI SSE",
+            authRequirement = "Encrypted User API Key",
+            phaseStatus = "Active (Phase 6)"
         )
     )
 }

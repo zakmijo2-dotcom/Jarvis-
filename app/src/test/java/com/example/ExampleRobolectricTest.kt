@@ -123,9 +123,27 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithText("LOCAL AI INFERENCE (LITERT-LM)").assertIsDisplayed()
         composeTestRule.onNodeWithTag("context_chip_4096").assertIsDisplayed()
 
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_hybrid_routing_card"))
+        composeTestRule.onNodeWithTag("settings_hybrid_routing_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_web_research_card"))
+        composeTestRule.onNodeWithTag("settings_web_research_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_memory_manager_card"))
+        composeTestRule.onNodeWithTag("settings_memory_manager_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_execution_history_card"))
+        composeTestRule.onNodeWithTag("settings_execution_history_card").assertIsDisplayed()
+
         composeTestRule.onNodeWithTag("nav_tab_chat").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("J.A.R.V.I.S.").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("chat_privacy_badge").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("chip_routing_mode").assertIsDisplayed()
     }
 
     @Test

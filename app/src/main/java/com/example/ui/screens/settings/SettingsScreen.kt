@@ -50,6 +50,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.core.agent.AgentRoutingMode
+import com.example.core.cloud.CloudProviderKind
+import com.example.core.memory.MemoryKind
+import com.example.core.web.WebSearchProviderKind
 import com.example.data.repository.InferenceBackendPreference
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
@@ -76,7 +80,23 @@ fun SettingsScreen(
     onSetSamplerTopP: (Float) -> Unit,
     onSetHuggingFaceToken: (String) -> Unit,
     onPurgeHistory: () -> Unit,
-    onDismissBanner: () -> Unit
+    onDismissBanner: () -> Unit,
+    onSetRoutingMode: (AgentRoutingMode) -> Unit = {},
+    onSetCloudUploadConsent: (Boolean) -> Unit = {},
+    onSetCloudProvider: (CloudProviderKind) -> Unit = {},
+    onSetCloudEndpoint: (String) -> Unit = {},
+    onSetCloudModelId: (String) -> Unit = {},
+    onSetCloudApiKey: (String) -> Unit = {},
+    onSetCloudTimeoutSeconds: (Int) -> Unit = {},
+    onResetCloudUsageStats: () -> Unit = {},
+    onSetWebResearchEnabled: (Boolean) -> Unit = {},
+    onSetWebSearchProvider: (WebSearchProviderKind) -> Unit = {},
+    onSetWebCustomUrl: (String) -> Unit = {},
+    onSetWebApiKey: (String) -> Unit = {},
+    onMemorySearchQueryChange: (String) -> Unit = {},
+    onAddMemory: (MemoryKind, String, String, Boolean) -> Unit = { _, _, _, _ -> },
+    onEditMemory: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
+    onDeleteMemory: (String) -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
     val settings = uiState.settings
@@ -253,6 +273,44 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+
+            item {
+                HybridRoutingAndCloudCard(
+                    uiState = uiState,
+                    onSetRoutingMode = onSetRoutingMode,
+                    onSetCloudUploadConsent = onSetCloudUploadConsent,
+                    onSetCloudProvider = onSetCloudProvider,
+                    onSetCloudEndpoint = onSetCloudEndpoint,
+                    onSetCloudModelId = onSetCloudModelId,
+                    onSetCloudApiKey = onSetCloudApiKey,
+                    onSetCloudTimeoutSeconds = onSetCloudTimeoutSeconds,
+                    onResetUsageStats = onResetCloudUsageStats
+                )
+            }
+
+            item {
+                WebResearchSettingsCard(
+                    uiState = uiState,
+                    onSetWebResearchEnabled = onSetWebResearchEnabled,
+                    onSetWebSearchProvider = onSetWebSearchProvider,
+                    onSetWebCustomUrl = onSetWebCustomUrl,
+                    onSetWebApiKey = onSetWebApiKey
+                )
+            }
+
+            item {
+                LocalMemoryManagerCard(
+                    uiState = uiState,
+                    onSearchQueryChange = onMemorySearchQueryChange,
+                    onAddMemory = onAddMemory,
+                    onEditMemory = onEditMemory,
+                    onDeleteMemory = onDeleteMemory
+                )
+            }
+
+            item {
+                ExecutionHistoryCard(uiState = uiState)
             }
 
             item {

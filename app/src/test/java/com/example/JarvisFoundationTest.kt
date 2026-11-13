@@ -59,10 +59,23 @@ import com.example.data.repository.SettingsRepository
 import android.Manifest
 import android.app.Application
 import android.content.Intent
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import com.example.core.agent.AgentRoutingMode
+import com.example.core.agent.ExecutionRoute
+import com.example.core.agent.IntentRouter
+import com.example.core.agent.PlanStepStatus
+import com.example.core.agent.PlanStepType
 import com.example.core.agent.ToolRegistryFactory
+import com.example.core.cloud.CloudInferenceConfig
+import com.example.core.cloud.CloudProviderKind
+import com.example.core.cloud.OkHttpCloudAiClient
+import com.example.core.memory.MemoryKind
 import com.example.core.tools.AccessibilityActionTool
 import com.example.core.tools.AccessibilityBridge
 import com.example.core.tools.AdjustMediaVolumeTool
+import com.example.core.tools.AndroidTools
 import com.example.core.tools.AuthorizedAccessibilityAction
 import com.example.core.tools.ComposeMessageTool
 import com.example.core.tools.ContactMatch
@@ -83,6 +96,8 @@ import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionStatus
 import com.example.core.tools.ToolPermissionValidator
 import com.example.core.tools.ToolRegistry
+import com.example.core.web.OkHttpWebResearchService
+import com.example.core.web.WebSearchProviderKind
 import com.example.ui.screens.chat.ChatViewModel
 import com.example.ui.screens.voice.VoiceViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -1370,5 +1385,449 @@ class JarvisFoundationTest {
 
         sub.cancel()
         dataStoreScope.cancel()
+    }
+
+    @Test
+    fun `phase 6 local memory supports approved preferences summaries search edit delete and blocks sensitive secrets without consent`() = runBlocking {
+        val memory = RoomLocalMemory(db.memoryDao())
+
+        // 1. Blocks sensitive API keys & passwords without explicit consent
+        val blockedKey = memory.saveMemory(
+            kind = MemoryKind.FACT,
+            category = "Credentials",
+            content = "My API key is sk-proj-abcdef1234567890xyz",
+            containsSensitiveConsent = false
+        )
+        assertTrue(blockedKey.isFailure)
+        assertTrue(blockedKey.exceptionOrNull() is SecurityException)
+
+        val blockedPassword = memory.saveMemory(
+            kind = MemoryKind.FACT,
+            category = "Auth",
+            content = "password=superSecret99",
+            containsSensitiveConsent = false
+        )
+        assertTrue(blockedPassword.isFailure)
+
+        // 2. Allows approved preferences & consented items
+        val pref = memory.saveMemory(
+            kind = MemoryKind.PREFERENCE,
+            category = "Style",
+            content = "Prefer concise Kotlin Compose answers tailored for Poco X7 Pro.",
+            userApproved = true,
+            containsSensitiveConsent = false
+        ).getOrThrow()
+
+        val fact = memory.saveMemory(
+            kind = MemoryKind.FACT,
+            category = "Hardware",
+            content = "Device runs MediaTek Dimensity 8400-Ultra with 12GB RAM.",
+            userApproved = true,
+            containsSensitiveConsent = false
+        ).getOrThrow()
+
+        // 3. Search & context retrieval
+        val searchHits = memory.searchMemories("Dimensity")
+        assertEquals(1, searchHits.size)
+        assertEquals(fact.id, searchHits[0].id)
+
+        val contextHits = memory.retrieveRelevantContext("Explain Kotlin Compose performance on Dimensity", maxItems = 2)
+        assertEquals(2, contextHits.size)
+        assertEquals(pref.id, contextHits.first { it.kind == MemoryKind.PREFERENCE }.id)
+
+        // 4. Edit & delete
+        val editBlocked = memory.updateMemory(pref.id, "Style", "hf_abcdef1234567890", containsSensitiveConsent = false)
+        assertTrue(editBlocked.isFailure)
+
+        val editOk = memory.updateMemory(pref.id, "Style", "Prefer concise Jetpack Compose answers.", containsSensitiveConsent = false)
+        assertTrue(editOk.isSuccess)
+        assertTrue(memory.searchMemories("Jetpack").any { it.id == pref.id })
+
+        memory.deleteMemory(fact.id)
+        assertTrue(memory.searchMemories("Dimensity").isEmpty())
+
+        // 5. Conversation summary generation & sensitive auto-filter
+        val summary = memory.summarizeAndStoreConversation(
+            conversationId = "conv-sum-1",
+            title = "Architecture Review",
+            messages = listOf(
+                MessageEntity("m1", "conv-sum-1", MessageRole.USER, "Check thermal headroom", "Operator", 10L),
+                MessageEntity("m2", "conv-sum-1", MessageRole.ASSISTANT, "Device temperature nominal at 34C.", "Gemma 3 1B", 20L)
+            ),
+            userApproved = true
+        )
+        assertNotNull(summary)
+        assertEquals(MemoryKind.SUMMARY, summary?.kind)
+        assertTrue(summary?.content?.contains("Architecture Review") == true)
+    }
+
+    @Test
+    fun `phase 6 intent router switches local cloud hybrid respects consent and decomposes multi step tasks`() {
+        val router = IntentRouter()
+        val offlineSettings = JarvisSettings(
+            routingMode = AgentRoutingMode.LOCAL_ONLY,
+            cloudUploadConsentGranted = false,
+            cloudApiKey = "",
+            webResearchEnabled = false
+        )
+
+        val localWebDecision = router.routePrompt(
+            prompt = "search the web for Android 16 release date",
+            settings = offlineSettings,
+            isLocalModelReady = true,
+            isNetworkConnected = true
+        )
+        assertFalse(localWebDecision.useCloudModel)
+        assertFalse(localWebDecision.needsWebResearch)
+        assertTrue(localWebDecision.privacyBlockedReason?.contains("cannot access the internet") == true)
+
+        // Cloud requested without consent -> strictly blocked
+        val blockedConsent = router.routePrompt(
+            prompt = "@cloud architect a distributed consensus protocol",
+            settings = offlineSettings.copy(routingMode = AgentRoutingMode.AUTO_HYBRID),
+            isLocalModelReady = true,
+            isNetworkConnected = true
+        )
+        assertTrue(blockedConsent.useCloudModel)
+        assertTrue(blockedConsent.privacyBlockedReason?.contains("consent is disabled") == true)
+
+        // Cloud consented + key present -> allowed for CLOUD_ONLY or complex prompts
+        val consentedSettings = JarvisSettings(
+            routingMode = AgentRoutingMode.AUTO_HYBRID,
+            cloudUploadConsentGranted = true,
+            cloudApiKey = "sk-live-user-key-9999",
+            webResearchEnabled = true
+        )
+        val simpleLocal = router.routePrompt("Hello JARVIS", consentedSettings, isLocalModelReady = true, isNetworkConnected = true)
+        assertFalse(simpleLocal.useCloudModel)
+        assertEquals(ExecutionRoute.LOCAL_LITERT_LM, simpleLocal.route)
+
+        val complexCloud = router.routePrompt(
+            "Compare and analyze detailed microservice tradeoff strategy and optimize database architecture",
+            consentedSettings,
+            isLocalModelReady = true,
+            isNetworkConnected = true
+        )
+        assertTrue(complexCloud.useCloudModel)
+        assertEquals(ExecutionRoute.CLOUD_API, complexCloud.route)
+
+        // Explicit @local overrides CLOUD_ONLY
+        val forcedLocalOverride = router.routePrompt(
+            "@local summarize my notes",
+            consentedSettings.copy(routingMode = AgentRoutingMode.CLOUD_ONLY),
+            isLocalModelReady = true,
+            isNetworkConnected = true
+        )
+        assertFalse(forcedLocalOverride.useCloudModel)
+
+        // Multi-step decomposition
+        val multiToolDecision = router.routePrompt(
+            "Check battery status and open wifi settings",
+            offlineSettings,
+            isLocalModelReady = true,
+            isNetworkConnected = false
+        )
+        assertEquals(2, multiToolDecision.detectedTools.size)
+        val steps = router.decomposeTasks("Check battery status and open wifi settings", multiToolDecision)
+        assertEquals(PlanStepType.MEMORY_LOOKUP, steps[0].type)
+        assertEquals("Execute read_battery_status", steps[1].title)
+        assertEquals("Execute open_android_settings", steps[2].title)
+    }
+
+    @Test
+    fun `phase 6 cloud ai client streams sse tracks usage and handles http errors cleanly`() = runBlocking {
+        val responseMode = AtomicInteger(0) // 0=SSE OK, 1=HTTP 500
+        val server = ServerSocket(0)
+        val port = server.localPort
+        val serverThread = Thread {
+            try {
+                while (!server.isClosed) {
+                    val socket = server.accept()
+                    val reader = socket.getInputStream().bufferedReader()
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.isEmpty()) break
+                    }
+                    val out = socket.getOutputStream()
+                    if (responseMode.get() == 0) {
+                        val sseBody = buildString {
+                            append("data: {\"choices\":[{\"delta\":{\"content\":\"Hybrid \"}}]}\n\n")
+                            append("data: {\"choices\":[{\"delta\":{\"content\":\"Cloud Ready\"}}]}\n\n")
+                            append("data: [DONE]\n\n")
+                        }
+                        val header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+                        out.write(header.toByteArray())
+                        out.write(sseBody.toByteArray())
+                    } else {
+                        val errJson = "{\"error\":{\"message\":\"Upstream gateway unavailable\"}}"
+                        val header = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: ${errJson.toByteArray().size}\r\nConnection: close\r\n\r\n"
+                        out.write(header.toByteArray())
+                        out.write(errJson.toByteArray())
+                    }
+                    out.flush()
+                    socket.close()
+                }
+            } catch (_: Exception) {
+            }
+        }
+        serverThread.isDaemon = true
+        serverThread.start()
+
+        try {
+            val client = OkHttpCloudAiClient()
+            val config = CloudInferenceConfig(
+                providerKind = CloudProviderKind.OPENAI_COMPATIBLE,
+                endpointUrl = "http://127.0.0.1:$port/v1/chat/completions",
+                modelId = "gpt-4o-mini",
+                apiKey = "user-test-key",
+                timeoutSeconds = 10
+            )
+
+            // 1. Successful SSE stream
+            val events = mutableListOf<AiStreamEvent>()
+            client.streamChat(config, "System", "Hello cloud", emptyList()).collect { events.add(it) }
+            val completed = events.filterIsInstance<AiStreamEvent.Completed>().firstOrNull()
+            assertNotNull(completed)
+            assertEquals("Hybrid Cloud Ready", completed?.fullText)
+            assertEquals(1, client.usageStats.value.totalRequests)
+            assertEquals(1, client.usageStats.value.successfulRequests)
+            assertEquals(0, client.usageStats.value.failedRequests)
+
+            // 2. HTTP 500 error updates failed stats honestly
+            responseMode.set(1)
+            val errEvents = mutableListOf<AiStreamEvent>()
+            client.streamChat(config, "System", "Retry", emptyList()).collect { errEvents.add(it) }
+            val err = errEvents.filterIsInstance<AiStreamEvent.Error>().firstOrNull()
+            assertNotNull(err)
+            assertTrue(err!!.message.contains("Cloud HTTP 500"))
+            assertEquals(2, client.usageStats.value.totalRequests)
+            assertEquals(1, client.usageStats.value.failedRequests)
+            assertNotNull(client.usageStats.value.lastErrorMessage)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun `phase 6 hybrid agent handles offline online sse multi step tools and error recovery end to end`() = runBlocking {
+        val convRepo = ConversationRepository(db.conversationDao())
+        val modelManager = RoomModelManager(db.modelDao()).apply { ensureSeeded() }
+        val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = dataStoreScope,
+            produceFile = { File(tmpFolder.root, "phase6_hybrid_vm.preferences_pb") }
+        )
+        val settingsRepo = SettingsRepository(dataStore)
+        val localMemory = RoomLocalMemory(db.memoryDao())
+        localMemory.saveMemory(
+            kind = MemoryKind.PREFERENCE,
+            category = "Platform",
+            content = "Always mention Poco X7 Pro optimization context."
+        )
+
+        modelManager.updateArtifactState(
+            id = RoomModelManager.GEMMA_3_1B_ID,
+            localFilePath = File(tmpFolder.root, "gemma3_p6.litertlm").apply { writeBytes(ByteArray(1024)) }.absolutePath,
+            artifactState = ArtifactState.READY,
+            status = ModelStatus.READY
+        )
+
+        val serverMode = AtomicInteger(0) // 0=SSE 200, 1=503 fail
+        val server = ServerSocket(0)
+        val port = server.localPort
+        val serverThread = Thread {
+            try {
+                while (!server.isClosed) {
+                    val socket = server.accept()
+                    val reader = socket.getInputStream().bufferedReader()
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.isEmpty()) break
+                    }
+                    val out = socket.getOutputStream()
+                    if (serverMode.get() == 0) {
+                        val sseBody = "data: {\"choices\":[{\"delta\":{\"content\":\"Cloud SSE Verification OK\"}}]}\n\ndata: [DONE]\n\n"
+                        out.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n".toByteArray())
+                        out.write(sseBody.toByteArray())
+                    } else {
+                        val errJson = "{\"error\":{\"message\":\"Gateway down\"}}"
+                        out.write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: ${errJson.toByteArray().size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        out.write(errJson.toByteArray())
+                    }
+                    out.flush()
+                    socket.close()
+                }
+            } catch (_: Exception) {
+            }
+        }
+        serverThread.isDaemon = true
+        serverThread.start()
+
+        val fakeAiEngine = ControllableTestAiEngine()
+        val cloudClient = OkHttpCloudAiClient()
+        val webService = OkHttpWebResearchService()
+        val delegateTools = AndroidSystemTools(context)
+        var networkOnline = true
+        val testAndroidTools = object : AndroidTools by delegateTools {
+            override suspend fun readDeviceTelemetry(): DeviceTelemetry =
+                delegateTools.readDeviceTelemetry().copy(isNetworkConnected = networkOnline)
+        }
+        val agentCore = Phase2AgentCore(
+            aiEngine = fakeAiEngine,
+            modelManager = modelManager,
+            androidTools = testAndroidTools,
+            cloudProviderRegistry = Phase1CloudProviderRegistry(),
+            wakeWordEngine = ModularWakeWordEngine(),
+            localMemory = localMemory,
+            appContext = context,
+            cloudAiClient = cloudClient,
+            webResearchService = webService,
+            intentRouter = IntentRouter(),
+            agentExecutionDao = db.agentExecutionDao()
+        )
+        val vm = ChatViewModel(
+            conversationRepository = convRepo,
+            modelManager = modelManager,
+            agentCore = agentCore,
+            aiEngine = fakeAiEngine,
+            settingsRepository = settingsRepo,
+            modelBenchmarkDao = db.modelBenchmarkDao(),
+            localMemory = localMemory
+        )
+        val sub = dataStoreScope.launch(Dispatchers.Unconfined) { vm.uiState.collect {} }
+
+        try {
+            var convId: String? = null
+            repeat(30) {
+                shadowOf(Looper.getMainLooper()).idle()
+                convId = convRepo.observeConversations().first().firstOrNull()?.id
+                if (convId != null) return@repeat
+                Thread.sleep(15)
+            }
+            assertNotNull(convId)
+
+            // 1. Offline conversation (LOCAL_ONLY, 0 cloud calls)
+            vm.setRoutingMode(AgentRoutingMode.LOCAL_ONLY)
+            repeat(20) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (vm.uiState.value.settings.routingMode == AgentRoutingMode.LOCAL_ONLY) return@repeat
+                Thread.sleep(10)
+            }
+            vm.sendMessage("Explain Poco X7 Pro memory budget")
+            repeat(50) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (convRepo.getMessagesOnce(convId!!).any { it.role == MessageRole.ASSISTANT }) return@repeat
+                Thread.sleep(15)
+            }
+            assertEquals(0, cloudClient.usageStats.value.totalRequests)
+            assertTrue(convRepo.getMessagesOnce(convId!!).any { it.content.contains("Dimensity") })
+
+            // 2. Multi-step natural language tool chain
+            val countBeforeTools = convRepo.getMessagesOnce(convId!!).size
+            vm.sendMessage("Check battery status and check device info")
+            repeat(50) {
+                shadowOf(Looper.getMainLooper()).idle()
+                val msgs = convRepo.getMessagesOnce(convId!!)
+                if (msgs.size >= countBeforeTools + 3) return@repeat
+                Thread.sleep(15)
+            }
+            val afterTools = convRepo.getMessagesOnce(convId!!)
+            assertTrue(afterTools.count { it.role == MessageRole.TOOL_SNAPSHOT } >= 2)
+            assertTrue(db.agentExecutionDao().observeExecutions().first().isNotEmpty())
+
+            // 3. Online Cloud SSE conversation
+            settingsRepo.setCloudUploadConsentGranted(true)
+            settingsRepo.setCloudProviderKind(CloudProviderKind.OPENAI_COMPATIBLE)
+            settingsRepo.setCloudEndpointUrl("http://127.0.0.1:$port/v1/chat/completions")
+            settingsRepo.setCloudModelId("gpt-4o-mini")
+            settingsRepo.setCloudApiKey("test-cloud-key")
+            vm.setRoutingMode(AgentRoutingMode.CLOUD_ONLY)
+            repeat(30) {
+                shadowOf(Looper.getMainLooper()).idle()
+                val s = vm.uiState.value.settings
+                if (s.routingMode == AgentRoutingMode.CLOUD_ONLY && s.cloudUploadConsentGranted && s.cloudApiKey == "test-cloud-key") {
+                    return@repeat
+                }
+                Thread.sleep(15)
+            }
+            vm.sendMessage("Hello cloud")
+            repeat(50) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (convRepo.getMessagesOnce(convId!!).any { it.content.contains("Cloud SSE Verification OK") }) return@repeat
+                Thread.sleep(15)
+            }
+            assertTrue(convRepo.getMessagesOnce(convId!!).any { it.content.contains("Cloud SSE Verification OK") })
+            assertEquals(1, cloudClient.usageStats.value.successfulRequests)
+
+            // 4. Failed network + Web Research HTTP 503 recovers gracefully onto offline LiteRT-LM in AUTO_HYBRID
+            serverMode.set(1)
+            settingsRepo.setWebResearchEnabled(true)
+            settingsRepo.setWebSearchProvider(WebSearchProviderKind.CUSTOM_JSON)
+            settingsRepo.setWebSearchCustomUrl("http://127.0.0.1:$port/search")
+            vm.setRoutingMode(AgentRoutingMode.AUTO_HYBRID)
+            repeat(30) {
+                shadowOf(Looper.getMainLooper()).idle()
+                val s = vm.uiState.value.settings
+                if (s.routingMode == AgentRoutingMode.AUTO_HYBRID && s.webResearchEnabled) return@repeat
+                Thread.sleep(15)
+            }
+            val beforeRecoveryCount = convRepo.getMessagesOnce(convId!!).size
+            vm.sendMessage("Search the web for Kotlin 2.2 benchmark details")
+            repeat(80) {
+                shadowOf(Looper.getMainLooper()).idle()
+                val added = convRepo.getMessagesOnce(convId!!).drop(beforeRecoveryCount)
+                if (added.any { it.role == MessageRole.ASSISTANT } && !vm.uiState.value.isGenerating) return@repeat
+                Thread.sleep(20)
+            }
+            val recoveryMsgs = convRepo.getMessagesOnce(convId!!).drop(beforeRecoveryCount)
+            assertTrue(recoveryMsgs.any { it.role == MessageRole.SYSTEM_NOTICE && it.content.contains("Web lookup failed") })
+            assertTrue(recoveryMsgs.any { it.role == MessageRole.SYSTEM_NOTICE && it.content.contains("Falling back to offline LiteRT-LM") })
+            assertTrue(recoveryMsgs.any { it.role == MessageRole.ASSISTANT && it.content.contains("Dimensity") })
+        } finally {
+            server.close()
+            sub.cancel()
+            dataStoreScope.cancel()
+        }
+    }
+
+    @Test
+    fun `phase 6 migration 3 to 4 upgrades memory_notes and creates agent_executions table`() {
+        val dbFile = File(tmpFolder.root, "migration_v3_v4.db")
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val helper = factory.create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbFile.absolutePath)
+                .callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE memory_notes (
+                                id TEXT NOT NULL PRIMARY KEY,
+                                category TEXT NOT NULL,
+                                content TEXT NOT NULL,
+                                createdAt INTEGER NOT NULL
+                            )
+                            """.trimIndent()
+                        )
+                        db.execSQL("INSERT INTO memory_notes (id, category, content, createdAt) VALUES ('n1', 'Device', 'Poco X7 Pro', 1000)")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+        val sqlite = helper.writableDatabase
+        JarvisDatabase.MIGRATION_3_4.migrate(sqlite)
+
+        sqlite.query("SELECT id, kind, isUserApproved, updatedAt FROM memory_notes WHERE id = 'n1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("FACT", c.getString(1))
+            assertEquals(1, c.getInt(2))
+            assertEquals(1000L, c.getLong(3))
+        }
+        sqlite.query("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_executions'").use { c ->
+            assertTrue(c.moveToFirst())
+        }
+        helper.close()
     }
 }

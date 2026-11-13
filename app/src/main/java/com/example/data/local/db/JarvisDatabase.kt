@@ -25,9 +25,10 @@ class JarvisTypeConverters {
         ModelEntryEntity::class,
         DownloadTaskEntity::class,
         ModelBenchmarkEntity::class,
-        MemoryNoteEntity::class
+        MemoryNoteEntity::class,
+        AgentExecutionEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -37,6 +38,7 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun downloadQueueDao(): DownloadQueueDao
     abstract fun modelBenchmarkDao(): ModelBenchmarkDao
     abstract fun memoryDao(): MemoryDao
+    abstract fun agentExecutionDao(): AgentExecutionDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -114,13 +116,46 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'FACT'")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN sourceConversationId TEXT")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN isUserApproved INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE memory_notes SET updatedAt = createdAt WHERE updatedAt = 0")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_memory_notes_kind_createdAt ON memory_notes (kind, createdAt)"
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_executions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        conversationId TEXT NOT NULL,
+                        userPrompt TEXT NOT NULL,
+                        routeTaken TEXT NOT NULL,
+                        routeReason TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        stepsJson TEXT NOT NULL,
+                        resultSummary TEXT NOT NULL,
+                        durationMs INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_agent_executions_timestamp ON agent_executions (timestamp)"
+                )
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 JarvisDatabase::class.java,
                 "jarvis_foundation.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }

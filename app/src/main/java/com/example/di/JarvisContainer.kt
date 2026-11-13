@@ -2,11 +2,14 @@ package com.example.di
 
 import android.content.Context
 import com.example.core.agent.AgentCore
+import com.example.core.agent.IntentRouter
 import com.example.core.agent.Phase2AgentCore
 import com.example.core.agent.ToolRegistryFactory
 import com.example.core.ai.AiEngine
 import com.example.core.ai.LiteRtLmAiEngine
+import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudProviderRegistry
+import com.example.core.cloud.OkHttpCloudAiClient
 import com.example.core.cloud.Phase1CloudProviderRegistry
 import com.example.core.hf.HuggingFaceApiClient
 import com.example.core.memory.LocalMemory
@@ -25,6 +28,8 @@ import com.example.core.voice.AndroidVoiceEngine
 import com.example.core.voice.VoiceEngine
 import com.example.core.wakeword.ModularWakeWordEngine
 import com.example.core.wakeword.WakeWordEngine
+import com.example.core.web.OkHttpWebResearchService
+import com.example.core.web.WebResearchService
 import com.example.data.local.db.JarvisDatabase
 import com.example.data.local.db.ModelBenchmarkDao
 import com.example.data.repository.ConversationRepository
@@ -79,6 +84,10 @@ open class JarvisContainer(context: Context) {
 
     open val aiEngine: AiEngine by lazy { LiteRtLmAiEngine(appContext) }
 
+    open val cloudAiClient: CloudAiClient by lazy { OkHttpCloudAiClient() }
+
+    open val webResearchService: WebResearchService by lazy { OkHttpWebResearchService() }
+
     open val voiceEngine: VoiceEngine by lazy {
         AndroidVoiceEngine(appContext)
     }
@@ -112,7 +121,11 @@ open class JarvisContainer(context: Context) {
             wakeWordEngine = wakeWordEngine,
             localMemory = localMemory,
             appContext = appContext,
-            toolRegistry = toolRegistry
+            toolRegistry = toolRegistry,
+            cloudAiClient = cloudAiClient,
+            webResearchService = webResearchService,
+            intentRouter = IntentRouter(),
+            agentExecutionDao = database.agentExecutionDao()
         )
     }
 }

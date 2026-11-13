@@ -176,12 +176,36 @@ interface ModelBenchmarkDao {
 
 @Dao
 interface MemoryDao {
-    @Query("SELECT * FROM memory_notes ORDER BY createdAt DESC")
+    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC, createdAt DESC")
     fun observeFacts(): Flow<List<MemoryNoteEntity>>
+
+    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC, createdAt DESC")
+    suspend fun getAllFactsOnce(): List<MemoryNoteEntity>
+
+    @Query("SELECT * FROM memory_notes WHERE content LIKE :pattern OR category LIKE :pattern ORDER BY updatedAt DESC")
+    suspend fun searchFacts(pattern: String): List<MemoryNoteEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFact(note: MemoryNoteEntity)
 
+    @Query("UPDATE memory_notes SET category = :category, content = :content, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateFact(id: String, category: String, content: String, updatedAt: Long)
+
+    @Query("DELETE FROM memory_notes WHERE id = :id")
+    suspend fun deleteFactById(id: String)
+
     @Query("DELETE FROM memory_notes")
     suspend fun clearFacts()
+}
+
+@Dao
+interface AgentExecutionDao {
+    @Query("SELECT * FROM agent_executions ORDER BY timestamp DESC LIMIT 50")
+    fun observeExecutions(): Flow<List<AgentExecutionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExecution(execution: AgentExecutionEntity)
+
+    @Query("DELETE FROM agent_executions")
+    suspend fun clearExecutions()
 }

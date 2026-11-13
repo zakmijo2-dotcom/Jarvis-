@@ -9,7 +9,10 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.core.agent.AgentRoutingMode
+import com.example.core.cloud.CloudProviderKind
 import com.example.core.security.SecureCredentialStore
+import com.example.core.web.WebSearchProviderKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -42,7 +45,19 @@ data class JarvisSettings(
     val samplerTemperature: Float = 0.7f,
     val samplerTopK: Int = 40,
     val samplerTopP: Float = 0.95f,
-    val huggingFaceToken: String = ""
+    val huggingFaceToken: String = "",
+    // Phase 6 — Hybrid Routing, Cloud AI, Privacy Consent & Web Research
+    val routingMode: AgentRoutingMode = AgentRoutingMode.AUTO_HYBRID,
+    val cloudUploadConsentGranted: Boolean = false,
+    val cloudProviderKind: CloudProviderKind = CloudProviderKind.OPENAI_COMPATIBLE,
+    val cloudEndpointUrl: String = "",
+    val cloudModelId: String = "",
+    val cloudApiKey: String = "",
+    val cloudTimeoutSeconds: Int = 30,
+    val webResearchEnabled: Boolean = false,
+    val webSearchProvider: WebSearchProviderKind = WebSearchProviderKind.WIKIPEDIA_OPENSEARCH,
+    val webSearchCustomUrl: String = "",
+    val webSearchApiKey: String = ""
 )
 
 class SettingsRepository(
@@ -74,6 +89,19 @@ class SettingsRepository(
         val SAMPLER_TOP_P = floatPreferencesKey("sampler_top_p")
         val HUGGING_FACE_TOKEN_LEGACY = stringPreferencesKey("hugging_face_token")
         val HUGGING_FACE_TOKEN_ENC = stringPreferencesKey("hf_token_encrypted_v1")
+
+        // Phase 6
+        val ROUTING_MODE = stringPreferencesKey("agent_routing_mode")
+        val CLOUD_UPLOAD_CONSENT = booleanPreferencesKey("cloud_upload_consent")
+        val CLOUD_PROVIDER_KIND = stringPreferencesKey("cloud_provider_kind")
+        val CLOUD_ENDPOINT_URL = stringPreferencesKey("cloud_endpoint_url")
+        val CLOUD_MODEL_ID = stringPreferencesKey("cloud_model_id")
+        val CLOUD_API_KEY_ENC = stringPreferencesKey("cloud_api_key_encrypted_v1")
+        val CLOUD_TIMEOUT_SECONDS = intPreferencesKey("cloud_timeout_seconds")
+        val WEB_RESEARCH_ENABLED = booleanPreferencesKey("web_research_enabled")
+        val WEB_SEARCH_PROVIDER = stringPreferencesKey("web_search_provider")
+        val WEB_SEARCH_CUSTOM_URL = stringPreferencesKey("web_search_custom_url")
+        val WEB_SEARCH_API_KEY_ENC = stringPreferencesKey("web_search_api_key_encrypted_v1")
     }
 
     val settingsFlow: Flow<JarvisSettings> = dataStore.data.map { prefs ->
@@ -89,6 +117,12 @@ class SettingsRepository(
         } else {
             prefs[Keys.HUGGING_FACE_TOKEN_LEGACY].orEmpty()
         }
+
+        val cloudKeyEnc = prefs[Keys.CLOUD_API_KEY_ENC].orEmpty()
+        val resolvedCloudKey = if (cloudKeyEnc.isNotBlank()) credentialStore.decrypt(cloudKeyEnc) else ""
+
+        val webKeyEnc = prefs[Keys.WEB_SEARCH_API_KEY_ENC].orEmpty()
+        val resolvedWebKey = if (webKeyEnc.isNotBlank()) credentialStore.decrypt(webKeyEnc) else ""
 
         JarvisSettings(
             orbAnimationEnabled = prefs[Keys.ORB_ANIMATION_ENABLED] ?: true,
@@ -111,7 +145,18 @@ class SettingsRepository(
             samplerTemperature = (prefs[Keys.SAMPLER_TEMPERATURE] ?: 0.7f).coerceIn(0.0f, 1.5f),
             samplerTopK = (prefs[Keys.SAMPLER_TOP_K] ?: 40).coerceIn(1, 100),
             samplerTopP = (prefs[Keys.SAMPLER_TOP_P] ?: 0.95f).coerceIn(0.1f, 1.0f),
-            huggingFaceToken = resolvedToken
+            huggingFaceToken = resolvedToken,
+            routingMode = AgentRoutingMode.fromName(prefs[Keys.ROUTING_MODE]),
+            cloudUploadConsentGranted = prefs[Keys.CLOUD_UPLOAD_CONSENT] ?: false,
+            cloudProviderKind = CloudProviderKind.fromIdOrName(prefs[Keys.CLOUD_PROVIDER_KIND]),
+            cloudEndpointUrl = prefs[Keys.CLOUD_ENDPOINT_URL].orEmpty(),
+            cloudModelId = prefs[Keys.CLOUD_MODEL_ID].orEmpty(),
+            cloudApiKey = resolvedCloudKey,
+            cloudTimeoutSeconds = (prefs[Keys.CLOUD_TIMEOUT_SECONDS] ?: 30).coerceIn(5, 120),
+            webResearchEnabled = prefs[Keys.WEB_RESEARCH_ENABLED] ?: false,
+            webSearchProvider = WebSearchProviderKind.fromName(prefs[Keys.WEB_SEARCH_PROVIDER]),
+            webSearchCustomUrl = prefs[Keys.WEB_SEARCH_CUSTOM_URL].orEmpty(),
+            webSearchApiKey = resolvedWebKey
         )
     }
 
@@ -203,6 +248,64 @@ class SettingsRepository(
                 prefs.remove(Keys.HUGGING_FACE_TOKEN_ENC)
             } else {
                 prefs[Keys.HUGGING_FACE_TOKEN_ENC] = credentialStore.encrypt(trimmed)
+            }
+        }
+    }
+
+    suspend fun setRoutingMode(mode: AgentRoutingMode) {
+        dataStore.edit { it[Keys.ROUTING_MODE] = mode.name }
+    }
+
+    suspend fun setCloudUploadConsentGranted(granted: Boolean) {
+        dataStore.edit { it[Keys.CLOUD_UPLOAD_CONSENT] = granted }
+    }
+
+    suspend fun setCloudProviderKind(kind: CloudProviderKind) {
+        dataStore.edit { it[Keys.CLOUD_PROVIDER_KIND] = kind.name }
+    }
+
+    suspend fun setCloudEndpointUrl(url: String) {
+        dataStore.edit { it[Keys.CLOUD_ENDPOINT_URL] = url.trim() }
+    }
+
+    suspend fun setCloudModelId(modelId: String) {
+        dataStore.edit { it[Keys.CLOUD_MODEL_ID] = modelId.trim() }
+    }
+
+    suspend fun setCloudApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        dataStore.edit { prefs ->
+            if (trimmed.isEmpty()) {
+                prefs.remove(Keys.CLOUD_API_KEY_ENC)
+            } else {
+                prefs[Keys.CLOUD_API_KEY_ENC] = credentialStore.encrypt(trimmed)
+            }
+        }
+    }
+
+    suspend fun setCloudTimeoutSeconds(seconds: Int) {
+        dataStore.edit { it[Keys.CLOUD_TIMEOUT_SECONDS] = seconds.coerceIn(5, 120) }
+    }
+
+    suspend fun setWebResearchEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.WEB_RESEARCH_ENABLED] = enabled }
+    }
+
+    suspend fun setWebSearchProvider(provider: WebSearchProviderKind) {
+        dataStore.edit { it[Keys.WEB_SEARCH_PROVIDER] = provider.name }
+    }
+
+    suspend fun setWebSearchCustomUrl(url: String) {
+        dataStore.edit { it[Keys.WEB_SEARCH_CUSTOM_URL] = url.trim() }
+    }
+
+    suspend fun setWebSearchApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        dataStore.edit { prefs ->
+            if (trimmed.isEmpty()) {
+                prefs.remove(Keys.WEB_SEARCH_API_KEY_ENC)
+            } else {
+                prefs[Keys.WEB_SEARCH_API_KEY_ENC] = credentialStore.encrypt(trimmed)
             }
         }
     }

@@ -81,7 +81,8 @@ fun JarvisAppShell(
             agentCore = container.agentCore,
             aiEngine = container.aiEngine,
             settingsRepository = container.settingsRepository,
-            modelBenchmarkDao = container.modelBenchmarkDao
+            modelBenchmarkDao = container.modelBenchmarkDao,
+            localMemory = container.localMemory
         )
     )
     val voiceViewModel: VoiceViewModel = viewModel(
@@ -150,7 +151,8 @@ fun JarvisAppShell(
             settingsRepository = container.settingsRepository,
             conversationRepository = container.conversationRepository,
             wakeWordEngine = container.wakeWordEngine,
-            localMemory = container.localMemory
+            localMemory = container.localMemory,
+            agentCore = container.agentCore
         )
     )
 
@@ -328,7 +330,9 @@ fun JarvisAppShell(
                                 onOpenDeviceControls = {
                                     deviceDashboardViewModel.selectTab(DeviceDashboardTab.CONTROLS)
                                     navigateToDestination(TopDestination.DEVICE)
-                                }
+                                },
+                                onSelectRoutingMode = chatViewModel::setRoutingMode,
+                                onSummarizeSession = chatViewModel::summarizeCurrentSessionToMemory
                             )
                         }
                         composable<VoiceRoute> {
@@ -428,7 +432,23 @@ fun JarvisAppShell(
                                 onSetSamplerTopP = settingsViewModel::setSamplerTopP,
                                 onSetHuggingFaceToken = settingsViewModel::setHuggingFaceToken,
                                 onPurgeHistory = settingsViewModel::purgeConversationArchive,
-                                onDismissBanner = settingsViewModel::dismissBanner
+                                onDismissBanner = settingsViewModel::dismissBanner,
+                                onSetRoutingMode = settingsViewModel::setRoutingMode,
+                                onSetCloudUploadConsent = settingsViewModel::setCloudUploadConsentGranted,
+                                onSetCloudProvider = settingsViewModel::setCloudProviderKind,
+                                onSetCloudEndpoint = settingsViewModel::setCloudEndpointUrl,
+                                onSetCloudModelId = settingsViewModel::setCloudModelId,
+                                onSetCloudApiKey = settingsViewModel::setCloudApiKey,
+                                onSetCloudTimeoutSeconds = settingsViewModel::setCloudTimeoutSeconds,
+                                onResetCloudUsageStats = settingsViewModel::resetCloudUsageStats,
+                                onSetWebResearchEnabled = settingsViewModel::setWebResearchEnabled,
+                                onSetWebSearchProvider = settingsViewModel::setWebSearchProvider,
+                                onSetWebCustomUrl = settingsViewModel::setWebSearchCustomUrl,
+                                onSetWebApiKey = settingsViewModel::setWebSearchApiKey,
+                                onMemorySearchQueryChange = settingsViewModel::updateMemorySearchQuery,
+                                onAddMemory = settingsViewModel::addMemoryItem,
+                                onEditMemory = settingsViewModel::editMemoryItem,
+                                onDeleteMemory = settingsViewModel::deleteMemoryItem
                             )
                         }
                     }

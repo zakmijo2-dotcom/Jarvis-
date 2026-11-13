@@ -4,14 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.agent.AgentCore
+import com.example.core.agent.AgentPlanStep
+import com.example.core.agent.AgentPlanState
+import com.example.core.agent.AgentRoutingMode
+import com.example.core.agent.HybridAgentEvent
 import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.GenerationBenchmark
-import com.example.core.model.ArtifactState
+import com.example.core.memory.LocalMemory
 import com.example.core.model.ModelManager
 import com.example.core.model.ModelSlot
-import com.example.core.model.RuntimeFormatId
 import com.example.core.tools.NotificationBridge
 import com.example.core.tools.PendingToolConfirmation
 import com.example.core.tools.SpecialAccessType
@@ -26,7 +29,6 @@ import com.example.data.local.db.ModelBenchmarkEntity
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class ChatUiState(
     val activeConversationId: String? = null,
@@ -52,10 +55,12 @@ data class ChatUiState(
     val streamingReply: String? = null,
     val streamingBackend: String? = null,
     val streamingEstimatedTokens: Int = 0,
+    val streamingIsCloud: Boolean = false,
     val lastBenchmark: GenerationBenchmark? = null,
     val nativeMemoryMb: Float = 0f,
     val pendingToolConfirmation: PendingToolConfirmation? = null,
     val activeToolName: String? = null,
+    val activePlan: AgentPlanState? = null,
     val pendingRuntimePermission: String? = null,
     val pendingSpecialAccess: SpecialAccessType? = null,
     val permissionRationale: String? = null
@@ -66,7 +71,17 @@ private data class ChatToolOverlayState(
     val activeToolName: String? = null,
     val pendingRuntimePermission: String? = null,
     val pendingSpecialAccess: SpecialAccessType? = null,
-    val permissionRationale: String? = null
+    val permissionRationale: String? = null,
+    val activePlan: AgentPlanState? = null,
+    val streamingIsCloud: Boolean = false
+)
+
+private data class PausedPlanResumeContext(
+    val conversationId: String,
+    val prompt: String,
+    val history: List<MessageEntity>,
+    val stepIndex: Int,
+    val stepsSnapshot: List<AgentPlanStep>
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -76,7 +91,8 @@ class ChatViewModel(
     private val agentCore: AgentCore,
     private val aiEngine: AiEngine,
     private val settingsRepository: SettingsRepository,
-    private val modelBenchmarkDao: ModelBenchmarkDao? = null
+    private val modelBenchmarkDao: ModelBenchmarkDao? = null,
+    private val localMemory: LocalMemory? = null
 ) : ViewModel() {
 
     private val activeConversationId = MutableStateFlow<String?>(null)
@@ -87,6 +103,7 @@ class ChatViewModel(
     private val toolOverlayState = MutableStateFlow(ChatToolOverlayState())
     private var generationJob: Job? = null
     private var toolJob: Job? = null
+    private var pausedPlanContext: PausedPlanResumeContext? = null
     private var lastPermissionDeniedRequest: Pair<String, ToolCallRequest>? = null
 
     private val activeMessagesFlow = activeConversationId.flatMapLatest { id ->
@@ -167,10 +184,12 @@ class ChatViewModel(
             streamingReply = streamText,
             streamingBackend = streamBackend,
             streamingEstimatedTokens = streamTok,
+            streamingIsCloud = toolOverlay.streamingIsCloud,
             lastBenchmark = lastBench,
             nativeMemoryMb = nativeMem,
             pendingToolConfirmation = toolOverlay.pendingConfirmation,
             activeToolName = toolOverlay.activeToolName,
+            activePlan = toolOverlay.activePlan,
             pendingRuntimePermission = toolOverlay.pendingRuntimePermission,
             pendingSpecialAccess = toolOverlay.pendingSpecialAccess,
             permissionRationale = toolOverlay.permissionRationale
@@ -208,172 +227,235 @@ class ChatViewModel(
                 modelLabel = "Operator"
             )
 
-            // Direct /tool pipeline: AgentCore -> ToolRegistry -> PermissionValidator -> Android API
-            val directToolRequest = agentCore.parseDirectToolCommand(text)
-            if (directToolRequest != null) {
-                dispatchToolInternal(convId, directToolRequest, currentSettings, userConfirmed = false)
-                return@launch
-            }
+            runHybridExecution(
+                convId = convId,
+                prompt = text,
+                history = historyBeforeSend,
+                settings = currentSettings,
+                activeModel = activeModel,
+                confirmedStepIndex = null,
+                existingSteps = null
+            )
+        }
+    }
 
-            // Auto-load or hot-swap local verified LiteRT-LM model if active slot changed or isn't loaded
-            val readyState = aiEngine.loadState.value as? EngineLoadState.Ready
-            if (readyState == null || (activeModel != null && readyState.modelId != activeModel.id)) {
-                if (activeModel != null && activeModel.runtimeFormat != RuntimeFormatId.LITERT_LM) {
-                    conversationRepository.appendMessage(
-                        conversationId = convId,
-                        role = MessageRole.SYSTEM_NOTICE,
-                        content = "\"${activeModel.displayName}\" uses ${activeModel.runtimeFormat.label}, whose runtime adapter is prepared for a later phase. Select a LiteRT-LM (.litertlm) model in Models to run inference.",
-                        modelLabel = "Adapter Boundary"
-                    )
-                    return@launch
-                } else if (activeModel != null && activeModel.artifactState == ArtifactState.READY) {
-                    val loadRes = aiEngine.loadModel(activeModel, currentSettings)
-                    if (loadRes.isFailure) {
-                        val reason = loadRes.exceptionOrNull()?.localizedMessage
-                            ?: "Unable to initialize local LiteRT-LM runtime."
+    private suspend fun runHybridExecution(
+        convId: String,
+        prompt: String,
+        history: List<MessageEntity>,
+        settings: JarvisSettings,
+        activeModel: ModelSlot?,
+        confirmedStepIndex: Int?,
+        existingSteps: List<AgentPlanStep>?
+    ) {
+        try {
+            agentCore.executeHybridTask(
+                conversationId = convId,
+                prompt = prompt,
+                history = history,
+                settings = settings,
+                confirmedStepIndex = confirmedStepIndex,
+                existingSteps = existingSteps
+            ).collect { hybridEvent ->
+                when (hybridEvent) {
+                    is HybridAgentEvent.PlanUpdated -> {
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            activePlan = hybridEvent.plan
+                        )
+                    }
+
+                    is HybridAgentEvent.ToolSnapshotEmitted -> {
+                        conversationRepository.appendMessage(
+                            conversationId = convId,
+                            role = MessageRole.TOOL_SNAPSHOT,
+                            content = hybridEvent.content,
+                            modelLabel = hybridEvent.label
+                        )
+                    }
+
+                    is HybridAgentEvent.Notice -> {
                         conversationRepository.appendMessage(
                             conversationId = convId,
                             role = MessageRole.SYSTEM_NOTICE,
-                            content = reason,
-                            modelLabel = "LiteRT-LM // Load Error"
+                            content = hybridEvent.message,
+                            modelLabel = hybridEvent.label
                         )
-                        return@launch
                     }
-                } else {
-                    val label = activeModel?.displayName ?: "No Model Selected"
-                    conversationRepository.appendMessage(
-                        conversationId = convId,
-                        role = MessageRole.SYSTEM_NOTICE,
-                        content = "Local model \"$label\" is not installed or loaded yet. Open Models to download or import a .litertlm model artifact and load the engine.",
-                        modelLabel = "Engine Unloaded"
-                    )
-                    return@launch
-                }
-            }
 
-            val modelDisplayName = activeModel?.displayName ?: "Gemma 3 1B"
-            streamingReply.value = ""
-            streamingTokenEstimate.value = 0
+                    is HybridAgentEvent.ConfirmationRequired -> {
+                        val currentSteps = toolOverlayState.value.activePlan?.steps.orEmpty()
+                        pausedPlanContext = PausedPlanResumeContext(
+                            conversationId = convId,
+                            prompt = prompt,
+                            history = history,
+                            stepIndex = hybridEvent.stepIndex,
+                            stepsSnapshot = currentSteps
+                        )
+                        val pending = agentCore.describeConfirmation(hybridEvent.request)
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            pendingConfirmation = pending
+                        )
+                    }
 
-            try {
-                agentCore.streamPrompt(
-                    conversationId = convId,
-                    prompt = text,
-                    history = historyBeforeSend,
-                    settings = currentSettings
-                ).collect { event ->
-                    when (event) {
-                        is AiStreamEvent.Started -> {
-                            streamingBackend.value = event.backendUsed
+                    is HybridAgentEvent.PermissionRequired -> {
+                        lastPermissionDeniedRequest = convId to hybridEvent.request
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            pendingRuntimePermission = hybridEvent.missingRuntimePermission,
+                            pendingSpecialAccess = hybridEvent.missingSpecialAccess,
+                            permissionRationale = hybridEvent.rationale
+                        )
+                    }
+
+                    is HybridAgentEvent.AiStream -> {
+                        val event = hybridEvent.event
+                        val modelLabel = if (hybridEvent.usedCloud) {
+                            val chosenModel = settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+                            "Cloud // $chosenModel"
+                        } else {
+                            "${activeModel?.displayName ?: "Gemma 3 1B"} (Local)"
                         }
 
-                        is AiStreamEvent.Delta -> {
-                            streamingReply.value = event.accumulatedText
-                            streamingTokenEstimate.value = event.estimatedTokens
-                        }
-
-                        is AiStreamEvent.Completed -> {
-                            val finalContent = event.fullText.trim()
-                            clearStreamingState()
-                            if (finalContent.isNotEmpty()) {
-                                conversationRepository.appendMessage(
-                                    conversationId = convId,
-                                    role = MessageRole.ASSISTANT,
-                                    content = finalContent,
-                                    modelLabel = modelDisplayName,
-                                    ttftMs = event.benchmark.ttftMs,
-                                    tokensPerSecond = event.benchmark.tokensPerSecond,
-                                    outputTokens = event.benchmark.outputTokens,
-                                    backendUsed = event.benchmark.backendUsed
+                        when (event) {
+                            is AiStreamEvent.Started -> {
+                                streamingReply.value = ""
+                                streamingTokenEstimate.value = 0
+                                streamingBackend.value = event.backendUsed
+                                toolOverlayState.value = toolOverlayState.value.copy(
+                                    streamingIsCloud = hybridEvent.usedCloud
                                 )
-                                modelBenchmarkDao?.insertBenchmark(
-                                    ModelBenchmarkEntity(
-                                        id = UUID.randomUUID().toString(),
-                                        modelId = activeModel?.id ?: "unknown",
-                                        modelName = modelDisplayName,
-                                        backendUsed = event.benchmark.backendUsed,
+                            }
+
+                            is AiStreamEvent.Delta -> {
+                                streamingReply.value = event.accumulatedText
+                                streamingTokenEstimate.value = event.estimatedTokens
+                            }
+
+                            is AiStreamEvent.Completed -> {
+                                val finalContent = event.fullText.trim()
+                                clearStreamingState()
+                                if (finalContent.isNotEmpty()) {
+                                    conversationRepository.appendMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.ASSISTANT,
+                                        content = finalContent,
+                                        modelLabel = modelLabel,
                                         ttftMs = event.benchmark.ttftMs,
                                         tokensPerSecond = event.benchmark.tokensPerSecond,
                                         outputTokens = event.benchmark.outputTokens,
-                                        prefillTokens = event.benchmark.prefillTokens,
-                                        nativeHeapMb = event.benchmark.nativeHeapMb,
-                                        timestamp = System.currentTimeMillis()
+                                        backendUsed = event.benchmark.backendUsed
                                     )
-                                )
-                                val modelToolCall = agentCore.extractModelToolCall(finalContent)
-                                if (modelToolCall != null) {
-                                    dispatchToolInternal(
-                                        convId = convId,
-                                        request = modelToolCall,
-                                        settings = currentSettings,
-                                        userConfirmed = false
+                                    modelBenchmarkDao?.insertBenchmark(
+                                        ModelBenchmarkEntity(
+                                            id = UUID.randomUUID().toString(),
+                                            modelId = if (hybridEvent.usedCloud) settings.cloudProviderKind.id else (activeModel?.id ?: "unknown"),
+                                            modelName = modelLabel,
+                                            backendUsed = event.benchmark.backendUsed,
+                                            ttftMs = event.benchmark.ttftMs,
+                                            tokensPerSecond = event.benchmark.tokensPerSecond,
+                                            outputTokens = event.benchmark.outputTokens,
+                                            prefillTokens = event.benchmark.prefillTokens,
+                                            nativeHeapMb = event.benchmark.nativeHeapMb,
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                    )
+                                    val modelToolCall = agentCore.extractModelToolCall(finalContent)
+                                    if (modelToolCall != null) {
+                                        dispatchStandaloneTool(
+                                            convId = convId,
+                                            request = modelToolCall,
+                                            settings = settings,
+                                            userConfirmed = false
+                                        )
+                                    }
+                                } else {
+                                    conversationRepository.appendMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.SYSTEM_NOTICE,
+                                        content = "Model returned an empty completion.",
+                                        modelLabel = modelLabel
                                     )
                                 }
-                            } else {
+                            }
+
+                            is AiStreamEvent.Cancelled -> {
+                                val partial = event.partialText.trim()
+                                clearStreamingState()
+                                if (partial.isNotEmpty()) {
+                                    conversationRepository.appendMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.ASSISTANT,
+                                        content = "$partial\n\n[Generation stopped]",
+                                        modelLabel = modelLabel,
+                                        ttftMs = event.benchmark?.ttftMs,
+                                        tokensPerSecond = event.benchmark?.tokensPerSecond,
+                                        outputTokens = event.benchmark?.outputTokens,
+                                        backendUsed = event.benchmark?.backendUsed
+                                    )
+                                } else {
+                                    conversationRepository.appendMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.SYSTEM_NOTICE,
+                                        content = "Inference cancelled before first token.",
+                                        modelLabel = modelLabel
+                                    )
+                                }
+                            }
+
+                            is AiStreamEvent.Error -> {
+                                clearStreamingState()
                                 conversationRepository.appendMessage(
                                     conversationId = convId,
                                     role = MessageRole.SYSTEM_NOTICE,
-                                    content = "Model returned an empty completion.",
-                                    modelLabel = modelDisplayName
+                                    content = event.message,
+                                    modelLabel = if (hybridEvent.usedCloud) "Cloud API // Error" else "LiteRT-LM // Error"
                                 )
                             }
-                        }
-
-                        is AiStreamEvent.Cancelled -> {
-                            val partial = event.partialText.trim()
-                            clearStreamingState()
-                            if (partial.isNotEmpty()) {
-                                conversationRepository.appendMessage(
-                                    conversationId = convId,
-                                    role = MessageRole.ASSISTANT,
-                                    content = "$partial\n\n[Generation stopped]",
-                                    modelLabel = modelDisplayName,
-                                    ttftMs = event.benchmark?.ttftMs,
-                                    tokensPerSecond = event.benchmark?.tokensPerSecond,
-                                    outputTokens = event.benchmark?.outputTokens,
-                                    backendUsed = event.benchmark?.backendUsed
-                                )
-                            } else {
-                                conversationRepository.appendMessage(
-                                    conversationId = convId,
-                                    role = MessageRole.SYSTEM_NOTICE,
-                                    content = "Inference cancelled before first token.",
-                                    modelLabel = modelDisplayName
-                                )
-                            }
-                        }
-
-                        is AiStreamEvent.Error -> {
-                            clearStreamingState()
-                            conversationRepository.appendMessage(
-                                conversationId = convId,
-                                role = MessageRole.SYSTEM_NOTICE,
-                                content = event.message,
-                                modelLabel = "LiteRT-LM // Error"
-                            )
                         }
                     }
                 }
-            } finally {
-                clearStreamingState()
+            }
+        } finally {
+            clearStreamingState()
+            if (pausedPlanContext == null &&
+                toolOverlayState.value.pendingConfirmation == null &&
+                toolOverlayState.value.pendingRuntimePermission == null &&
+                toolOverlayState.value.pendingSpecialAccess == null
+            ) {
+                toolOverlayState.value = toolOverlayState.value.copy(activePlan = null)
             }
         }
     }
 
     fun confirmPendingTool() {
         val pending = toolOverlayState.value.pendingConfirmation ?: return
-        val convId = activeConversationId.value ?: return
+        val paused = pausedPlanContext
+        val convId = paused?.conversationId ?: activeConversationId.value ?: return
         val settings = uiState.value.settings
         toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = null)
+        pausedPlanContext = null
+
         toolJob = viewModelScope.launch {
-            dispatchToolInternal(convId, pending.request, settings, userConfirmed = true)
+            if (paused != null) {
+                runHybridExecution(
+                    convId = convId,
+                    prompt = paused.prompt,
+                    history = paused.history,
+                    settings = settings,
+                    activeModel = modelManager.getActiveModelOnce(),
+                    confirmedStepIndex = paused.stepIndex,
+                    existingSteps = paused.stepsSnapshot
+                )
+            } else {
+                dispatchStandaloneTool(convId, pending.request, settings, userConfirmed = true)
+            }
         }
     }
 
     fun cancelPendingTool() {
         val pending = toolOverlayState.value.pendingConfirmation ?: return
-        val convId = activeConversationId.value
-        toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = null)
+        val convId = pausedPlanContext?.conversationId ?: activeConversationId.value
+        pausedPlanContext = null
+        toolOverlayState.value = toolOverlayState.value.copy(pendingConfirmation = null, activePlan = null)
         if (convId != null) {
             viewModelScope.launch {
                 conversationRepository.appendMessage(
@@ -388,19 +470,51 @@ class ChatViewModel(
 
     fun cancelActiveTool() {
         val activeName = toolOverlayState.value.activeToolName
-        agentCore.cancelActiveTool()
+        agentCore.cancelAutonomousTask()
         toolJob?.cancel()
-        toolOverlayState.value = toolOverlayState.value.copy(activeToolName = null)
+        generationJob?.cancel()
+        toolOverlayState.value = toolOverlayState.value.copy(activeToolName = null, activePlan = null)
         val convId = activeConversationId.value
-        if (convId != null && activeName != null) {
+        if (convId != null) {
             viewModelScope.launch {
                 conversationRepository.appendMessage(
                     conversationId = convId,
                     role = MessageRole.TOOL_SNAPSHOT,
-                    content = "Tool execution '$activeName' cancelled.",
-                    modelLabel = "Tool // Cancelled"
+                    content = "Execution '${activeName ?: "Autonomous Plan"}' cancelled.",
+                    modelLabel = "Agent // Cancelled"
                 )
             }
+        }
+    }
+
+    fun setRoutingMode(mode: AgentRoutingMode) {
+        viewModelScope.launch {
+            settingsRepository.setRoutingMode(mode)
+        }
+    }
+
+    fun summarizeCurrentSessionToMemory() {
+        val convId = activeConversationId.value ?: return
+        val memory = localMemory ?: return
+        viewModelScope.launch {
+            val msgs = conversationRepository.getMessagesOnce(convId)
+            val saved = memory.summarizeAndStoreConversation(
+                conversationId = convId,
+                title = uiState.value.activeConversationTitle,
+                messages = msgs,
+                userApproved = true
+            )
+            val notice = if (saved != null) {
+                "Saved approved session summary to local Room memory: ${saved.content}"
+            } else {
+                "Session summary skipped (empty conversation or contains sensitive credentials)."
+            }
+            conversationRepository.appendMessage(
+                conversationId = convId,
+                role = MessageRole.SYSTEM_NOTICE,
+                content = notice,
+                modelLabel = "Local Memory"
+            )
         }
     }
 
@@ -425,7 +539,7 @@ class ChatViewModel(
             val (convId, req) = deferred
             viewModelScope.launch {
                 if (granted) {
-                    dispatchToolInternal(convId, req, uiState.value.settings, userConfirmed = false)
+                    dispatchStandaloneTool(convId, req, uiState.value.settings, userConfirmed = false)
                 } else {
                     conversationRepository.appendMessage(
                         conversationId = convId,
@@ -438,7 +552,7 @@ class ChatViewModel(
         }
     }
 
-    private suspend fun dispatchToolInternal(
+    private suspend fun dispatchStandaloneTool(
         convId: String,
         request: ToolCallRequest,
         settings: JarvisSettings,
@@ -507,6 +621,7 @@ class ChatViewModel(
 
     fun cancelGeneration() {
         viewModelScope.launch {
+            agentCore.cancelAutonomousTask()
             aiEngine.cancelGeneration()
         }
     }
@@ -522,6 +637,7 @@ class ChatViewModel(
         streamingReply.value = null
         streamingBackend.value = null
         streamingTokenEstimate.value = 0
+        toolOverlayState.value = toolOverlayState.value.copy(streamingIsCloud = false)
     }
 
     fun runSystemSnapshot() {
@@ -612,7 +728,8 @@ class ChatViewModel(
             agentCore: AgentCore,
             aiEngine: AiEngine,
             settingsRepository: SettingsRepository,
-            modelBenchmarkDao: ModelBenchmarkDao? = null
+            modelBenchmarkDao: ModelBenchmarkDao? = null,
+            localMemory: LocalMemory? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -622,7 +739,8 @@ class ChatViewModel(
                     agentCore = agentCore,
                     aiEngine = aiEngine,
                     settingsRepository = settingsRepository,
-                    modelBenchmarkDao = modelBenchmarkDao
+                    modelBenchmarkDao = modelBenchmarkDao,
+                    localMemory = localMemory
                 ) as T
             }
         }

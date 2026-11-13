@@ -32,6 +32,10 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -73,6 +77,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.core.agent.AgentRoutingMode
+import com.example.core.agent.PlanStepStatus
 import com.example.core.ai.EngineLoadState
 import com.example.core.model.ArtifactState
 import com.example.data.local.db.MessageEntity
@@ -103,7 +109,9 @@ fun ChatScreen(
     onCancelActiveTool: () -> Unit = {},
     onDismissPermissionPrompt: () -> Unit = {},
     onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
-    onOpenDeviceControls: () -> Unit = {}
+    onOpenDeviceControls: () -> Unit = {},
+    onSelectRoutingMode: (AgentRoutingMode) -> Unit = {},
+    onSummarizeSession: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var inputText by rememberSaveable { mutableStateOf("") }
@@ -175,6 +183,23 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    val privacyTag = when {
+                        uiState.settings.routingMode == AgentRoutingMode.LOCAL_ONLY -> "LOCAL ONLY"
+                        uiState.settings.cloudUploadConsentGranted -> "HYBRID"
+                        else -> "PRIVATE LOCAL"
+                    }
+                    HudBadge(
+                        text = privacyTag,
+                        color = if (uiState.settings.cloudUploadConsentGranted && uiState.settings.routingMode != AgentRoutingMode.LOCAL_ONLY) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .testTag("chat_privacy_badge")
+                    )
                     HudBadge(
                         text = badgeText,
                         color = badgeColor,
@@ -204,6 +229,57 @@ fun ChatScreen(
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceContainer
                 )
+            }
+
+            if (uiState.activePlan != null) {
+                val activePlan = uiState.activePlan
+                val inProgress = activePlan.steps.any {
+                    it.status == PlanStepStatus.RUNNING || it.status == PlanStepStatus.PENDING
+                }
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("agent_plan_banner"),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "AGENT ROUTE: ${activePlan.routeDecision.route.label}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (inProgress) {
+                                TextButton(
+                                    onClick = onCancelActiveTool,
+                                    modifier = Modifier.testTag("cancel_plan_button")
+                                ) {
+                                    Text("Cancel Plan")
+                                }
+                            }
+                        }
+                        Text(
+                            text = activePlan.steps.joinToString(" • ") {
+                                "${it.title} [${it.status.label}]"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
 
             if (uiState.activeToolName != null) {
@@ -331,6 +407,57 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                item {
+                    val modes = AgentRoutingMode.entries
+                    val nextMode = modes[(modes.indexOf(uiState.settings.routingMode) + 1) % modes.size]
+                    AssistChip(
+                        onClick = { onSelectRoutingMode(nextMode) },
+                        label = {
+                            Text(
+                                text = "Mode: ${uiState.settings.routingMode.label}",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = when (uiState.settings.routingMode) {
+                                    AgentRoutingMode.LOCAL_ONLY -> Icons.Filled.Lock
+                                    AgentRoutingMode.CLOUD_ONLY -> Icons.Filled.Cloud
+                                    AgentRoutingMode.AUTO_HYBRID -> Icons.Filled.AutoAwesome
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            labelColor = MaterialTheme.colorScheme.primary,
+                            leadingIconContentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.testTag("chip_routing_mode")
+                    )
+                }
+                if (uiState.messages.isNotEmpty()) {
+                    item {
+                        AssistChip(
+                            onClick = onSummarizeSession,
+                            label = {
+                                Text(
+                                    text = "Save Summary",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.BookmarkAdd,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("chip_summarize_session")
+                        )
+                    }
+                }
                 if (uiState.engineLoadState !is EngineLoadState.Ready &&
                     uiState.activeModel?.artifactState == ArtifactState.READY
                 ) {

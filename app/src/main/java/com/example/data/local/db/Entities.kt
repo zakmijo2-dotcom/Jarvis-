@@ -114,12 +114,36 @@ data class ModelBenchmarkEntity(
     val timestamp: Long
 )
 
-@Entity(tableName = "memory_notes")
+@Entity(
+    tableName = "memory_notes",
+    indices = [Index(value = ["kind", "createdAt"])]
+)
 data class MemoryNoteEntity(
     @PrimaryKey val id: String,
     val category: String,
     val content: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val kind: String = "FACT",
+    val sourceConversationId: String? = null,
+    val isUserApproved: Boolean = true,
+    val updatedAt: Long = createdAt
+)
+
+@Entity(
+    tableName = "agent_executions",
+    indices = [Index(value = ["timestamp"])]
+)
+data class AgentExecutionEntity(
+    @PrimaryKey val id: String,
+    val conversationId: String,
+    val userPrompt: String,
+    val routeTaken: String,
+    val routeReason: String,
+    val status: String,
+    val stepsJson: String,
+    val resultSummary: String,
+    val durationMs: Long,
+    val timestamp: Long
 )
 
 data class ConversationWithPreview(
