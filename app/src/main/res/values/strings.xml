@@ -1,0 +1,59 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="hud_brand_title">J.A.R.V.I.S.</string>
+    <string name="hud_phase_badge">PHASE 1 // FOUNDATION</string>
+
+    <!-- Navigation -->
+    <string name="nav_chat">Chat</string>
+    <string name="nav_voice">Voice</string>
+    <string name="nav_models">Models</string>
+    <string name="nav_device">Device</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- History Drawer -->
+    <string name="drawer_title">SESSION ARCHIVE</string>
+    <string name="drawer_new_session">New Session</string>
+    <string name="drawer_search_hint">Filter sessions…</string>
+    <string name="drawer_empty">No archived sessions yet.</string>
+    <string name="cd_open_history">Open conversation history</string>
+    <string name="cd_delete_session">Delete session</string>
+    <string name="cd_rename_session">Rename session</string>
+    <string name="cd_pin_session">Pin session</string>
+
+    <!-- Chat Screen -->
+    <string name="chat_input_hint">Enter command or message…</string>
+    <string name="cd_send_message">Send message</string>
+    <string name="cd_voice_handoff">Switch to voice console</string>
+    <string name="chat_empty_title">CORE STANDBY</string>
+    <string name="chat_empty_subtitle">Phase 1 foundation active. Local Room memory &amp; telemetry pipelines are online; AI inference engine awaits Phase 2 linking.</string>
+    <string name="chip_telemetry_snapshot">System Snapshot</string>
+    <string name="chip_engine_status">Engine Readiness</string>
+    <string name="chip_open_models">Inspect Models</string>
+
+    <!-- Voice Screen -->
+    <string name="voice_title">VOICE CONSOLE</string>
+    <string name="voice_tap_to_listen">Tap orb to start speech capture</string>
+    <string name="voice_listening">Listening… speak clearly</string>
+    <string name="voice_permission_needed">Microphone permission required for real-time SpeechRecognizer capture.</string>
+    <string name="voice_grant_permission">Grant Microphone</string>
+    <string name="voice_speak_status">Speak Status</string>
+    <string name="voice_stop_tts">Stop Speech</string>
+    <string name="voice_send_to_chat">Log Transcript to Chat</string>
+    <string name="cd_voice_orb">Toggle voice recognition</string>
+
+    <!-- Model Manager Screen -->
+    <string name="models_title">MODEL REGISTRY</string>
+    <string name="models_filter_all">All</string>
+    <string name="models_filter_local">On-Device</string>
+    <string name="models_filter_cloud">Cloud</string>
+    <string name="models_add_slot">Register Slot</string>
+    <string name="models_phase2_notice">Phase 1 stores model slots &amp; runtime targets locally in Room. Actual inference &amp; downloads activate in Phase 2.</string>
+
+    <!-- Device Dashboard Screen -->
+    <string name="device_title">SYSTEM TELEMETRY</string>
+    <string name="cd_refresh_telemetry">Refresh device telemetry</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">CORE CONFIGURATION</string>
+    <string name="settings_clear_history">Purge Conversation Archive</string>
+</resources>

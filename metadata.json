@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis",
+  "description": "Foundational native Android JARVIS AI cockpit with animated assistant orb, Room conversation persistence, DataStore preferences, real SpeechRecognizer/TTS voice pipeline, and live device telemetry dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
