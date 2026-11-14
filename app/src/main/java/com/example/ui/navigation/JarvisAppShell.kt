@@ -193,7 +193,11 @@ fun JarvisAppShell(
         gesturesEnabled = currentRoute == TopDestination.CHAT.routeQualifiedName || drawerState.isOpen,
         drawerContent = {
             HistoryDrawerContent(
-                conversations = chatState.conversations,
+                conversations = if (drawerState.isOpen || drawerState.targetValue == DrawerValue.Open) {
+                    chatState.conversations
+                } else {
+                    emptyList()
+                },
                 activeConversationId = chatState.activeConversationId,
                 searchQuery = chatState.drawerSearchQuery,
                 onSearchQueryChange = chatViewModel::updateSearchQuery,
@@ -367,7 +371,8 @@ fun JarvisAppShell(
                                 onLogTranscriptToChat = { transcript ->
                                     chatViewModel.sendMessage(transcript)
                                     navigateToDestination(TopDestination.CHAT)
-                                }
+                                },
+                                onSavePorcupineAccessKey = voiceViewModel::setPorcupineAccessKey
                             )
                         }
                         composable<ModelsRoute> {

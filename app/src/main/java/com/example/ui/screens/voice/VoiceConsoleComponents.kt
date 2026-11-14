@@ -46,11 +46,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
@@ -531,9 +536,13 @@ fun WakeWordEvaluationCard(
     metrics: WakeWordAudioMetrics,
     report: WakeWordEvaluationReport?,
     pauseMicInBackground: Boolean,
+    porcupineAccessKey: String = "",
     onToggleStandby: (Boolean) -> Unit,
-    onTogglePauseInBackground: (Boolean) -> Unit
+    onTogglePauseInBackground: (Boolean) -> Unit,
+    onSavePorcupineAccessKey: (String) -> Unit = {}
 ) {
+    var keyDraft by remember(porcupineAccessKey) { mutableStateOf(porcupineAccessKey) }
+
     HudPanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -573,15 +582,47 @@ fun WakeWordEvaluationCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val verified = report?.isPhraseDetectionVerified == true
             HudBadge(
-                text = if (report?.isPhraseDetectionVerified == true) "MIC VERIFIED" else "KWS UNVERIFIED (EVALUATION)",
-                color = SignalAmber
+                text = when {
+                    verified -> "MIC + KWS VERIFIED"
+                    porcupineAccessKey.isNotBlank() -> "PORCUPINE KEY CONFIGURED"
+                    else -> "KWS UNVERIFIED (EVALUATION)"
+                },
+                color = if (verified) NominalGreen else SignalAmber
             )
             Text(
                 text = String.format(Locale.US, "PCM Gate: %.1f dBFS (%d frames)", metrics.rmsDbfs, metrics.framesProcessed),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = keyDraft,
+                onValueChange = { keyDraft = it },
+                label = { Text("Picovoice Porcupine AccessKey (Optional)") },
+                placeholder = { Text("Paste AccessKey for native 'Jarvis' KWS") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("porcupine_access_key_input")
+            )
+            OutlinedButton(
+                onClick = { onSavePorcupineAccessKey(keyDraft) },
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("porcupine_access_key_save_button")
+            ) {
+                Text("Save Key")
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))

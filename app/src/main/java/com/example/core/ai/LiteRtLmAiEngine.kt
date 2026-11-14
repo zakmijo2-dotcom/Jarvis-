@@ -38,7 +38,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LiteRtLmAiEngine(
-    context: Context
+    context: Context,
+    private val systemInstructionProvider: () -> String = { JARVIS_SYSTEM_INSTRUCTION }
 ) : AiEngine {
 
     private val appContext = context.applicationContext
@@ -54,9 +55,11 @@ class LiteRtLmAiEngine(
     private var activeModelId: String? = null
     private var activeModelPath: String? = null
     private var activeBackendLabel: String = "CPU"
+    private var activeBackendPreference: InferenceBackendPreference? = null
     private var activeContextCeiling: Int = 4096
     private var activeConversationId: String? = null
     private var activeSamplerSignature: String? = null
+    private var activeSystemInstruction: String? = null
     private var activeInitTimeMs: Long = 0L
     private var activeModelSizeBytes: Long = 0L
 
@@ -119,7 +122,8 @@ class LiteRtLmAiEngine(
             engine != null &&
             activeModelId == slot.id &&
             activeModelPath == modelPath &&
-            activeContextCeiling == settings.contextLengthTokens
+            activeContextCeiling == settings.contextLengthTokens &&
+            activeBackendPreference == settings.inferenceBackend
         ) {
             return Result.success(Unit)
         }
@@ -173,8 +177,10 @@ class LiteRtLmAiEngine(
                 activeModelId = slot.id
                 activeModelPath = modelFile.absolutePath
                 activeBackendLabel = backendLabel
+                activeBackendPreference = settings.inferenceBackend
                 activeContextCeiling = settings.contextLengthTokens
                 activeConversationId = null
+                activeSystemInstruction = null
                 conversation = null
 
                 val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
@@ -233,11 +239,20 @@ class LiteRtLmAiEngine(
                 _isGenerating.value = true
                 trySend(AiStreamEvent.Started(activeBackendLabel))
 
+                val startNs = System.nanoTime()
+                var firstTokenNs: Long? = null
+                val buffer = StringBuilder()
+                var chunkCount = 0
+                var peakHeapMb = readNativeHeapMb()
+                val (thermalCode, thermalLabel) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
+
                 try {
+                    val resolvedSystemPrompt = systemInstructionProvider().ifBlank { JARVIS_SYSTEM_INSTRUCTION }
                     val samplerSignature = "${settings.samplerTopK}_${settings.samplerTopP}_${settings.samplerTemperature}"
                     val activeConv = if (conversation != null &&
                         activeConversationId == conversationId &&
-                        activeSamplerSignature == samplerSignature
+                        activeSamplerSignature == samplerSignature &&
+                        activeSystemInstruction == resolvedSystemPrompt
                     ) {
                         checkNotNull(conversation)
                     } else {
@@ -249,7 +264,7 @@ class LiteRtLmAiEngine(
                             contextBudgetTokens = settings.contextLengthTokens
                         )
                         val convConfig = ConversationConfig(
-                            systemInstruction = Contents.of(JARVIS_SYSTEM_INSTRUCTION),
+                            systemInstruction = Contents.of(resolvedSystemPrompt),
                             initialMessages = seededHistory,
                             samplerConfig = SamplerConfig(
                                 topK = settings.samplerTopK,
@@ -262,22 +277,17 @@ class LiteRtLmAiEngine(
                             conversation = it
                             activeConversationId = conversationId
                             activeSamplerSignature = samplerSignature
+                            activeSystemInstruction = resolvedSystemPrompt
                         }
                     }
 
-                    val (thermalCode, thermalLabel) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
                     val adaptedSettings = ThermalAndMemoryPolicy.applyThermalAdaptation(
                         settings = settings,
                         thermalCode = thermalCode,
                         thermalLabel = thermalLabel
                     ).effectiveSettings
 
-                    val startNs = System.nanoTime()
-                    var firstTokenNs: Long? = null
-                    val buffer = StringBuilder()
-                    var chunkCount = 0
                     var hitTokenCeiling = false
-                    var peakHeapMb = readNativeHeapMb()
 
                     activeConv.sendMessageAsync(prompt).collect { chunkMessage ->
                         val delta = chunkMessage.toString()
@@ -326,9 +336,22 @@ class LiteRtLmAiEngine(
                     } else {
                         trySend(AiStreamEvent.Completed(buffer.toString(), benchmark))
                     }
-                } catch (e: CancellationException) {
+                } catch (_: CancellationException) {
                     runCatching { conversation?.cancelProcess() }
-                    trySend(AiStreamEvent.Cancelled("", null))
+                    val partialBenchmark = if (chunkCount > 0 || buffer.isNotEmpty()) {
+                        buildFallbackBenchmark(
+                            startNs = startNs,
+                            firstTokenNs = firstTokenNs,
+                            endNs = System.nanoTime(),
+                            outputText = buffer.toString(),
+                            fallbackTokenCount = chunkCount,
+                            peakHeapMb = maxOf(peakHeapMb, readNativeHeapMb()),
+                            thermalLabel = thermalLabel
+                        ).also { _lastBenchmark.value = it }
+                    } else {
+                        null
+                    }
+                    trySend(AiStreamEvent.Cancelled(buffer.toString(), partialBenchmark))
                 } catch (t: Throwable) {
                     val message = t.localizedMessage ?: t.javaClass.simpleName
                     trySend(AiStreamEvent.Error("Local inference error ($activeBackendLabel): $message"))
@@ -401,6 +424,7 @@ class LiteRtLmAiEngine(
         conversation = null
         activeConversationId = null
         activeSamplerSignature = null
+        activeSystemInstruction = null
 
         engine?.let { eng ->
             if (runCatching { eng.isInitialized() }.getOrDefault(false)) {
@@ -410,6 +434,7 @@ class LiteRtLmAiEngine(
         engine = null
         activeModelId = null
         activeModelPath = null
+        activeBackendPreference = null
         _loadState.value = EngineLoadState.Unloaded
         refreshMemoryUsage()
     }
@@ -491,6 +516,38 @@ class LiteRtLmAiEngine(
             tokensPerSecond = tps,
             outputTokens = outTokens,
             prefillTokens = prefillTokens,
+            backendUsed = activeBackendLabel,
+            nativeHeapMb = currentHeapMb,
+            initTimeMs = activeInitTimeMs,
+            peakMemoryMb = maxOf(peakHeapMb, currentHeapMb),
+            modelSizeBytes = activeModelSizeBytes,
+            thermalStatus = thermalLabel
+        )
+    }
+
+    private fun buildFallbackBenchmark(
+        startNs: Long,
+        firstTokenNs: Long?,
+        endNs: Long,
+        outputText: String,
+        fallbackTokenCount: Int,
+        peakHeapMb: Float,
+        thermalLabel: String
+    ): GenerationBenchmark {
+        val ttftMs = (((firstTokenNs ?: endNs) - startNs) / 1_000_000L).coerceAtLeast(1L)
+        val decodeDurationSec = ((endNs - (firstTokenNs ?: startNs)).coerceAtLeast(1_000_000L)) / 1_000_000_000.0
+        val estimatedTokens = estimateTokenCount(outputText).coerceAtLeast(fallbackTokenCount)
+        val tps = if (estimatedTokens > 0) {
+            (estimatedTokens.toFloat() / decodeDurationSec.toFloat()).coerceAtLeast(0.1f)
+        } else {
+            0f
+        }
+        val currentHeapMb = readNativeHeapMb()
+        return GenerationBenchmark(
+            ttftMs = ttftMs,
+            tokensPerSecond = tps,
+            outputTokens = estimatedTokens,
+            prefillTokens = 0,
             backendUsed = activeBackendLabel,
             nativeHeapMb = currentHeapMb,
             initTimeMs = activeInitTimeMs,

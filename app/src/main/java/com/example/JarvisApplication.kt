@@ -1,7 +1,10 @@
 package com.example
 
+import android.Manifest
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.example.di.JarvisContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +25,17 @@ class JarvisApplication : Application(), ComponentCallbacks2 {
             container.conversationRepository.ensureDefaultConversation()
             container.settingsRepository.settingsFlow
                 .onEach { settings ->
-                    container.wakeWordEngine.syncStandbyPreference(settings.wakeWordStandbyEnabled)
+                    val hasMic = ContextCompat.checkSelfPermission(
+                        this@JarvisApplication,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    container.wakeWordEngine.updateAccessKey(settings.porcupineAccessKey)
+                    container.wakeWordEngine.syncStandbyPreference(
+                        enabled = settings.wakeWordStandbyEnabled,
+                        hasMicPermission = hasMic,
+                        isAppInForeground = true,
+                        porcupineAccessKeyPresent = settings.porcupineAccessKey.isNotBlank()
+                    )
                 }
                 .launchIn(this)
         }

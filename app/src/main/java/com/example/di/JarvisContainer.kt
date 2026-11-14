@@ -7,6 +7,7 @@ import com.example.core.agent.Phase2AgentCore
 import com.example.core.agent.ToolRegistryFactory
 import com.example.core.ai.AiEngine
 import com.example.core.ai.LiteRtLmAiEngine
+import com.example.core.ai.RuntimeEngineCoordinator
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.cloud.OkHttpCloudAiClient
@@ -89,7 +90,24 @@ open class JarvisContainer(context: Context) {
         )
     }
 
-    open val aiEngine: AiEngine by lazy { LiteRtLmAiEngine(appContext) }
+    open val liteRtLmAiEngine: LiteRtLmAiEngine by lazy {
+        LiteRtLmAiEngine(
+            context = appContext,
+            systemInstructionProvider = {
+                "You are JARVIS, a concise, accurate, helpful personal AI assistant running locally on Android.\n\n" +
+                    toolRegistry.buildSystemToolCatalogPrompt()
+            }
+        )
+    }
+
+    open val runtimeEngineCoordinator: RuntimeEngineCoordinator by lazy {
+        RuntimeEngineCoordinator(
+            context = appContext,
+            liteRtLmAiEngine = liteRtLmAiEngine
+        )
+    }
+
+    open val aiEngine: AiEngine by lazy { runtimeEngineCoordinator }
 
     open val cloudAiClient: CloudAiClient by lazy { OkHttpCloudAiClient(baseClient = sharedOkHttpClient) }
 
@@ -100,7 +118,7 @@ open class JarvisContainer(context: Context) {
     }
 
     open val wakeWordEngine: WakeWordEngine by lazy {
-        ModularWakeWordEngine()
+        ModularWakeWordEngine(appContext)
     }
 
     open val androidTools: AndroidTools by lazy {

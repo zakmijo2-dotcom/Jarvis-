@@ -284,6 +284,31 @@ class VoiceViewModel(
                 )
             }
         }
+
+        viewModelScope.launch {
+            settingsRepository.settingsFlow.collect { s ->
+                wakeWordEngine.updateAccessKey(s.porcupineAccessKey)
+                syncWakeWordBoundary(
+                    enabled = s.wakeWordStandbyEnabled,
+                    hasMic = micPermissionGranted.value,
+                    inForeground = isAppInForeground.value,
+                    keyPresent = s.porcupineAccessKey.isNotBlank()
+                )
+            }
+        }
+
+        viewModelScope.launch {
+            wakeWordEngine.triggerEvents.collect {
+                val snap = uiState.value
+                if (snap.micPermissionGranted &&
+                    snap.isAppInForeground &&
+                    !snap.isGeneratingReply &&
+                    snap.engineState !is VoiceEngineState.Listening
+                ) {
+                    startListeningInternal()
+                }
+            }
+        }
     }
 
     fun onMicPermissionChanged(granted: Boolean) {
@@ -765,6 +790,20 @@ class VoiceViewModel(
         }
     }
 
+    fun setPorcupineAccessKey(accessKey: String) {
+        viewModelScope.launch {
+            val trimmed = accessKey.trim()
+            wakeWordEngine.updateAccessKey(trimmed)
+            settingsRepository.setPorcupineAccessKey(trimmed)
+            syncWakeWordBoundary(
+                enabled = uiState.value.settings.wakeWordStandbyEnabled,
+                hasMic = micPermissionGranted.value,
+                inForeground = isAppInForeground.value,
+                keyPresent = trimmed.isNotBlank()
+            )
+        }
+    }
+
     private fun startWakeWordServiceGate() {
         serviceStarter("Wake-word audio gate standby (\"${wakeWordEngine.keyword}\")", true)
     }
@@ -772,13 +811,14 @@ class VoiceViewModel(
     private fun syncWakeWordBoundary(
         enabled: Boolean,
         hasMic: Boolean,
-        inForeground: Boolean
+        inForeground: Boolean,
+        keyPresent: Boolean = uiState.value.settings.porcupineAccessKey.isNotBlank()
     ) {
         wakeWordEngine.syncStandbyPreference(
             enabled = enabled,
             hasMicPermission = hasMic,
             isAppInForeground = inForeground,
-            porcupineAccessKeyPresent = false
+            porcupineAccessKeyPresent = keyPresent
         )
     }
 

@@ -84,7 +84,8 @@ fun VoiceScreen(
     onSetAutoSpeak: (Boolean) -> Unit,
     onToggleWakeWordStandby: (Boolean) -> Unit,
     onTogglePauseInBackground: (Boolean) -> Unit,
-    onLogTranscriptToChat: (String) -> Unit
+    onLogTranscriptToChat: (String) -> Unit,
+    onSavePorcupineAccessKey: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var fallbackInput by remember { mutableStateOf("") }
@@ -476,6 +477,7 @@ fun VoiceScreen(
                 metrics = uiState.wakeWordMetrics,
                 report = uiState.wakeWordReport,
                 pauseMicInBackground = uiState.settings.pauseMicInBackground,
+                porcupineAccessKey = uiState.settings.porcupineAccessKey,
                 onToggleStandby = { enabled ->
                     if (enabled) {
                         ensurePostNotificationsIfNeeded()
@@ -484,7 +486,8 @@ fun VoiceScreen(
                         onToggleWakeWordStandby(false)
                     }
                 },
-                onTogglePauseInBackground = onTogglePauseInBackground
+                onTogglePauseInBackground = onTogglePauseInBackground,
+                onSavePorcupineAccessKey = onSavePorcupineAccessKey
             )
 
             Spacer(modifier = Modifier.height(8.dp))

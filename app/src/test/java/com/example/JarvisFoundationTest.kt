@@ -11,6 +11,10 @@ import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.GenerationBenchmark
 import com.example.core.ai.LiteRtLmAiEngine
+import com.example.core.ai.ModelRuntimeEngine
+import com.example.core.ai.PreparedFormatRuntimeStub
+import com.example.core.ai.RuntimeEngineCoordinator
+import com.example.core.ai.RuntimePerformanceSnapshot
 import com.example.core.cloud.Phase1CloudProviderRegistry
 import com.example.core.hf.HuggingFaceApiClient
 import com.example.core.hf.HfRepoDetail
@@ -1953,4 +1957,134 @@ class JarvisFoundationTest {
         val appInfo = context.applicationInfo
         assertEquals(0, appInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP)
     }
+
+    @Test
+    fun `audit multi runtime coordinator enforces single heavy model mutual exclusion and honest stubs`() = runTest {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        shadowOf(am).setMemoryInfo(
+            ActivityManager.MemoryInfo().apply {
+                totalMem = 8L * 1024L * 1024L * 1024L
+                availMem = 1536L * 1024L * 1024L // Tighter than 600MB + 600MB + 2048MB concurrent reserve
+                lowMemory = false
+            }
+        )
+
+        val runtimeA = FakeTestRuntimeEngine(RuntimeFormatId.LITERT_LM, "LiteRT-LM")
+        val runtimeB = FakeTestRuntimeEngine(RuntimeFormatId.GGUF_LLAMA_CPP, "GGUF / llama.cpp")
+        val stubTflite = PreparedFormatRuntimeStub(
+            formatId = RuntimeFormatId.LITERT_TFLITE,
+            runtimeName = "LiteRT / TFLite",
+            unavailableReason = "TFLite runtime unavailable"
+        )
+        val coordinator = RuntimeEngineCoordinator(
+            context = context,
+            runtimes = mapOf(
+                RuntimeFormatId.LITERT_LM to runtimeA,
+                RuntimeFormatId.GGUF_LLAMA_CPP to runtimeB,
+                RuntimeFormatId.LITERT_TFLITE to stubTflite
+            )
+        )
+
+        val slotA = ModelSlot(
+            id = "a",
+            displayName = "Gemma LiteRT",
+            providerType = ModelProviderType.LOCAL_ON_DEVICE,
+            engineFamily = "LiteRT-LM",
+            parameterHint = "1B",
+            contextWindow = 4096,
+            status = ModelStatus.READY,
+            isActive = true,
+            isCustom = false,
+            expectedSizeBytes = 600L * 1024L * 1024L,
+            artifactState = ArtifactState.READY,
+            runtimeFormat = RuntimeFormatId.LITERT_LM
+        )
+        val slotB = slotA.copy(
+            id = "b",
+            displayName = "Qwen GGUF",
+            runtimeFormat = RuntimeFormatId.GGUF_LLAMA_CPP
+        )
+        val slotC = slotA.copy(
+            id = "c",
+            displayName = "Tiny TFLite",
+            runtimeFormat = RuntimeFormatId.LITERT_TFLITE
+        )
+
+        assertTrue(coordinator.loadModel(slotA, JarvisSettings()).isSuccess)
+        assertTrue(runtimeA.loadState.value is EngineLoadState.Ready)
+
+        // Loading second heavy runtime on tight RAM unloads runtimeA automatically
+        assertTrue(coordinator.loadModel(slotB, JarvisSettings()).isSuccess)
+        assertTrue(runtimeA.loadState.value is EngineLoadState.Unloaded)
+        assertTrue(runtimeB.loadState.value is EngineLoadState.Ready)
+
+        // Prepared stub fails honestly with no fake tokens
+        val stubRes = coordinator.loadModel(slotC, JarvisSettings())
+        assertTrue(stubRes.isFailure)
+        val stubEvents = mutableListOf<AiStreamEvent>()
+        coordinator.streamReply("c1", "hi", emptyList(), JarvisSettings()).collect { stubEvents.add(it) }
+        assertTrue(stubEvents.any { it is AiStreamEvent.Error })
+
+        val snapshots = coordinator.reportAllRuntimes()
+        assertEquals(3, snapshots.size)
+        coordinator.release()
+    }
 }
+
+private class FakeTestRuntimeEngine(
+    override val formatId: RuntimeFormatId,
+    override val runtimeName: String
+) : ModelRuntimeEngine {
+    override val isExecutionSupported: Boolean = true
+    private val _loadState = MutableStateFlow<EngineLoadState>(EngineLoadState.Unloaded)
+    override val loadState: StateFlow<EngineLoadState> = _loadState.asStateFlow()
+    private val _isGenerating = MutableStateFlow(false)
+    override val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+    private val _lastBenchmark = MutableStateFlow<GenerationBenchmark?>(null)
+    override val lastBenchmark: StateFlow<GenerationBenchmark?> = _lastBenchmark.asStateFlow()
+    private val _nativeMemoryMb = MutableStateFlow(128f)
+    override val nativeMemoryMb: StateFlow<Float> = _nativeMemoryMb.asStateFlow()
+
+    override suspend fun initialize(): Result<Unit> = Result.success(Unit)
+
+    override suspend fun loadModel(slot: ModelSlot, settings: JarvisSettings): Result<Unit> {
+        _loadState.value = EngineLoadState.Ready(slot.id, slot.displayName, "CPU", 12L)
+        return Result.success(Unit)
+    }
+
+    override fun generateStream(
+        conversationId: String,
+        prompt: String,
+        history: List<MessageEntity>,
+        settings: JarvisSettings
+    ): Flow<AiStreamEvent> = flow {
+        emit(AiStreamEvent.Started("CPU"))
+        val bench = GenerationBenchmark(25L, 20f, 4, 2, "CPU", 128f)
+        emit(AiStreamEvent.Completed("OK", bench))
+    }
+
+    override suspend fun cancel() = Unit
+
+    override suspend fun unload() {
+        _loadState.value = EngineLoadState.Unloaded
+    }
+
+    override fun release() {
+        _loadState.value = EngineLoadState.Unloaded
+    }
+
+    override fun reportPerformance(): RuntimePerformanceSnapshot {
+        val ready = _loadState.value as? EngineLoadState.Ready
+        return RuntimePerformanceSnapshot(
+            runtimeName = runtimeName,
+            formatId = formatId,
+            isExecutionSupported = true,
+            isLoaded = ready != null,
+            activeModelName = ready?.modelName,
+            backendUsed = ready?.backendUsed,
+            nativeHeapMb = _nativeMemoryMb.value,
+            lastBenchmark = _lastBenchmark.value
+        )
+    }
+}
+

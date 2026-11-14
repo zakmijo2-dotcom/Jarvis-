@@ -24,6 +24,10 @@
 -keep class com.google.ai.edge.litertlm.** { *; }
 -dontwarn com.google.ai.edge.litertlm.**
 
+# Picovoice Porcupine native wake-word engine and JNI callbacks
+-keep class ai.picovoice.porcupine.** { *; }
+-dontwarn ai.picovoice.porcupine.**
+
 # Room database & entities
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *

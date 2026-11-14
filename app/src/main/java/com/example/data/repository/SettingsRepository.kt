@@ -34,6 +34,7 @@ data class JarvisSettings(
     val voiceContinuousMode: Boolean = false,
     val pauseMicInBackground: Boolean = true,
     val wakeWordStandbyEnabled: Boolean = false,
+    val porcupineAccessKey: String = "",
     val notificationReaderEnabled: Boolean = false,
     val notificationPrivacyMaskEnabled: Boolean = true,
     val accessibilityAutomationEnabled: Boolean = false,
@@ -76,6 +77,7 @@ class SettingsRepository(
         val VOICE_CONTINUOUS_MODE = booleanPreferencesKey("voice_continuous_mode")
         val PAUSE_MIC_IN_BACKGROUND = booleanPreferencesKey("pause_mic_in_background")
         val WAKE_WORD_STANDBY = booleanPreferencesKey("wake_word_standby")
+        val PORCUPINE_ACCESS_KEY_ENC = stringPreferencesKey("porcupine_access_key_encrypted_v1")
         val NOTIFICATION_READER_ENABLED = booleanPreferencesKey("notification_reader_enabled")
         val NOTIFICATION_PRIVACY_MASK = booleanPreferencesKey("notification_privacy_mask")
         val ACCESSIBILITY_AUTOMATION_ENABLED = booleanPreferencesKey("accessibility_automation_enabled")
@@ -124,6 +126,9 @@ class SettingsRepository(
         val webKeyEnc = prefs[Keys.WEB_SEARCH_API_KEY_ENC].orEmpty()
         val resolvedWebKey = if (webKeyEnc.isNotBlank()) credentialStore.decrypt(webKeyEnc) else ""
 
+        val porcupineKeyEnc = prefs[Keys.PORCUPINE_ACCESS_KEY_ENC].orEmpty()
+        val resolvedPorcupineKey = if (porcupineKeyEnc.isNotBlank()) credentialStore.decrypt(porcupineKeyEnc) else ""
+
         JarvisSettings(
             orbAnimationEnabled = prefs[Keys.ORB_ANIMATION_ENABLED] ?: true,
             orbGlowIntensity = (prefs[Keys.ORB_GLOW_INTENSITY] ?: 0.85f).coerceIn(0.2f, 1.0f),
@@ -134,6 +139,7 @@ class SettingsRepository(
             voiceContinuousMode = prefs[Keys.VOICE_CONTINUOUS_MODE] ?: false,
             pauseMicInBackground = prefs[Keys.PAUSE_MIC_IN_BACKGROUND] ?: true,
             wakeWordStandbyEnabled = prefs[Keys.WAKE_WORD_STANDBY] ?: false,
+            porcupineAccessKey = resolvedPorcupineKey,
             notificationReaderEnabled = prefs[Keys.NOTIFICATION_READER_ENABLED] ?: false,
             notificationPrivacyMaskEnabled = prefs[Keys.NOTIFICATION_PRIVACY_MASK] ?: true,
             accessibilityAutomationEnabled = prefs[Keys.ACCESSIBILITY_AUTOMATION_ENABLED] ?: false,
@@ -194,6 +200,17 @@ class SettingsRepository(
 
     suspend fun setWakeWordStandbyEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.WAKE_WORD_STANDBY] = enabled }
+    }
+
+    suspend fun setPorcupineAccessKey(accessKey: String) {
+        val trimmed = accessKey.trim()
+        dataStore.edit { prefs ->
+            if (trimmed.isEmpty()) {
+                prefs.remove(Keys.PORCUPINE_ACCESS_KEY_ENC)
+            } else {
+                prefs[Keys.PORCUPINE_ACCESS_KEY_ENC] = credentialStore.encrypt(trimmed)
+            }
+        }
     }
 
     suspend fun setNotificationReaderEnabled(enabled: Boolean) {
