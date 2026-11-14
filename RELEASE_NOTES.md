@@ -25,10 +25,12 @@
 
 ### Voice, Device Control & Hybrid Agent
 - **Multilingual Voice Console:** Real Android `SpeechRecognizer` & `TextToSpeech` supporting Arabic, Algerian Arabic (`ar-DZ`), French (`fr-FR`), and English (`en-US`), with Push-to-Talk, Continuous Loop (Foreground Service), text fallback, and Markdown/URL sanitization.
-- **Wake-Word Boundary:** Modular `AudioRecord` PCM energy-gate interface targeting `"Jarvis"`; explicitly reports `KWS UNVERIFIED` until a trained keyword model/key is linked.
-- **Secure Tool & Hybrid Execution:** Permission-validated Android tools (app launcher, battery, hardware telemetry, media volume/playback, contacts search, dial/SMS confirmation gates, opt-in Notification Listener & Accessibility navigation), multi-step intent planning, local Room memory, configurable Web Research, and Keystore AES-256-GCM encrypted API keys.
+- **Native Porcupine Wake-Word Integration (`4.0.2`):** Integrates `ai.picovoice:porcupine-android:4.0.2` (`BuiltInKeyword.JARVIS`) with a speech-band RMS/ZCR pre-filter, 2.5s cooldown debouncer, and Keystore-encrypted AccessKey configuration. Strictly reports `UNAVAILABLE_PENDING_MODEL_OR_KEY` (`verified=false`) until a valid AccessKey is provided and real PCM frames are processed.
+- **17-Tool Android Automation & On-Demand Accessibility Suite:** Adds `inspect_screen_elements`, `tap_ui_element`, `scroll_screen`, and `input_ui_text` alongside existing app, hardware, media, contact, call, SMS, and notification tools. `onAccessibilityEvent` remains a strict no-op (zero passive scraping), password nodes are redacted, and all high-risk tools require explicit user confirmation.
+- **Multi-Runtime Coordinator & Room v6 WAL:** Coordinates `LiteRT-LM` alongside prepared runtime adapters (`GGUF`, `TFLite`, `MediaPipe`) with single-heavy-model mutual exclusion on tight RAM, full tool-catalog injection into both local and cloud prompts, and `MIGRATION_5_6` preserving custom Hugging Face context windows.
 
-### UI Polish, Localization & Security Hardening
-- Smooth `NavHost` crossfade transitions, adaptive Bottom Bar / Navigation Rail (`>=600dp`), and zero-frame static `JarvisOrb` when animation is disabled.
-- Automatic per-message RTL detection for Arabic script alongside English (`values`), Arabic (`values-ar`), and French (`values-fr`) UI resources.
-- R8 minification & resource shrinking enabled for release builds; `android:allowBackup="false"` with explicit exclusions in `backup_rules.xml` and `data_extraction_rules.xml`.
+### Realistic Obsidian Slate UI Overhaul & Security Hardening
+- **Obsidian Slate & Titanium Palette:** Replaces heavy neon HUD borders with matte obsidian slate (`#090D14` / `#0E141F` / `#131B29`), 1dp structural hairlines (`#222F44`), brushed titanium (`#94A3B8`), and restrained cyan (`#22D3EE`).
+- **Unified Assistant Home & Rich Chat Actions:** Adds a unified assistant status header with interactive `JarvisOrb` and live runtime telemetry above chat, fenced monospace code block rendering with one-tap **Copy Code**, message-level **Copy**, and **Regenerate Response**.
+- **Security Hardening:** R8 minification & resource shrinking enabled (`proguard-rules.pro` updated for LiteRT-LM and Porcupine JNI); `android:allowBackup="false"` with explicit exclusions in `backup_rules.xml` and `data_extraction_rules.xml`.
+

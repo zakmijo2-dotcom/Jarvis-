@@ -27,6 +27,7 @@ import com.example.core.model.DownloadQueueStatus
 import com.example.core.model.DownloadServiceBridge
 import com.example.core.model.EnqueueDownloadRequest
 import com.example.core.model.EnqueueResult
+import com.example.core.model.LiteRtLmFormatAdapter
 import com.example.core.model.ModelArtifactManager
 import com.example.core.model.ModelCompatibilityEngine
 import com.example.core.model.ModelFormatRegistry
@@ -38,6 +39,8 @@ import com.example.core.model.RuntimeFormatId
 import com.example.core.security.SecureCredentialStore
 import com.example.core.tools.AndroidSystemTools
 import com.example.core.tools.DeviceTelemetry
+import com.example.core.tools.ScreenElementSummary
+import com.example.core.tools.ToolRiskLevel
 import com.example.core.voice.MicStatus
 import com.example.core.voice.SpeechCompletionEvent
 import com.example.core.voice.TranscriptCapturedEvent
@@ -51,6 +54,7 @@ import com.example.core.voice.VoiceLanguageDetector
 import com.example.core.voice.VoiceLanguageOption
 import com.example.core.voice.VoiceLocaleCheck
 import com.example.core.wakeword.ModularWakeWordEngine
+import com.example.core.wakeword.NativeKeywordSpotter
 import com.example.core.wakeword.WakeWordState
 import com.example.data.local.db.JarvisDatabase
 import com.example.data.local.db.MessageEntity
@@ -1062,7 +1066,7 @@ class JarvisFoundationTest {
     fun `phase 5 tool registry validates safety permissions and executes all device application and communication tools`() = runBlocking {
         val sysTools = AndroidSystemTools(context)
         val defaultRegistry = ToolRegistryFactory.createDefault(sysTools)
-        assertEquals(13, defaultRegistry.listTools().size)
+        assertEquals(17, defaultRegistry.listTools().size)
 
         val launchedIntents = mutableListOf<Intent>()
         var notificationAuthorized = false
@@ -2028,6 +2032,203 @@ class JarvisFoundationTest {
         val snapshots = coordinator.reportAllRuntimes()
         assertEquals(3, snapshots.size)
         coordinator.release()
+    }
+
+    @Test
+    fun `audit porcupine wake word spotter verifies phrase detection and enforces cooldown debouncer`() = runBlocking {
+        var spotterHit = false
+        var fakeClockMs = 10_000L
+        val fakeSpotterFactory: (Context?, String) -> NativeKeywordSpotter = { _, _ ->
+            NativeKeywordSpotter { if (spotterHit) 0 else -1 }
+        }
+
+        val wakeEngine = ModularWakeWordEngine(
+            context = context,
+            kwsSpotterFactory = fakeSpotterFactory,
+            clockMillis = { fakeClockMs }
+        )
+        val triggers = mutableListOf<Long>()
+        val sub = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined).launch {
+            wakeEngine.triggerEvents.collect { triggers.add(it) }
+        }
+
+        // Without AccessKey -> honest UNAVAILABLE_PENDING_MODEL_OR_KEY and isPhraseDetectionVerified = false
+        wakeEngine.syncStandbyPreference(
+            enabled = true,
+            hasMicPermission = true,
+            isAppInForeground = true,
+            porcupineAccessKeyPresent = false
+        )
+        assertEquals(WakeWordState.UNAVAILABLE_PENDING_MODEL_OR_KEY, wakeEngine.state.value)
+        assertFalse(wakeEngine.isPhraseDetectionVerified)
+
+        // With AccessKey -> initializes spotter and enters STANDBY_AUDIO_GATE
+        wakeEngine.updateAccessKey("picovoice_test_key_123456")
+        wakeEngine.syncStandbyPreference(
+            enabled = true,
+            hasMicPermission = true,
+            isAppInForeground = true,
+            porcupineAccessKeyPresent = true
+        )
+        assertEquals(WakeWordState.STANDBY_AUDIO_GATE, wakeEngine.state.value)
+        assertFalse(wakeEngine.isPhraseDetectionVerified) // Not verified until real PCM frames are processed
+
+        // Speech-band PCM frame with spotterHit = true triggers detection and marks verified = true
+        spotterHit = true
+        val speechFrame = ShortArray(512) { idx -> if (idx % 8 < 4) 3500 else -3500 }
+        wakeEngine.processPcm16Frame(speechFrame, speechFrame.size)
+        assertTrue(wakeEngine.isPhraseDetectionVerified)
+        assertEquals(WakeWordState.TRIGGERED, wakeEngine.state.value)
+        assertEquals(1, triggers.size)
+
+        // Immediate second frame within 2.5s cooldown is debounced
+        fakeClockMs += 500L
+        wakeEngine.processPcm16Frame(speechFrame, speechFrame.size)
+        assertEquals(1, triggers.size)
+
+        // Frame after 2.5s cooldown triggers again
+        fakeClockMs += 2_600L
+        wakeEngine.processPcm16Frame(speechFrame, speechFrame.size)
+        assertEquals(2, triggers.size)
+        sub.cancel()
+    }
+
+    @Test
+    fun `audit accessibility on demand ui inspection tap scroll and text input tools enforce confirmation and redact passwords`() = runBlocking {
+        val sysTools = AndroidSystemTools(context)
+        val registry = ToolRegistryFactory.createDefault(sysTools)
+        val settings = JarvisSettings(accessibilityAutomationEnabled = true)
+
+        AccessibilityBridge.setTestElementsOverride {
+            listOf(
+                ScreenElementSummary("Sign In", "btn_sign_in", "Button", isClickable = true, isEditable = false, isScrollable = false, bounds = "[0,0][200,80]"),
+                ScreenElementSummary("[REDACTED_PASSWORD]", "input_password", "EditText", isClickable = true, isEditable = true, isScrollable = false, bounds = "[0,90][200,160]")
+            )
+        }
+        AccessibilityBridge.setTestTapOverride { target -> target.equals("Sign In", ignoreCase = true) }
+        AccessibilityBridge.setTestScrollOverride { dir -> dir == "down" }
+        AccessibilityBridge.setTestInputOverride { target, text -> target == "Search" && text.isNotEmpty() }
+
+        try {
+            // 1. All 4 new UI automation tools are HIGH risk and require explicit user confirmation
+            val inspectTool = registry.getTool("inspect_screen_elements")!!
+            assertEquals(ToolRiskLevel.HIGH, inspectTool.riskLevel)
+
+            val unconfirmedInspect = registry.dispatch(
+                context,
+                ToolCallRequest("inspect_screen_elements", mapOf("max_elements" to "10")),
+                settings,
+                userConfirmed = false
+            )
+            assertEquals(ToolExecutionStatus.CONFIRMATION_REQUIRED, unconfirmedInspect.status)
+
+            val confirmedInspect = registry.dispatch(
+                context,
+                ToolCallRequest("inspect_screen_elements", mapOf("max_elements" to "10")),
+                settings,
+                userConfirmed = true
+            )
+            assertEquals(ToolExecutionStatus.SUCCESS, confirmedInspect.status)
+            assertTrue(confirmedInspect.summary.contains("[REDACTED_PASSWORD]"))
+            assertEquals("2", confirmedInspect.verifiedFacts["count"])
+
+            // 2. Tap UI element
+            val tapRes = registry.dispatch(
+                context,
+                ToolCallRequest("tap_ui_element", mapOf("target" to "Sign In")),
+                settings,
+                userConfirmed = true
+            )
+            assertEquals(ToolExecutionStatus.SUCCESS, tapRes.status)
+
+            // 3. Scroll screen
+            val scrollRes = registry.dispatch(
+                context,
+                ToolCallRequest("scroll_screen", mapOf("direction" to "down")),
+                settings,
+                userConfirmed = true
+            )
+            assertEquals(ToolExecutionStatus.SUCCESS, scrollRes.status)
+
+            // 4. Input UI text
+            val inputRes = registry.dispatch(
+                context,
+                ToolCallRequest("input_ui_text", mapOf("target" to "Search", "text" to "Gemma 3 1B")),
+                settings,
+                userConfirmed = true
+            )
+            assertEquals(ToolExecutionStatus.SUCCESS, inputRes.status)
+        } finally {
+            AccessibilityBridge.setTestElementsOverride(null)
+            AccessibilityBridge.setTestTapOverride(null)
+            AccessibilityBridge.setTestScrollOverride(null)
+            AccessibilityBridge.setTestInputOverride(null)
+        }
+    }
+
+    @Test
+    fun `audit migration 5 to 6 upgrades download_queue with contextWindow column and expands quantization parser`() {
+        val adapter = LiteRtLmFormatAdapter()
+        assertEquals("Q4_K", adapter.extractQuantization("model-q4_k.gguf"))
+        assertEquals("Q3_K_M", adapter.extractQuantization("model-q3_k_m.gguf"))
+        assertEquals("IQ3_XS", adapter.extractQuantization("model-iq3_xs.gguf"))
+
+        val dbFile = File(tmpFolder.root, "migration_v5_v6.db")
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val helper = factory.create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbFile.absolutePath)
+                .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE download_queue (
+                                id TEXT NOT NULL PRIMARY KEY,
+                                repoId TEXT NOT NULL,
+                                fileName TEXT NOT NULL,
+                                displayName TEXT NOT NULL,
+                                downloadUrl TEXT NOT NULL,
+                                destinationPath TEXT NOT NULL,
+                                expectedSha256 TEXT,
+                                totalBytes INTEGER NOT NULL,
+                                downloadedBytes INTEGER NOT NULL,
+                                speedBytesPerSec INTEGER NOT NULL,
+                                etaSeconds INTEGER NOT NULL,
+                                status TEXT NOT NULL,
+                                supportsResume INTEGER NOT NULL,
+                                errorMessage TEXT,
+                                modelSlotId TEXT NOT NULL,
+                                runtimeFormat TEXT NOT NULL,
+                                architecture TEXT,
+                                quantization TEXT,
+                                parameterCount TEXT,
+                                license TEXT,
+                                createdAt INTEGER NOT NULL,
+                                updatedAt INTEGER NOT NULL
+                            )
+                            """.trimIndent()
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO download_queue
+                            (id, repoId, fileName, displayName, downloadUrl, destinationPath, totalBytes, downloadedBytes, speedBytesPerSec, etaSeconds, status, supportsResume, modelSlotId, runtimeFormat, createdAt, updatedAt)
+                            VALUES ('dl_1', 'litert-community/Gemma3-1B-IT', 'gemma.litertlm', 'Gemma 3', 'https://huggingface.co/x', '/tmp/x', 100, 0, 0, -1, 'QUEUED', 1, 'slot_1', 'LITERT_LM', 1000, 1000)
+                            """.trimIndent()
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+        val sqlite = helper.writableDatabase
+        JarvisDatabase.MIGRATION_5_6.migrate(sqlite)
+
+        sqlite.query("SELECT contextWindow FROM download_queue WHERE id = 'dl_1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(4096, c.getInt(0))
+        }
+        helper.close()
     }
 }
 

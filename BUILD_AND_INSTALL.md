@@ -72,7 +72,9 @@ The workflow at `.github/workflows/android-release.yml` automatically runs `:app
    - Open **Models** -> **Discover** or **Installed** -> Download `.litertlm` or tap **Import `.litertlm`** from local storage.
    - Once verified (`SHA-256` match), tap **Load Engine** to initialize GPU (OpenCL) with automatic CPU fallback.
 
----
+## 5. Optional Cloud AI, Web Search & Wake-Word Keys
+Never hardcode API keys into source code. Configure them securely inside the app's **Settings** or **Voice Console** screens (encrypted at rest using Android Keystore AES-256-GCM before storage in DataStore):
+- **Hugging Face Access Token:** Settings -> Hugging Face Token (for gated model repositories).
+- **Picovoice Porcupine AccessKey:** Voice Console -> Wake Word Card (enables native `"Jarvis"` keyword spotting via `porcupine-android:4.0.2`).
+- **Cloud AI & Web Search API Keys:** Settings -> Hybrid Routing / Web Research cards.
 
-## 5. Optional Cloud AI & Web Search Keys
-Never hardcode API keys into source code. Configure them securely inside the app's **Settings** screen (encrypted at rest using Android Keystore AES-256-GCM before storage in DataStore).

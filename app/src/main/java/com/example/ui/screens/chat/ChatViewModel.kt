@@ -242,6 +242,30 @@ class ChatViewModel(
         }
     }
 
+    fun regenerateLastResponse() {
+        if (uiState.value.isGenerating) return
+        generationJob = viewModelScope.launch {
+            val convId = activeConversationId.value ?: return@launch
+            val allMessages = conversationRepository.getMessagesOnce(convId)
+            val lastUserIdx = allMessages.indexOfLast { it.role == MessageRole.USER }
+            if (lastUserIdx < 0) return@launch
+            val lastUserMessage = allMessages[lastUserIdx]
+            val historyBeforeLastUser = allMessages.subList(0, lastUserIdx)
+            val currentSettings = uiState.value.settings
+            val activeModel = modelManager.getActiveModelOnce()
+
+            runHybridExecution(
+                convId = convId,
+                prompt = lastUserMessage.content,
+                history = historyBeforeLastUser,
+                settings = currentSettings,
+                activeModel = activeModel,
+                confirmedStepIndex = null,
+                existingSteps = null
+            )
+        }
+    }
+
     private suspend fun runHybridExecution(
         convId: String,
         prompt: String,

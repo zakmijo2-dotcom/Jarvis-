@@ -381,3 +381,269 @@ class AccessibilityActionTool(
         }
     }
 }
+
+class InspectScreenElementsTool(
+    private val inspector: (Int) -> List<ScreenElementSummary> = AccessibilityBridge::inspectActiveWindowElements
+) : JarvisTool {
+    override val name: String = "inspect_screen_elements"
+    override val category: ToolCategory = ToolCategory.ACCESSIBILITY
+    override val description: String = "Inspect visible, actionable UI elements in the active window on-demand (password fields are strictly redacted)."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "max_elements",
+            type = ToolParameterType.INTEGER,
+            description = "Maximum number of UI elements to summarize (1-40).",
+            required = false,
+            minInt = 1,
+            maxInt = 40
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = listOf(
+        ToolPermissionRequirement.SpecialAccess(
+            type = SpecialAccessType.ACCESSIBILITY_SERVICE,
+            rationale = "JARVIS Accessibility Service must be enabled in Android Settings to inspect active window elements."
+        )
+    )
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val rawMax = args["max_elements"]?.trim().orEmpty()
+        val maxElements = if (rawMax.isEmpty()) {
+            20
+        } else {
+            rawMax.toIntOrNull() ?: return ToolValidationResult.Invalid("Parameter 'max_elements' must be an integer between 1 and 40.")
+        }
+        if (maxElements !in 1..40) {
+            return ToolValidationResult.Invalid("Parameter 'max_elements' must be between 1 and 40.")
+        }
+        return ToolValidationResult.Valid(mapOf("max_elements" to maxElements.toString()))
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> =
+        "Confirm inspecting visible UI elements on the current screen?" to
+            "JARVIS inspects active window nodes strictly on-demand for this single request and redacts all password fields."
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val maxElements = args["max_elements"]?.toIntOrNull() ?: 20
+        val elements = inspector(maxElements)
+        if (elements.isEmpty()) {
+            return ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = "No visible UI elements could be retrieved from the active window. Ensure JARVIS Accessibility Service is connected.",
+                verifiedFacts = mapOf(
+                    "count" to "0",
+                    "serviceConnected" to AccessibilityBridge.isServiceConnected.value.toString()
+                ),
+                requestArgs = args
+            )
+        }
+        val lines = elements.joinToString("\n") { el ->
+            val flags = buildList {
+                if (el.isClickable) add("clickable")
+                if (el.isEditable) add("editable")
+                if (el.isScrollable) add("scrollable")
+            }.joinToString(",")
+            val flagSuffix = if (flags.isNotEmpty()) " [$flags]" else ""
+            "• ${el.label} (${el.className}$flagSuffix) @ ${el.bounds}"
+        }
+        return ToolExecutionResult(
+            toolName = name,
+            status = ToolExecutionStatus.SUCCESS,
+            summary = "Active Window UI Elements (${elements.size}):\n$lines",
+            verifiedFacts = mapOf(
+                "count" to elements.size.toString(),
+                "clickableCount" to elements.count { it.isClickable }.toString(),
+                "editableCount" to elements.count { it.isEditable }.toString()
+            ),
+            requestArgs = args
+        )
+    }
+}
+
+class TapUiElementTool(
+    private val tapper: (String) -> Boolean = AccessibilityBridge::tapUiElement
+) : JarvisTool {
+    override val name: String = "tap_ui_element"
+    override val category: ToolCategory = ToolCategory.ACCESSIBILITY
+    override val description: String = "Tap a visible UI element matching text, content description, or view ID."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "target",
+            type = ToolParameterType.STRING,
+            description = "Visible label, content description, or view ID of the UI element to tap."
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = listOf(
+        ToolPermissionRequirement.SpecialAccess(
+            type = SpecialAccessType.ACCESSIBILITY_SERVICE,
+            rationale = "JARVIS Accessibility Service must be enabled to tap UI elements."
+        )
+    )
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val target = args["target"]?.trim().orEmpty()
+        if (target.isEmpty() || target.length > 100) {
+            return ToolValidationResult.Invalid("Parameter 'target' is required (1-100 characters).")
+        }
+        return ToolValidationResult.Valid(mapOf("target" to target))
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> =
+        "Confirm tapping UI element '${args["target"].orEmpty()}'?" to
+            "JARVIS will perform a single authorized click/gesture on the matching screen element."
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val target = args.getValue("target")
+        val ok = tapper(target)
+        return if (ok) {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Tapped UI element matching '$target'.",
+                verifiedFacts = mapOf("target" to target, "tapped" to "true"),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = "Could not find or tap a visible UI element matching '$target'.",
+                verifiedFacts = mapOf("target" to target, "tapped" to "false"),
+                requestArgs = args
+            )
+        }
+    }
+}
+
+class ScrollScreenTool(
+    private val scroller: (String) -> Boolean = AccessibilityBridge::scrollUiScreen
+) : JarvisTool {
+    override val name: String = "scroll_screen"
+    override val category: ToolCategory = ToolCategory.ACCESSIBILITY
+    override val description: String = "Scroll the active screen or scrollable container in a given direction (down, up, left, right)."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "direction",
+            type = ToolParameterType.ENUM,
+            description = "Scroll direction.",
+            allowedValues = listOf("down", "up", "left", "right")
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = listOf(
+        ToolPermissionRequirement.SpecialAccess(
+            type = SpecialAccessType.ACCESSIBILITY_SERVICE,
+            rationale = "JARVIS Accessibility Service must be enabled to scroll the screen."
+        )
+    )
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val dir = args["direction"]?.trim()?.lowercase().orEmpty()
+        if (dir !in setOf("down", "up", "left", "right")) {
+            return ToolValidationResult.Invalid("Parameter 'direction' must be one of: down, up, left, right.")
+        }
+        return ToolValidationResult.Valid(mapOf("direction" to dir))
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> =
+        "Confirm scrolling screen '${args["direction"].orEmpty()}'?" to
+            "JARVIS will perform a single authorized scroll action on the active window."
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val direction = args.getValue("direction")
+        val ok = scroller(direction)
+        return if (ok) {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Scrolled active screen $direction.",
+                verifiedFacts = mapOf("direction" to direction, "scrolled" to "true"),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = "Could not scroll active window ($direction). Ensure a scrollable view is active.",
+                verifiedFacts = mapOf("direction" to direction, "scrolled" to "false"),
+                requestArgs = args
+            )
+        }
+    }
+}
+
+class InputUiTextTool(
+    private val textInjector: (String?, String) -> Boolean = AccessibilityBridge::inputTextIntoUi
+) : JarvisTool {
+    override val name: String = "input_ui_text"
+    override val category: ToolCategory = ToolCategory.ACCESSIBILITY
+    override val description: String = "Enter text into an editable non-password UI field matching a target label or the currently focused input."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "text",
+            type = ToolParameterType.STRING,
+            description = "Text to enter into the editable UI field."
+        ),
+        ToolParameterSpec(
+            name = "target",
+            type = ToolParameterType.STRING,
+            description = "Optional label, hint, or view ID of the target input field.",
+            required = false
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = listOf(
+        ToolPermissionRequirement.SpecialAccess(
+            type = SpecialAccessType.ACCESSIBILITY_SERVICE,
+            rationale = "JARVIS Accessibility Service must be enabled to enter text into UI fields."
+        )
+    )
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val text = args["text"]?.trim().orEmpty()
+        if (text.isEmpty() || text.length > 500) {
+            return ToolValidationResult.Invalid("Parameter 'text' is required (1-500 characters).")
+        }
+        val target = args["target"]?.trim().orEmpty()
+        val normalized = buildMap {
+            put("text", text)
+            if (target.isNotEmpty()) put("target", target)
+        }
+        return ToolValidationResult.Valid(normalized)
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> {
+        val target = args["target"]?.takeIf { it.isNotBlank() } ?: "focused editable field"
+        return "Confirm entering text into $target?" to
+            "JARVIS will set text on the matching editable field (password fields are strictly blocked)."
+    }
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val text = args.getValue("text")
+        val target = args["target"]
+        val ok = textInjector(target, text)
+        return if (ok) {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Entered text into ${target ?: "focused input field"}.",
+                verifiedFacts = mapOf(
+                    "target" to (target ?: "focused"),
+                    "length" to text.length.toString()
+                ),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = "Could not enter text into ${target ?: "focused input field"} (field not found, not editable, or protected password field).",
+                verifiedFacts = mapOf("target" to (target ?: "focused")),
+                requestArgs = args
+            )
+        }
+    }
+}
+

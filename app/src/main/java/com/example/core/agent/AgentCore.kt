@@ -20,6 +20,8 @@ import com.example.core.tools.ComposeMessageTool
 import com.example.core.tools.ControlMediaPlaybackTool
 import com.example.core.tools.GoHomeScreenTool
 import com.example.core.tools.InitiatePhoneCallTool
+import com.example.core.tools.InputUiTextTool
+import com.example.core.tools.InspectScreenElementsTool
 import com.example.core.tools.JarvisTool
 import com.example.core.tools.LaunchInstalledAppTool
 import com.example.core.tools.OpenAndroidSettingsTool
@@ -28,7 +30,9 @@ import com.example.core.tools.PendingToolConfirmation
 import com.example.core.tools.ReadBatteryStatusTool
 import com.example.core.tools.ReadDeviceInfoTool
 import com.example.core.tools.ReadNotificationsTool
+import com.example.core.tools.ScrollScreenTool
 import com.example.core.tools.SearchContactsTool
+import com.example.core.tools.TapUiElementTool
 import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
@@ -74,7 +78,11 @@ object ToolRegistryFactory {
             InitiatePhoneCallTool(),
             ComposeMessageTool(),
             ReadNotificationsTool(),
-            AccessibilityActionTool()
+            AccessibilityActionTool(),
+            InspectScreenElementsTool(),
+            TapUiElementTool(),
+            ScrollScreenTool(),
+            InputUiTextTool()
         )
     )
 }
@@ -419,7 +427,10 @@ class Phase2AgentCore(
                                 maxOutputTokens = settings.maxOutputTokens,
                                 temperature = settings.samplerTemperature
                             )
-                            val sysPrompt = "You are JARVIS, an accurate hybrid AI assistant. Never fabricate live data or tool results."
+                            val sysPrompt = buildString {
+                                appendLine("You are JARVIS, an accurate hybrid AI assistant. Never fabricate live data or tool results.")
+                                append(toolRegistry.buildSystemToolCatalogPrompt())
+                            }
 
                             cloudAiClient.streamChat(cloudConfig, sysPrompt, augmentedPrompt, history).collect { event ->
                                 when (event) {
@@ -696,7 +707,7 @@ class Phase2AgentCore(
             appendLine("• Wake Word Interface: ${wakeWordEngine.state.value.label} (\"${wakeWordEngine.keyword}\", verified=${wakeWordEngine.isPhraseDetectionVerified})")
             appendLine("• Android Tool Registry: ${toolRegistry.listTools().size} verified tools online")
             appendLine("• Cloud Providers: ${providers.joinToString { it.name }} (reqs=${usage.totalRequests})")
-            appendLine("• Local Memory Store: Room v4 Persistence Active")
+            appendLine("• Local Memory Store: Room v6 Persistence Active (WAL)")
         }.trim()
         return AgentDispatchResult.ToolSnapshot(
             label = "AgentCore // Readiness Audit",
@@ -745,11 +756,53 @@ class Phase2AgentCore(
                 status = ToolExecutionStatus.FAILED,
                 summary = "Android application context is not bound to AgentCore."
             )
-        return toolRegistry.dispatch(
+        val startedMs = System.currentTimeMillis()
+        val res = toolRegistry.dispatch(
             context = ctx,
             request = request,
             settings = settings,
             userConfirmed = userConfirmed
         )
+        if (request.source.contains("Device", ignoreCase = true) &&
+            res.status != ToolExecutionStatus.CONFIRMATION_REQUIRED
+        ) {
+            val stepStatus = when (res.status) {
+                ToolExecutionStatus.SUCCESS -> PlanStepStatus.COMPLETED
+                ToolExecutionStatus.CANCELLED -> PlanStepStatus.CANCELLED
+                else -> PlanStepStatus.FAILED
+            }
+            val step = AgentPlanStep(
+                index = 1,
+                type = PlanStepType.ANDROID_TOOL,
+                title = "Execute ${res.toolName}",
+                detail = request.arguments.entries.joinToString(", ") { "${it.key}=${it.value}" },
+                status = stepStatus,
+                resultSummary = res.summary
+            )
+            val arr = JSONArray().put(
+                JSONObject().apply {
+                    put("index", step.index)
+                    put("type", step.type.name)
+                    put("title", step.title)
+                    put("status", step.status.name)
+                    put("result", step.resultSummary.orEmpty())
+                }
+            )
+            agentExecutionDao?.insertExecution(
+                AgentExecutionEntity(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = "device_control",
+                    userPrompt = "/tool ${res.toolName} ${step.detail}".trim(),
+                    routeTaken = "Direct Android Tool",
+                    routeReason = "Standalone Device Control execution (${request.source})",
+                    status = res.status.name,
+                    stepsJson = arr.toString(),
+                    resultSummary = res.summary.take(400),
+                    durationMs = (System.currentTimeMillis() - startedMs).coerceAtLeast(1L),
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+        return res
     }
 }

@@ -63,5 +63,5 @@
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">JARVIS Notification Reader</string>
     <string name="accessibility_service_label">JARVIS Device Automation</string>
-    <string name="accessibility_service_description">User-authorized navigation assistance (Home, Back, Recents, Notifications) triggered only on explicit confirmation. Screen content capture is disabled.</string>
+    <string name="accessibility_service_description">User-authorized navigation and on-demand UI actions (Home, Back, Recents, Inspect Screen, Tap, Scroll, Input) triggered only after explicit confirmation. Zero background screen scraping; password fields are redacted.</string>
 </resources>

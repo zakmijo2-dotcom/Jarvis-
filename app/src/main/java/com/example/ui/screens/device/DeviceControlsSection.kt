@@ -28,7 +28,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -182,7 +182,7 @@ fun DeviceControlsConsole(
         item {
             ControlsSectionPanel(
                 title = "DEVICE, VOLUME & MEDIA CONTROL",
-                icon = Icons.Filled.VolumeUp
+                icon = Icons.AutoMirrored.Filled.VolumeUp
             ) {
                 Text(
                     text = "Media Volume Target: ${volumeSlider.roundToInt()}%",
@@ -385,9 +385,9 @@ fun DeviceControlsConsole(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "• Window content retrieval is strictly disabled (canRetrieveWindowContent = false).\n" +
-                                "• JARVIS never silently reads screen text, passwords, or UI trees.\n" +
-                                "• Used exclusively for user-confirmed global navigation (Home, Back, Recents, Notifications).",
+                            text = "• Zero passive scraping: onAccessibilityEvent is a strict no-op in the background.\n" +
+                                "• On-demand UI element inspection, tap, scroll, and text entry run ONLY after explicit user confirmation.\n" +
+                                "• Password nodes are strictly redacted ([REDACTED_PASSWORD]) and blocked from automated input.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -428,6 +428,18 @@ fun DeviceControlsConsole(
                         modifier = Modifier.testTag("btn_a11y_back")
                     ) {
                         Text("Back (Confirm)")
+                    }
+                    OutlinedButton(
+                        onClick = { onRunTool("inspect_screen_elements", mapOf("max_elements" to "15")) },
+                        modifier = Modifier.testTag("btn_a11y_inspect_screen")
+                    ) {
+                        Text("Inspect Screen")
+                    }
+                    OutlinedButton(
+                        onClick = { onRunTool("scroll_screen", mapOf("direction" to "down")) },
+                        modifier = Modifier.testTag("btn_a11y_scroll_down")
+                    ) {
+                        Text("Scroll Down")
                     }
                 }
             }

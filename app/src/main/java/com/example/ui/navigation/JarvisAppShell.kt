@@ -345,7 +345,8 @@ fun JarvisAppShell(
                                     navigateToDestination(TopDestination.DEVICE)
                                 },
                                 onSelectRoutingMode = chatViewModel::setRoutingMode,
-                                onSummarizeSession = chatViewModel::summarizeCurrentSessionToMemory
+                                onSummarizeSession = chatViewModel::summarizeCurrentSessionToMemory,
+                                onRegenerateResponse = chatViewModel::regenerateLastResponse
                             )
                         }
                         composable<VoiceRoute> {

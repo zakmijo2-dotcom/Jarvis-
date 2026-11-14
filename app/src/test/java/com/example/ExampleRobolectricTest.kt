@@ -152,6 +152,7 @@ class ExampleRobolectricTest {
     fun `sending chat message persists user prompt and reports unloaded local engine honestly`() {
         composeTestRule.waitForIdle()
 
+        composeTestRule.onNodeWithTag("assistant_home_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("chat_input_field").performTextInput("Initialize diagnostic check")
         composeTestRule.onNodeWithTag("chat_send_button").performClick()
 
@@ -168,6 +169,11 @@ class ExampleRobolectricTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithText("ENGINE UNLOADED").assertIsDisplayed()
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule
+                .onAllNodesWithTag("copy_message_button")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test

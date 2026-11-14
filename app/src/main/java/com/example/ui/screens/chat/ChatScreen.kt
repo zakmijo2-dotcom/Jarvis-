@@ -1,9 +1,13 @@
 package com.example.ui.screens.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
@@ -36,6 +41,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -74,6 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,7 +121,8 @@ fun ChatScreen(
     onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
     onOpenDeviceControls: () -> Unit = {},
     onSelectRoutingMode: (AgentRoutingMode) -> Unit = {},
-    onSummarizeSession: () -> Unit = {}
+    onSummarizeSession: () -> Unit = {},
+    onRegenerateResponse: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var inputText by rememberSaveable { mutableStateOf("") }
@@ -132,8 +140,8 @@ fun ChatScreen(
     val totalItemCount = uiState.messages.size + if (streamingText != null) 1 else 0
 
     LaunchedEffect(totalItemCount, streamingText?.length) {
-        if (totalItemCount > 0) {
-            listState.animateScrollToItem(totalItemCount - 1)
+        if (totalItemCount > 3 || streamingText != null) {
+            listState.animateScrollToItem((totalItemCount - 1).coerceAtLeast(0))
         }
     }
 
@@ -231,6 +239,15 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceContainer
+                )
+            }
+
+            if (uiState.messages.isEmpty() && streamingText == null) {
+                UnifiedAssistantStatusHeader(
+                    uiState = uiState,
+                    onNavigateToVoice = onNavigateToVoice,
+                    onNavigateToModels = onNavigateToModels,
+                    onOpenDeviceControls = onOpenDeviceControls
                 )
             }
 
@@ -382,11 +399,15 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("chat_message_list"),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(uiState.messages, key = { it.id }) { message ->
-                            ChatMessageBubble(message = message)
+                            ChatMessageBubble(
+                                message = message,
+                                canRegenerate = !uiState.isGenerating && message.role == MessageRole.ASSISTANT,
+                                onRegenerate = onRegenerateResponse
+                            )
                         }
                         if (streamingText != null) {
                             item(key = "streaming_bubble") {
@@ -833,7 +854,106 @@ private fun StreamingAssistantBubble(
 }
 
 @Composable
-private fun ChatMessageBubble(message: MessageEntity) {
+private fun UnifiedAssistantStatusHeader(
+    uiState: ChatUiState,
+    onNavigateToVoice: () -> Unit,
+    onNavigateToModels: () -> Unit,
+    onOpenDeviceControls: () -> Unit
+) {
+    val orbMode = when {
+        uiState.isGenerating -> OrbMode.PROCESSING
+        uiState.engineLoadState is EngineLoadState.Loading -> OrbMode.PROCESSING
+        uiState.engineLoadState is EngineLoadState.Error -> OrbMode.WARNING
+        else -> OrbMode.IDLE
+    }
+    val stateLabel = when {
+        uiState.isGenerating -> "THINKING"
+        uiState.engineLoadState is EngineLoadState.Loading -> "LOADING"
+        uiState.engineLoadState is EngineLoadState.Ready -> "ONLINE"
+        uiState.engineLoadState is EngineLoadState.Error -> "ALERT"
+        else -> "STANDBY"
+    }
+    val activeModelName = uiState.activeModel?.displayName ?: "Gemma 3 1B Int4"
+    val runtimeDetail = when (val load = uiState.engineLoadState) {
+        is EngineLoadState.Ready ->
+            "${load.backendUsed} • ${String.format(Locale.US, "%.0f", uiState.nativeMemoryMb)} MB"
+        is EngineLoadState.Loading ->
+            "Loading ${load.modelName}…"
+        is EngineLoadState.Error ->
+            load.message
+        is EngineLoadState.Unloaded ->
+            "${uiState.settings.routingMode.label} • ${uiState.settings.inferenceBackend.label}"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 840.dp)
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .testTag("assistant_home_header"),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clickable(onClick = onNavigateToVoice)
+                    .testTag("header_orb_voice_trigger"),
+                contentAlignment = Alignment.Center
+            ) {
+                JarvisOrb(
+                    mode = orbMode,
+                    size = 26.dp,
+                    animationEnabled = uiState.settings.orbAnimationEnabled,
+                    glowIntensity = uiState.settings.orbGlowIntensity,
+                    statusDescription = "Assistant status orb"
+                )
+            }
+            Text(
+                text = "$stateLabel • $activeModelName ($runtimeDetail)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "Models",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable(onClick = onNavigateToModels)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .testTag("header_models_shortcut")
+            )
+            Text(
+                text = "Tools",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier
+                    .clickable(onClick = onOpenDeviceControls)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .testTag("header_device_shortcut")
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatMessageBubble(
+    message: MessageEntity,
+    canRegenerate: Boolean = false,
+    onRegenerate: () -> Unit = {}
+) {
+    val context = LocalContext.current
     val isUser = message.role == MessageRole.USER
     val isSystemNotice = message.role == MessageRole.SYSTEM_NOTICE
     val isToolSnapshot = message.role == MessageRole.TOOL_SNAPSHOT
@@ -841,16 +961,16 @@ private fun ChatMessageBubble(message: MessageEntity) {
     val timestamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
 
     val containerColor = when {
-        isUser -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-        isSystemNotice -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f)
-        isToolSnapshot -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        isUser -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+        isSystemNotice -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.38f)
+        isToolSnapshot -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.48f)
         else -> MaterialTheme.colorScheme.surface
     }
     val borderColor = when {
-        isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-        isSystemNotice -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
-        isToolSnapshot -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
-        else -> MaterialTheme.colorScheme.outline
+        isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        isSystemNotice -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
+        isToolSnapshot -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.50f)
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
     }
     val labelColor = when {
         isUser -> MaterialTheme.colorScheme.primary
@@ -858,6 +978,8 @@ private fun ChatMessageBubble(message: MessageEntity) {
         isToolSnapshot -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.primary
     }
+
+    val segments = parseMessageSegments(message.content)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -872,8 +994,8 @@ private fun ChatMessageBubble(message: MessageEntity) {
             border = BorderStroke(1.dp, borderColor)
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -883,13 +1005,63 @@ private fun ChatMessageBubble(message: MessageEntity) {
                     Text(
                         text = message.modelLabel.uppercase(Locale.getDefault()),
                         style = MaterialTheme.typography.labelSmall,
-                        color = labelColor
+                        color = labelColor,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = timestamp,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (canRegenerate) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clickable(onClick = onRegenerate)
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    .testTag("regenerate_response_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Regenerate response",
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.size(2.dp))
+                                Text(
+                                    text = "Retry",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable { copyToClipboard(context, "JARVIS Message", message.content) }
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                .testTag("copy_message_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ContentCopy,
+                                contentDescription = "Copy message",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.size(2.dp))
+                            Text(
+                                text = "Copy",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = timestamp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 val messageDirection = if (containsArabicScript(message.content)) {
                     LayoutDirection.Rtl
@@ -897,22 +1069,81 @@ private fun ChatMessageBubble(message: MessageEntity) {
                     LocalLayoutDirection.current
                 }
                 CompositionLocalProvider(LocalLayoutDirection provides messageDirection) {
-                    Text(
-                        text = message.content,
-                        style = if (isToolSnapshot) {
-                            MaterialTheme.typography.labelLarge
-                        } else {
-                            MaterialTheme.typography.bodyMedium
-                        },
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        segments.forEach { seg ->
+                            when (seg) {
+                                is MessageSegment.Prose -> {
+                                    Text(
+                                        text = seg.text,
+                                        style = if (isToolSnapshot) {
+                                            MaterialTheme.typography.labelLarge
+                                        } else {
+                                            MaterialTheme.typography.bodyMedium
+                                        },
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                is MessageSegment.CodeBlock -> {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = seg.language.ifBlank { "CODE" }.uppercase(Locale.US),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .clickable { copyToClipboard(context, "JARVIS Code", seg.code) }
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        .testTag("copy_code_button")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.ContentCopy,
+                                                        contentDescription = "Copy code block",
+                                                        modifier = Modifier.size(12.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.size(4.dp))
+                                                    Text(
+                                                        text = "Copy Code",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = seg.code,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (message.role == MessageRole.ASSISTANT &&
                     (message.ttftMs != null || message.tokensPerSecond != null)
                 ) {
                     HorizontalDivider(
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                     )
                     val metricsText = buildString {
@@ -942,5 +1173,45 @@ private fun ChatMessageBubble(message: MessageEntity) {
     }
 }
 
+private sealed interface MessageSegment {
+    data class Prose(val text: String) : MessageSegment
+    data class CodeBlock(val language: String, val code: String) : MessageSegment
+}
+
+private val CODE_FENCE_REGEX = Regex("```([a-zA-Z0-9_+-]*)\\n?([\\s\\S]*?)```")
+
+private fun parseMessageSegments(raw: String): List<MessageSegment> {
+    if (!raw.contains("```")) return listOf(MessageSegment.Prose(raw))
+    val segments = mutableListOf<MessageSegment>()
+    var lastIndex = 0
+    for (match in CODE_FENCE_REGEX.findAll(raw)) {
+        if (match.range.first > lastIndex) {
+            val prose = raw.substring(lastIndex, match.range.first).trim()
+            if (prose.isNotEmpty()) {
+                segments.add(MessageSegment.Prose(prose))
+            }
+        }
+        val lang = match.groupValues[1].trim()
+        val code = match.groupValues[2].trimEnd()
+        segments.add(MessageSegment.CodeBlock(language = lang, code = code))
+        lastIndex = match.range.last + 1
+    }
+    if (lastIndex < raw.length) {
+        val trailing = raw.substring(lastIndex).trim()
+        if (trailing.isNotEmpty()) {
+            segments.add(MessageSegment.Prose(trailing))
+        }
+    }
+    return if (segments.isEmpty()) listOf(MessageSegment.Prose(raw)) else segments
+}
+
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    runCatching {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboard?.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
+}
+
 private fun containsArabicScript(text: String): Boolean =
     text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }
+

@@ -148,12 +148,12 @@ fun JarvisOrb(
             val baseRadius = (minDim / 2f) * 0.86f * reactiveScale
             val glowAlpha = glowIntensity.coerceIn(0.2f, 1.0f)
 
-            // Outer ambient radial bloom
+            // Restrained ambient aura
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        accentColor.copy(alpha = 0.28f * glowAlpha * effectivePulse),
-                        accentColor.copy(alpha = 0.08f * glowAlpha),
+                        accentColor.copy(alpha = 0.16f * glowAlpha * effectivePulse),
+                        accentColor.copy(alpha = 0.04f * glowAlpha),
                         Color.Transparent
                     ),
                     center = center,
@@ -163,12 +163,12 @@ fun JarvisOrb(
                 center = center
             )
 
-            // Segmented outer HUD ticks
-            val tickRadius = baseRadius * 0.98f
-            for (i in 0 until 36) {
-                val deg = i * 10f + (effectiveOuter * 0.2f)
+            // Precision titanium & cyan outer ring ticks
+            val tickRadius = baseRadius * 0.96f
+            for (i in 0 until 24) {
+                val deg = i * 15f + (effectiveOuter * 0.15f)
                 val rad = deg * (PI / 180f)
-                val innerTick = if (i % 3 == 0) tickRadius * 0.91f else tickRadius * 0.945f
+                val innerTick = if (i % 3 == 0) tickRadius * 0.90f else tickRadius * 0.94f
                 val start = Offset(
                     center.x + (cos(rad) * innerTick).toFloat(),
                     center.y + (sin(rad) * innerTick).toFloat()
@@ -178,68 +178,68 @@ fun JarvisOrb(
                     center.y + (sin(rad) * tickRadius).toFloat()
                 )
                 drawLine(
-                    color = accentColor.copy(alpha = if (i % 3 == 0) 0.65f else 0.26f),
+                    color = if (i % 3 == 0) accentColor.copy(alpha = 0.55f) else IceBlue.copy(alpha = 0.22f),
                     start = start,
                     end = end,
-                    strokeWidth = if (i % 3 == 0) 2.2f else 1.2f,
+                    strokeWidth = if (i % 3 == 0) 1.8f else 1.0f,
                     cap = StrokeCap.Round
                 )
             }
 
-            // Outer dual telemetry arcs
-            val outerArcR = baseRadius * 0.84f
+            // Outer dual precision arcs
+            val outerArcR = baseRadius * 0.82f
             val outerTopLeft = Offset(center.x - outerArcR, center.y - outerArcR)
             val outerArcSize = Size(outerArcR * 2f, outerArcR * 2f)
             drawArc(
-                color = accentColor.copy(alpha = 0.85f),
+                color = accentColor.copy(alpha = 0.78f),
                 startAngle = effectiveOuter,
-                sweepAngle = 110f,
+                sweepAngle = 105f,
                 useCenter = false,
                 topLeft = outerTopLeft,
                 size = outerArcSize,
-                style = Stroke(width = minDim * 0.024f, cap = StrokeCap.Round)
+                style = Stroke(width = (minDim * 0.018f).coerceAtLeast(1.5f), cap = StrokeCap.Round)
             )
             drawArc(
-                color = accentColor.copy(alpha = 0.45f),
+                color = IceBlue.copy(alpha = 0.42f),
                 startAngle = effectiveOuter + 180f,
-                sweepAngle = 95f,
+                sweepAngle = 90f,
                 useCenter = false,
                 topLeft = outerTopLeft,
                 size = outerArcSize,
-                style = Stroke(width = minDim * 0.018f, cap = StrokeCap.Round)
+                style = Stroke(width = (minDim * 0.014f).coerceAtLeast(1.2f), cap = StrokeCap.Round)
             )
 
-            // Middle precision orbit ring
-            val midR = baseRadius * 0.67f
+            // Middle titanium orbit ring
+            val midR = baseRadius * 0.65f
             drawCircle(
-                color = accentColor.copy(alpha = 0.22f),
+                color = IceBlue.copy(alpha = 0.18f),
                 radius = midR,
                 center = center,
-                style = Stroke(width = 1.5f)
+                style = Stroke(width = 1.2f)
             )
             val midTopLeft = Offset(center.x - midR, center.y - midR)
             val midSize = Size(midR * 2f, midR * 2f)
             drawArc(
-                color = IceBlue.copy(alpha = 0.9f),
+                color = IceBlue.copy(alpha = 0.75f),
                 startAngle = effectiveInner,
-                sweepAngle = 72f,
+                sweepAngle = 68f,
                 useCenter = false,
                 topLeft = midTopLeft,
                 size = midSize,
-                style = Stroke(width = minDim * 0.02f, cap = StrokeCap.Round)
+                style = Stroke(width = (minDim * 0.016f).coerceAtLeast(1.2f), cap = StrokeCap.Round)
             )
             drawArc(
-                color = IceBlue.copy(alpha = 0.5f),
-                startAngle = effectiveInner + 140f,
-                sweepAngle = 60f,
+                color = accentColor.copy(alpha = 0.45f),
+                startAngle = effectiveInner + 145f,
+                sweepAngle = 56f,
                 useCenter = false,
                 topLeft = midTopLeft,
                 size = midSize,
-                style = Stroke(width = minDim * 0.015f, cap = StrokeCap.Round)
+                style = Stroke(width = (minDim * 0.012f).coerceAtLeast(1.0f), cap = StrokeCap.Round)
             )
 
-            // Inner reactor housing & pulsing core
-            val coreR = baseRadius * 0.46f * effectivePulse
+            // Inner obsidian core & subtle state indicator
+            val coreR = baseRadius * 0.44f * effectivePulse
             drawCircle(
                 color = coreSurface,
                 radius = coreR,
@@ -248,8 +248,8 @@ fun JarvisOrb(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        accentColor.copy(alpha = 0.95f * glowAlpha),
-                        accentColor.copy(alpha = 0.45f * glowAlpha),
+                        accentColor.copy(alpha = 0.72f * glowAlpha),
+                        accentColor.copy(alpha = 0.25f * glowAlpha),
                         Color.Transparent
                     ),
                     center = center,
@@ -259,16 +259,16 @@ fun JarvisOrb(
                 center = center
             )
             drawCircle(
-                color = accentColor.copy(alpha = 0.9f),
+                color = accentColor.copy(alpha = 0.80f),
                 radius = coreR,
                 center = center,
-                style = Stroke(width = minDim * 0.014f)
+                style = Stroke(width = (minDim * 0.012f).coerceAtLeast(1.0f))
             )
 
-            // Bright central pin
+            // Central focal node
             drawCircle(
-                color = Color.White.copy(alpha = 0.9f),
-                radius = coreR * 0.24f,
+                color = Color.White.copy(alpha = 0.88f),
+                radius = coreR * 0.20f,
                 center = center
             )
         }

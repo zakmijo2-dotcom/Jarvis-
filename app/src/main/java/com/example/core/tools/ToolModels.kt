@@ -8,6 +8,12 @@ enum class ToolCategory(val label: String) {
     ACCESSIBILITY("Accessibility")
 }
 
+enum class ToolRiskLevel(val label: String) {
+    LOW("Low Risk"),
+    MEDIUM("Medium Risk"),
+    HIGH("High Risk")
+}
+
 enum class ToolParameterType {
     STRING,
     INTEGER,

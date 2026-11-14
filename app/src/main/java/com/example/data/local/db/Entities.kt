@@ -94,7 +94,8 @@ data class DownloadTaskEntity(
     val parameterCount: String? = null,
     val license: String? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val contextWindow: Int = 4096
 )
 
 @Entity(

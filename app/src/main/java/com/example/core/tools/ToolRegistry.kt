@@ -18,6 +18,8 @@ interface JarvisTool {
     val parameters: List<ToolParameterSpec>
     val permissionRequirements: List<ToolPermissionRequirement>
     val requiresUserConfirmation: Boolean
+    val riskLevel: ToolRiskLevel
+        get() = if (requiresUserConfirmation) ToolRiskLevel.HIGH else ToolRiskLevel.LOW
 
     fun validate(args: Map<String, String>): ToolValidationResult
 
@@ -245,7 +247,7 @@ class ToolRegistry(
                     "${spec.name}$req$opts"
                 }
             }
-            val confirmTag = if (tool.requiresUserConfirmation) " [CONFIRM]" else ""
+            val confirmTag = if (tool.requiresUserConfirmation) " [CONFIRM:${tool.riskLevel.name}]" else " [${tool.riskLevel.name}]"
             appendLine("- ${tool.name}($params)$confirmTag: ${tool.description}")
         }
     }.trim()

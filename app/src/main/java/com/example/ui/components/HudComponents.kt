@@ -33,7 +33,7 @@ fun HudBackground(
     content: @Composable BoxScope.() -> Unit
 ) {
     val voidColor = MaterialTheme.colorScheme.background
-    val navyColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val slateColor = MaterialTheme.colorScheme.surfaceContainerLow
     val cyanColor = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
@@ -41,7 +41,7 @@ fun HudBackground(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        navyColor,
+                        slateColor,
                         voidColor,
                         voidColor
                     )
@@ -50,7 +50,7 @@ fun HudBackground(
             .background(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        cyanColor.copy(alpha = 0.08f),
+                        cyanColor.copy(alpha = 0.035f),
                         Color.Transparent
                     )
                 )
@@ -62,8 +62,8 @@ fun HudBackground(
 @Composable
 fun HudPanel(
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.65f),
+    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
@@ -71,7 +71,7 @@ fun HudPanel(
         shape = MaterialTheme.shapes.medium,
         color = containerColor,
         border = BorderStroke(1.dp, borderColor),
-        tonalElevation = 2.dp
+        tonalElevation = 1.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -84,14 +84,14 @@ fun HudPanel(
 fun HudBadge(
     text: String,
     color: Color = MaterialTheme.colorScheme.primary,
-    containerColor: Color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+    containerColor: Color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.50f),
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(50),
         color = containerColor,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.55f))
+        border = BorderStroke(1.dp, color.copy(alpha = 0.32f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),

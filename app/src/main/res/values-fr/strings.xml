@@ -63,5 +63,5 @@
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">Lecteur de notifications JARVIS</string>
     <string name="accessibility_service_label">Automatisation JARVIS</string>
-    <string name="accessibility_service_description">Assistance de navigation autorisée (Accueil, Retour, Récents, Notifications) sur confirmation explicite uniquement. Aucune collecte du contenu d\'écran.</string>
+    <string name="accessibility_service_description">Actions de navigation et d\'interface à la demande (Accueil, Retour, Inspecter, Toucher, Défiler) uniquement après confirmation explicite. Aucune collecte en arrière-plan ; champs de mot de passe masqués.</string>
 </resources>

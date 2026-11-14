@@ -9,6 +9,7 @@ import com.example.di.JarvisContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -21,23 +22,27 @@ class JarvisApplication : Application(), ComponentCallbacks2 {
     override fun onCreate() {
         super.onCreate()
         applicationScope.launch {
-            container.modelManager.ensureSeeded()
-            container.conversationRepository.ensureDefaultConversation()
-            container.settingsRepository.settingsFlow
-                .onEach { settings ->
-                    val hasMic = ContextCompat.checkSelfPermission(
-                        this@JarvisApplication,
-                        Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-                    container.wakeWordEngine.updateAccessKey(settings.porcupineAccessKey)
-                    container.wakeWordEngine.syncStandbyPreference(
-                        enabled = settings.wakeWordStandbyEnabled,
-                        hasMicPermission = hasMic,
-                        isAppInForeground = true,
-                        porcupineAccessKeyPresent = settings.porcupineAccessKey.isNotBlank()
-                    )
-                }
-                .launchIn(this)
+            runCatching {
+                container.modelManager.ensureSeeded()
+                container.conversationRepository.ensureDefaultConversation()
+                container.settingsRepository.settingsFlow
+                    .onEach { settings ->
+                        val hasMic = runCatching {
+                            ContextCompat.checkSelfPermission(
+                                this@JarvisApplication,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                        }.getOrDefault(false)
+                        container.wakeWordEngine.updateAccessKey(settings.porcupineAccessKey)
+                        container.wakeWordEngine.syncStandbyPreference(
+                            enabled = settings.wakeWordStandbyEnabled,
+                            hasMicPermission = hasMic,
+                            isAppInForeground = true,
+                            porcupineAccessKeyPresent = settings.porcupineAccessKey.isNotBlank()
+                        )
+                    }
+                    .launchIn(this)
+            }
         }
     }
 
@@ -56,6 +61,7 @@ class JarvisApplication : Application(), ComponentCallbacks2 {
     }
 
     override fun onTerminate() {
+        applicationScope.cancel()
         container.aiEngine.release()
         container.voiceEngine.release()
         super.onTerminate()

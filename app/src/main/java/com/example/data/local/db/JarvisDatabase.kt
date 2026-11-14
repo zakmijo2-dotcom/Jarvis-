@@ -28,7 +28,7 @@ class JarvisTypeConverters {
         MemoryNoteEntity::class,
         AgentExecutionEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -161,6 +161,12 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE download_queue ADD COLUMN contextWindow INTEGER NOT NULL DEFAULT 4096")
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -168,7 +174,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                 "jarvis_foundation.db"
             )
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

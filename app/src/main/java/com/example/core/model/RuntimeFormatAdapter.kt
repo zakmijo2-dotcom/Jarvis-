@@ -26,8 +26,9 @@ interface RuntimeFormatAdapter {
     fun extractQuantization(fileName: String, tags: List<String> = emptyList()): String {
         val upper = (listOf(fileName) + tags).joinToString(" ").uppercase(Locale.US)
         val candidates = listOf(
-            "INT4", "Q4_K_M", "Q4_K_S", "Q4_0", "Q4_1", "IQ4_XS", "IQ4_NL",
-            "Q5_K_M", "Q5_K_S", "Q6_K", "INT8", "Q8_0", "FP16", "BF16", "F32"
+            "INT4", "Q4_K_M", "Q4_K_S", "Q4_K", "Q4_M", "Q4_0", "Q4_1", "IQ4_XS", "IQ4_NL",
+            "Q5_K_M", "Q5_K_S", "Q6_K", "Q3_K_M", "Q3_K_S", "Q2_K", "IQ3_XS", "IQ2_XS",
+            "INT8", "Q8_0", "FP16", "BF16", "F32"
         )
         return candidates.firstOrNull { upper.contains(it) } ?: "Unspecified"
     }

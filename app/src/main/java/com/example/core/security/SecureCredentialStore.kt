@@ -18,7 +18,7 @@ class SecureCredentialStore {
     fun encrypt(plaintext: String): String {
         val trimmed = plaintext.trim()
         if (trimmed.isEmpty()) return ""
-        return runCatching {
+        return try {
             val secretKey = getOrCreateKeystoreKey()
             val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
@@ -30,21 +30,31 @@ class SecureCredentialStore {
                 .put(ciphertext)
                 .array()
             PREFIX_KEYSTORE_V1 + Base64.encodeToString(combined, Base64.NO_WRAP)
-        }.getOrElse {
-            // Fallback for headless JVM/Robolectric test environments without AndroidKeyStore
-            val fallbackKey = deriveHostFallbackKey()
-            val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, fallbackKey)
-            val iv = cipher.iv
-            val ciphertext = cipher.doFinal(trimmed.toByteArray(StandardCharsets.UTF_8))
-            val combined = ByteBuffer.allocate(1 + iv.size + ciphertext.size)
-                .put(iv.size.toByte())
-                .put(iv)
-                .put(ciphertext)
-                .array()
-            PREFIX_FALLBACK_V1 + Base64.encodeToString(combined, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            if (!isAndroidKeyStoreAvailable()) {
+                // Strictly restricted to headless JVM/Robolectric unit test environments without AndroidKeyStore provider
+                val fallbackKey = deriveHostFallbackKey()
+                val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+                cipher.init(Cipher.ENCRYPT_MODE, fallbackKey)
+                val iv = cipher.iv
+                val ciphertext = cipher.doFinal(trimmed.toByteArray(StandardCharsets.UTF_8))
+                val combined = ByteBuffer.allocate(1 + iv.size + ciphertext.size)
+                    .put(iv.size.toByte())
+                    .put(iv)
+                    .put(ciphertext)
+                    .array()
+                PREFIX_FALLBACK_V1 + Base64.encodeToString(combined, Base64.NO_WRAP)
+            } else {
+                ""
+            }
         }
     }
+
+    private fun isAndroidKeyStoreAvailable(): Boolean = runCatching {
+        val ks = KeyStore.getInstance(ANDROID_KEYSTORE)
+        ks.load(null)
+        true
+    }.getOrDefault(false)
 
     fun decrypt(storedValue: String): String {
         if (storedValue.isBlank()) return ""

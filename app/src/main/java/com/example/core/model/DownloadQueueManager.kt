@@ -62,7 +62,8 @@ data class DownloadQueueItem(
     val parameterCount: String?,
     val license: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val contextWindow: Int = 4096
 ) {
     val progress: Float
         get() = if (totalBytes > 0L) (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
@@ -185,7 +186,8 @@ class DownloadQueueManager(
             parameterCount = request.parameterCount,
             license = request.license,
             createdAt = existing?.createdAt ?: now,
-            updatedAt = now
+            updatedAt = now,
+            contextWindow = request.contextWindow.coerceIn(512, 131072)
         )
         File("${destFile.absolutePath}.part").delete()
         queueDao.upsertTask(entity)
@@ -409,7 +411,7 @@ class DownloadQueueManager(
                                     serviceBridge.syncServiceState(
                                         hasActiveDownloads = true,
                                         title = initialTask.displayName,
-                                        subtitle = String.format("%.1f MB/s • %d%%", mbSpeed, pct),
+                                        subtitle = String.format(java.util.Locale.US, "%.1f MB/s • %d%%", mbSpeed, pct),
                                         progressPercent = pct
                                     )
                                     lastReportTimeMs = nowMs
@@ -551,7 +553,7 @@ class DownloadQueueManager(
                 parameterHint = existingSlot?.parameterHint
                     ?: listOfNotNull(task.parameterCount, task.quantization, "${finalSize / (1024L * 1024L)} MB")
                         .joinToString(" • "),
-                contextWindow = existingSlot?.contextWindow ?: 4096,
+                contextWindow = existingSlot?.contextWindow ?: task.contextWindow.coerceIn(512, 131072),
                 status = slotStatus,
                 isActive = existingSlot?.isActive ?: false,
                 isCustom = existingSlot?.isCustom ?: false,
@@ -637,7 +639,8 @@ class DownloadQueueManager(
         parameterCount = parameterCount,
         license = license,
         createdAt = createdAt,
-        updatedAt = updatedAt
+        updatedAt = updatedAt,
+        contextWindow = contextWindow
     )
 
     companion object {

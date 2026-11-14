@@ -63,5 +63,5 @@
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">قارئ إشعارات JARVIS</string>
     <string name="accessibility_service_label">أتمتة جهاز JARVIS</string>
-    <string name="accessibility_service_description">مساعدة تنقل بتفويض المستخدم (الرئيسية، الرجوع، التطبيقات الحديثة، الإشعارات) فقط عند التأكيد الصريح. جمع محتوى الشاشة معطل.</string>
+    <string name="accessibility_service_description">تنقل وأتمتة واجهة المستخدم بتفويض صريح عند الطلب فقط (الرئيسية، الرجوع، فحص العناصر، النقر، التمرير). لا يتم جمع محتوى الشاشة في الخلفية ويتم حجب حقول كلمات المرور.</string>
 </resources>

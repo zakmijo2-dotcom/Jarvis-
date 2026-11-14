@@ -2,25 +2,30 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val VoidBlack = Color(0xFF030712)
-val DeepSpaceNavy = Color(0xFF060E1E)
-val MidnightNavy = Color(0xFF0A1324)
-val TacticalNavy = Color(0xFF0F1B33)
-val ElevatedNavy = Color(0xFF162544)
-val HudBorderCyan = Color(0xFF1B3A5C)
+// Obsidian Slate surfaces (matte, dark-first flagship hierarchy)
+val VoidBlack = Color(0xFF090D14)
+val DeepSpaceNavy = Color(0xFF0E141F)
+val MidnightNavy = Color(0xFF131B29)
+val TacticalNavy = Color(0xFF192334)
+val ElevatedNavy = Color(0xFF212E42)
+val HudBorderCyan = Color(0xFF222F44)
 
-val ElectricCyan = Color(0xFF00E5FF)
-val CyanGlow = Color(0xFF00B8D4)
-val DeepCyanContainer = Color(0xFF083344)
-val IceBlue = Color(0xFF5CE1E6)
-val SoftIceContainer = Color(0xFF0E3A4D)
+// Restrained Cyan & Brushed Titanium accents
+val ElectricCyan = Color(0xFF22D3EE)
+val CyanGlow = Color(0xFF06B6D4)
+val DeepCyanContainer = Color(0xFF0C2A36)
+val IceBlue = Color(0xFF94A3B8)
+val SoftIceContainer = Color(0xFF1E293B)
 
-val SignalAmber = Color(0xFFFFB300)
-val AmberContainer = Color(0xFF3A2800)
-val CriticalRed = Color(0xFFFF4D6D)
-val RedContainer = Color(0xFF3E0B18)
-val NominalGreen = Color(0xFF00E676)
+// Semantic status indicators
+val SignalAmber = Color(0xFFF59E0B)
+val AmberContainer = Color(0xFF3B2506)
+val CriticalRed = Color(0xFFF43F5E)
+val RedContainer = Color(0xFF3B0D18)
+val NominalGreen = Color(0xFF10B981)
 
-val TextPrimary = Color(0xFFEAF6FF)
-val TextSecondary = Color(0xFF8FA8C8)
-val TextMuted = Color(0xFF5C7494)
+// High-contrast readable typography
+val TextPrimary = Color(0xFFF1F5F9)
+val TextSecondary = Color(0xFF94A3B8)
+val TextMuted = Color(0xFF64748B)
+
