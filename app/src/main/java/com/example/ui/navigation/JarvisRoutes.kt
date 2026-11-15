@@ -3,18 +3,19 @@ package com.example.ui.navigation
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.MonitorHeart
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.MonitorHeart
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.R
 import kotlinx.serialization.Serializable
+
+@Serializable
+data object HomeRoute
 
 @Serializable
 data object ChatRoute
@@ -24,6 +25,9 @@ data object VoiceRoute
 
 @Serializable
 data object ModelsRoute
+
+@Serializable
+data object MoreRoute
 
 @Serializable
 data object DeviceRoute
@@ -39,6 +43,14 @@ enum class TopDestination(
     val unselectedIcon: ImageVector,
     val testTag: String
 ) {
+    HOME(
+        route = HomeRoute,
+        routeQualifiedName = HomeRoute::class.qualifiedName.orEmpty(),
+        labelRes = R.string.nav_home,
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home,
+        testTag = "nav_tab_home"
+    ),
     CHAT(
         route = ChatRoute,
         routeQualifiedName = ChatRoute::class.qualifiedName.orEmpty(),
@@ -46,14 +58,6 @@ enum class TopDestination(
         selectedIcon = Icons.Filled.ChatBubble,
         unselectedIcon = Icons.Outlined.ChatBubbleOutline,
         testTag = "nav_tab_chat"
-    ),
-    VOICE(
-        route = VoiceRoute,
-        routeQualifiedName = VoiceRoute::class.qualifiedName.orEmpty(),
-        labelRes = R.string.nav_voice,
-        selectedIcon = Icons.Filled.GraphicEq,
-        unselectedIcon = Icons.Outlined.GraphicEq,
-        testTag = "nav_tab_voice"
     ),
     MODELS(
         route = ModelsRoute,
@@ -63,20 +67,12 @@ enum class TopDestination(
         unselectedIcon = Icons.Outlined.Memory,
         testTag = "nav_tab_models"
     ),
-    DEVICE(
-        route = DeviceRoute,
-        routeQualifiedName = DeviceRoute::class.qualifiedName.orEmpty(),
-        labelRes = R.string.nav_device,
-        selectedIcon = Icons.Filled.MonitorHeart,
-        unselectedIcon = Icons.Outlined.MonitorHeart,
-        testTag = "nav_tab_device"
-    ),
-    SETTINGS(
-        route = SettingsRoute,
-        routeQualifiedName = SettingsRoute::class.qualifiedName.orEmpty(),
-        labelRes = R.string.nav_settings,
-        selectedIcon = Icons.Filled.Settings,
-        unselectedIcon = Icons.Outlined.Settings,
-        testTag = "nav_tab_settings"
+    MORE(
+        route = MoreRoute,
+        routeQualifiedName = MoreRoute::class.qualifiedName.orEmpty(),
+        labelRes = R.string.nav_more,
+        selectedIcon = Icons.Filled.GridView,
+        unselectedIcon = Icons.Outlined.GridView,
+        testTag = "nav_tab_more"
     )
 }

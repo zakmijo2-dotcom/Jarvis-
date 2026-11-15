@@ -1,6 +1,7 @@
 package com.example.core.web
 
 import com.example.core.cloud.OkHttpCloudAiClient
+import com.example.core.security.PromptSecuritySanitizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -48,18 +49,29 @@ data class WebResearchReport(
     val results: List<WebSearchResult>,
     val fetchedAtMillis: Long = System.currentTimeMillis()
 ) {
-    fun formatContextPrompt(): String = buildString {
-        appendLine("LIVE WEB RESEARCH RESULTS (${providerLabel}) for \"$query\":")
-        if (results.isEmpty()) {
-            appendLine("- No matching web results returned.")
-        } else {
-            results.forEachIndexed { index, item ->
-                appendLine("${index + 1}. ${item.title}")
-                if (item.snippet.isNotBlank()) appendLine("   Summary: ${item.snippet}")
-                if (item.url.isNotBlank()) appendLine("   Source: ${item.url}")
+    fun formatContextPrompt(): String {
+        val rawBody = buildString {
+            val safeQuery = PromptSecuritySanitizer.sanitizeExternalText(query, maxChars = 240)
+            appendLine("LIVE WEB RESEARCH RESULTS ($providerLabel) for \"$safeQuery\":")
+            if (results.isEmpty()) {
+                appendLine("- No matching web results returned.")
+            } else {
+                results.forEachIndexed { index, item ->
+                    val safeTitle = PromptSecuritySanitizer.sanitizeExternalText(item.title, maxChars = 160)
+                    val safeSnippet = PromptSecuritySanitizer.sanitizeExternalText(item.snippet, maxChars = 400)
+                    val safeUrl = PromptSecuritySanitizer.sanitizeExternalText(item.url, maxChars = 300)
+                    appendLine("${index + 1}. $safeTitle")
+                    if (safeSnippet.isNotBlank()) appendLine("   Summary: $safeSnippet")
+                    if (safeUrl.isNotBlank()) appendLine("   Source: $safeUrl")
+                }
             }
-        }
-    }.trim()
+        }.trim()
+        return PromptSecuritySanitizer.wrapUntrustedBlock(
+            sourceLabel = "WebResearch:$providerLabel",
+            rawContent = rawBody,
+            maxChars = 3500
+        ).ifBlank { rawBody }
+    }
 }
 
 interface WebResearchService {

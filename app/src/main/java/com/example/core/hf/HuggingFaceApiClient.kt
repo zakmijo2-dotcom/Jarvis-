@@ -115,10 +115,14 @@ class HuggingFaceApiClient(
 
     private fun isTrustedAuthHost(url: String): Boolean {
         val parsed = runCatching { url.toHttpUrl() }.getOrNull() ?: return false
-        return parsed.host == "huggingface.co" ||
-            parsed.host.endsWith(".huggingface.co") ||
-            parsed.host == "localhost" ||
-            parsed.host == "127.0.0.1"
+        val host = parsed.host.lowercase()
+        val isTrustedHfDomain = parsed.isHttps && (
+            host == "huggingface.co" ||
+                host.endsWith(".huggingface.co") ||
+                host.endsWith(".hf.co")
+            )
+        val isLoopback = host == "localhost" || host == "127.0.0.1"
+        return isTrustedHfDomain || isLoopback
     }
 
     private fun mapHttpError(code: Int, prefix: String): String = when (code) {

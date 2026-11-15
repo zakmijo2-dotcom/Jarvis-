@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
@@ -28,13 +27,14 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import com.example.core.voice.VoiceServiceStatus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -53,19 +53,28 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.R
+import com.example.core.ai.EngineLoadState
+import com.example.core.memory.MemoryFact
+import com.example.core.voice.VoiceServiceStatus
 import com.example.di.JarvisContainer
+import com.example.ui.components.EditorialHairlineDivider
+import com.example.ui.components.hairlineDp
 import com.example.ui.screens.chat.ChatScreen
 import com.example.ui.screens.chat.ChatViewModel
 import com.example.ui.screens.chat.HistoryDrawerContent
 import com.example.ui.screens.device.DeviceDashboardScreen
 import com.example.ui.screens.device.DeviceDashboardTab
 import com.example.ui.screens.device.DeviceDashboardViewModel
+import com.example.ui.screens.device.DeviceTelemetryUiState
+import com.example.ui.screens.home.HomeScreen
 import com.example.ui.screens.models.ModelManagerScreen
 import com.example.ui.screens.models.ModelManagerViewModel
 import com.example.ui.screens.settings.SettingsScreen
 import com.example.ui.screens.settings.SettingsViewModel
 import com.example.ui.screens.voice.VoiceScreen
 import com.example.ui.screens.voice.VoiceViewModel
+import com.example.ui.theme.JarvisThemeTokens
 import kotlinx.coroutines.launch
 
 @Composable
@@ -119,6 +128,7 @@ fun JarvisAppShell(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
     val modelManagerViewModel: ModelManagerViewModel = viewModel(
         factory = ModelManagerViewModel.factory(
             modelManager = container.modelManager,
@@ -171,9 +181,27 @@ fun JarvisAppShell(
     val deviceControlsState by deviceDashboardViewModel.controlsState.collectAsStateWithLifecycle()
     val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
 
+    val memoryFacts by container.localMemory.observeFacts().collectAsStateWithLifecycle(initialValue = emptyList())
+    val defaultGreetingName = stringResource(R.string.home_default_name)
+    val greetingName = remember(memoryFacts, defaultGreetingName) {
+        extractPreferredUserName(memoryFacts) ?: defaultGreetingName
+    }
+
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val pendingWakeArm by VoiceServiceStatus.pendingWakeArmFromNotification.collectAsStateWithLifecycle()
+
+    val voiceQualifiedName = VoiceRoute::class.qualifiedName.orEmpty()
+    val deviceQualifiedName = DeviceRoute::class.qualifiedName.orEmpty()
+    val settingsQualifiedName = SettingsRoute::class.qualifiedName.orEmpty()
+
+    fun isTopDestinationSelected(dest: TopDestination): Boolean = when (dest) {
+        TopDestination.MORE -> currentRoute == dest.routeQualifiedName ||
+            currentRoute == voiceQualifiedName ||
+            currentRoute == deviceQualifiedName ||
+            currentRoute == settingsQualifiedName
+        else -> currentRoute == dest.routeQualifiedName
+    }
 
     fun navigateToDestination(destination: TopDestination) {
         if (settingsState.settings.hapticsEnabled) {
@@ -188,9 +216,18 @@ fun JarvisAppShell(
         }
     }
 
+    fun navigateToSubRoute(route: Any) {
+        if (settingsState.settings.hapticsEnabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        navController.navigate(route) {
+            launchSingleTop = true
+        }
+    }
+
     LaunchedEffect(pendingWakeArm) {
-        if (pendingWakeArm && currentRoute != TopDestination.VOICE.routeQualifiedName) {
-            navigateToDestination(TopDestination.VOICE)
+        if (pendingWakeArm && currentRoute != voiceQualifiedName) {
+            navigateToSubRoute(VoiceRoute)
         }
     }
 
@@ -237,16 +274,21 @@ fun JarvisAppShell(
                 bottomBar = {
                     if (!useRail) {
                         Column {
-                            HorizontalDivider(
-                                thickness = 1.dp,
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                            )
+                            EditorialHairlineDivider()
                             NavigationBar(
                                 containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 0.dp,
                                 windowInsets = NavigationBarDefaults.windowInsets
                             ) {
                                 TopDestination.entries.forEach { dest ->
-                                    val selected = currentRoute == dest.routeQualifiedName
+                                    val selected = isTopDestinationSelected(dest)
+                                    val palette = JarvisThemeTokens.palette
+                                    val indicatorColor = when (dest) {
+                                        TopDestination.HOME -> palette.skyContainer
+                                        TopDestination.CHAT -> palette.skyContainer
+                                        TopDestination.MODELS -> palette.sageContainer
+                                        TopDestination.MORE -> palette.lavenderContainer
+                                    }
                                     NavigationBarItem(
                                         selected = selected,
                                         onClick = { navigateToDestination(dest) },
@@ -259,17 +301,17 @@ fun JarvisAppShell(
                                         label = {
                                             Text(
                                                 text = stringResource(dest.labelRes),
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.labelMedium,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         },
                                         colors = NavigationBarItemDefaults.colors(
-                                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            selectedIconColor = palette.onHue,
+                                            selectedTextColor = palette.text,
+                                            indicatorColor = indicatorColor,
+                                            unselectedIconColor = palette.textSecondary,
+                                            unselectedTextColor = palette.textSecondary
                                         ),
                                         modifier = Modifier.testTag(dest.testTag)
                                     )
@@ -285,15 +327,22 @@ fun JarvisAppShell(
                         .padding(innerPadding)
                 ) {
                     if (useRail) {
+                        val palette = JarvisThemeTokens.palette
                         NavigationRail(
-                            containerColor = MaterialTheme.colorScheme.surface,
+                            containerColor = palette.surface,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .windowInsetsPadding(WindowInsets.statusBars)
                                 .windowInsetsPadding(WindowInsets.navigationBars)
                         ) {
                             TopDestination.entries.forEach { dest ->
-                                val selected = currentRoute == dest.routeQualifiedName
+                                val selected = isTopDestinationSelected(dest)
+                                val indicatorColor = when (dest) {
+                                    TopDestination.HOME -> palette.skyContainer
+                                    TopDestination.CHAT -> palette.skyContainer
+                                    TopDestination.MODELS -> palette.sageContainer
+                                    TopDestination.MORE -> palette.lavenderContainer
+                                }
                                 NavigationRailItem(
                                     selected = selected,
                                     onClick = { navigateToDestination(dest) },
@@ -306,33 +355,65 @@ fun JarvisAppShell(
                                     label = {
                                         Text(
                                             text = stringResource(dest.labelRes),
-                                            style = MaterialTheme.typography.labelSmall
+                                            style = MaterialTheme.typography.labelMedium
                                         )
                                     },
                                     colors = NavigationRailItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                        selectedIconColor = palette.onHue,
+                                        selectedTextColor = palette.text,
+                                        indicatorColor = indicatorColor,
+                                        unselectedIconColor = palette.textSecondary,
+                                        unselectedTextColor = palette.textSecondary
                                     ),
                                     modifier = Modifier.testTag(dest.testTag)
                                 )
                             }
                         }
+                        VerticalDivider(
+                            thickness = hairlineDp(),
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
 
                     NavHost(
                         navController = navController,
-                        startDestination = ChatRoute,
+                        startDestination = HomeRoute,
                         enterTransition = { fadeIn(animationSpec = tween(180)) },
-                        exitTransition = { fadeOut(animationSpec = tween(140)) },
+                        exitTransition = { fadeOut(animationSpec = tween(150)) },
                         popEnterTransition = { fadeIn(animationSpec = tween(180)) },
-                        popExitTransition = { fadeOut(animationSpec = tween(140)) },
+                        popExitTransition = { fadeOut(animationSpec = tween(150)) },
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
                     ) {
+                        composable<HomeRoute> {
+                            val readyTelemetry = (deviceState as? DeviceTelemetryUiState.Ready)?.telemetry
+                            HomeScreen(
+                                displayName = greetingName,
+                                activeModelName = modelState.activeModel?.displayName.orEmpty(),
+                                engineLoadState = modelState.engineLoadState,
+                                micStatus = voiceState.micStatus,
+                                batteryPercent = readyTelemetry?.batteryPercent ?: 100,
+                                freeRamMb = (readyTelemetry?.availRamBytes ?: 0L) / (1024L * 1024L),
+                                conversations = chatState.conversations,
+                                isModelGenerating = chatState.isGenerating || voiceState.isGeneratingReply,
+                                orbAnimationEnabled = settingsState.settings.orbAnimationEnabled,
+                                orbGlowIntensity = settingsState.settings.orbGlowIntensity,
+                                onOpenVoice = { navigateToSubRoute(VoiceRoute) },
+                                onOpenChat = { navigateToDestination(TopDestination.CHAT) },
+                                onOpenModels = { navigateToDestination(TopDestination.MODELS) },
+                                onOpenDevice = { navigateToSubRoute(DeviceRoute) },
+                                onOpenSettings = { navigateToSubRoute(SettingsRoute) },
+                                onSelectConversation = { id ->
+                                    chatViewModel.selectConversation(id)
+                                    navigateToDestination(TopDestination.CHAT)
+                                },
+                                onSeeAllHistory = {
+                                    navigateToDestination(TopDestination.CHAT)
+                                    scope.launch { drawerState.open() }
+                                }
+                            )
+                        }
                         composable<ChatRoute> {
                             ChatScreen(
                                 uiState = chatState,
@@ -343,7 +424,7 @@ fun JarvisAppShell(
                                 onLoadActiveModel = chatViewModel::loadActiveModelNow,
                                 onRunSystemSnapshot = chatViewModel::runSystemSnapshot,
                                 onRunReadinessAudit = chatViewModel::runEngineReadinessAudit,
-                                onNavigateToVoice = { navigateToDestination(TopDestination.VOICE) },
+                                onNavigateToVoice = { navigateToSubRoute(VoiceRoute) },
                                 onNavigateToModels = { navigateToDestination(TopDestination.MODELS) },
                                 onConfirmPendingTool = chatViewModel::confirmPendingTool,
                                 onCancelPendingTool = chatViewModel::cancelPendingTool,
@@ -352,7 +433,7 @@ fun JarvisAppShell(
                                 onRuntimePermissionResult = chatViewModel::onRuntimePermissionResult,
                                 onOpenDeviceControls = {
                                     deviceDashboardViewModel.selectTab(DeviceDashboardTab.CONTROLS)
-                                    navigateToDestination(TopDestination.DEVICE)
+                                    navigateToSubRoute(DeviceRoute)
                                 },
                                 onSelectRoutingMode = chatViewModel::setRoutingMode,
                                 onSummarizeSession = chatViewModel::summarizeCurrentSessionToMemory,
@@ -391,8 +472,9 @@ fun JarvisAppShell(
                                 onRuntimePermissionResult = voiceViewModel::onRuntimePermissionResult,
                                 onOpenDeviceControls = {
                                     deviceDashboardViewModel.selectTab(DeviceDashboardTab.CONTROLS)
-                                    navigateToDestination(TopDestination.DEVICE)
-                                }
+                                    navigateToSubRoute(DeviceRoute)
+                                },
+                                onClose = { navController.popBackStack() }
                             )
                         }
                         composable<ModelsRoute> {
@@ -429,6 +511,23 @@ fun JarvisAppShell(
                                 onDismissHubNotice = modelManagerViewModel::dismissHubNotice
                             )
                         }
+                        composable<MoreRoute> {
+                            val activeName = modelState.activeModel?.displayName ?: "No model selected"
+                            val engineSummary = when (val load = modelState.engineLoadState) {
+                                is EngineLoadState.Ready -> "Loaded (${load.backendUsed})"
+                                is EngineLoadState.Loading -> "Loading"
+                                is EngineLoadState.Error -> "Error"
+                                is EngineLoadState.Unloaded -> "Unloaded"
+                            }
+                            MoreScreen(
+                                activeModelSummary = "$activeName · $engineSummary",
+                                routingSummary = settingsState.settings.routingMode.label,
+                                micSummary = voiceState.micStatus.label,
+                                onOpenVoice = { navigateToSubRoute(VoiceRoute) },
+                                onOpenDevice = { navigateToSubRoute(DeviceRoute) },
+                                onOpenSettings = { navigateToSubRoute(SettingsRoute) }
+                            )
+                        }
                         composable<DeviceRoute> {
                             DeviceDashboardScreen(
                                 uiState = deviceState,
@@ -446,7 +545,8 @@ fun JarvisAppShell(
                                 onSetNotificationPrivacyMaskEnabled = deviceDashboardViewModel::setNotificationPrivacyMaskEnabled,
                                 onClearNotificationBuffer = deviceDashboardViewModel::clearNotificationBuffer,
                                 onSetAccessibilityAutomationEnabled = deviceDashboardViewModel::setAccessibilityAutomationEnabled,
-                                onSetCloudUploadConsentGranted = deviceDashboardViewModel::setCloudUploadConsentGranted
+                                onSetCloudUploadConsentGranted = deviceDashboardViewModel::setCloudUploadConsentGranted,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                         composable<SettingsRoute> {
@@ -484,7 +584,8 @@ fun JarvisAppShell(
                                 onAddMemory = settingsViewModel::addMemoryItem,
                                 onEditMemory = settingsViewModel::editMemoryItem,
                                 onDeleteMemory = settingsViewModel::deleteMemoryItem,
-                                onDeleteSkill = settingsViewModel::deleteSkill
+                                onDeleteSkill = settingsViewModel::deleteSkill,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                     }
@@ -492,4 +593,25 @@ fun JarvisAppShell(
             }
         }
     }
+}
+
+private val GREETING_NAME_REGEX = Regex(
+    """(?:my name is|call me|i am|i'm|name:|nom:|je m'appelle|اسمي)\s+([\p{L}\p{N}][^\n,.;:!?]*)""",
+    RegexOption.IGNORE_CASE
+)
+
+private fun extractPreferredUserName(facts: List<MemoryFact>): String? {
+    val approved = facts.filter { it.isUserApproved }
+    for (fact in approved) {
+        val match = GREETING_NAME_REGEX.find(fact.content) ?: continue
+        val raw = match.groupValues.getOrNull(1)?.trim()?.take(24).orEmpty()
+        if (raw.isNotEmpty()) {
+            return raw
+        }
+    }
+    val explicitNameFact = approved.firstOrNull {
+        it.category.equals("name", ignoreCase = true) ||
+            it.category.equals("profile", ignoreCase = true)
+    }
+    return explicitNameFact?.content?.trim()?.takeIf { it.isNotEmpty() && !it.contains(' ') }?.take(24)
 }

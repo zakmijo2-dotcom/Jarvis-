@@ -160,7 +160,7 @@ object AccessibilityBridge {
         }
         val service = serviceRef?.get() ?: return emptyList()
         val root = runCatching { service.rootInActiveWindow }.getOrNull() ?: return emptyList()
-        lastObservedPackageName = root.packageName?.toString()
+        lastObservedPackageName = runCatching { root.packageName?.toString() }.getOrNull()
 
         val summaries = mutableListOf<ScreenElementSummary>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
@@ -171,32 +171,34 @@ object AccessibilityBridge {
         while (queue.isNotEmpty() && visited < 80 && summaries.size < maxElements) {
             val node = queue.removeFirst()
             visited++
-            if (node.isVisibleToUser) {
-                val rawLabel = when {
-                    node.isPassword -> "[REDACTED_PASSWORD]"
-                    !node.text.isNullOrBlank() -> node.text.toString().trim()
-                    !node.contentDescription.isNullOrBlank() -> node.contentDescription.toString().trim()
-                    else -> ""
-                }
-                val viewId = node.viewIdResourceName?.substringAfterLast('/')
-                val actionable = node.isClickable || node.isEditable || node.isScrollable
-                if (rawLabel.isNotEmpty() || actionable || !viewId.isNullOrBlank()) {
-                    node.getBoundsInScreen(rect)
-                    summaries.add(
-                        ScreenElementSummary(
-                            label = rawLabel.ifEmpty { viewId ?: node.className?.toString()?.substringAfterLast('.') ?: "Element" }.take(80),
-                            viewId = viewId,
-                            className = node.className?.toString()?.substringAfterLast('.') ?: "View",
-                            isClickable = node.isClickable,
-                            isEditable = node.isEditable,
-                            isScrollable = node.isScrollable,
-                            bounds = "[${rect.left},${rect.top}][${rect.right},${rect.bottom}]"
+            runCatching {
+                if (node.isVisibleToUser) {
+                    val rawLabel = when {
+                        node.isPassword -> "[REDACTED_PASSWORD]"
+                        !node.text.isNullOrBlank() -> node.text.toString().trim()
+                        !node.contentDescription.isNullOrBlank() -> node.contentDescription.toString().trim()
+                        else -> ""
+                    }
+                    val viewId = node.viewIdResourceName?.substringAfterLast('/')
+                    val actionable = node.isClickable || node.isEditable || node.isScrollable
+                    if (rawLabel.isNotEmpty() || actionable || !viewId.isNullOrBlank()) {
+                        node.getBoundsInScreen(rect)
+                        summaries.add(
+                            ScreenElementSummary(
+                                label = rawLabel.ifEmpty { viewId ?: node.className?.toString()?.substringAfterLast('.') ?: "Element" }.take(80),
+                                viewId = viewId,
+                                className = node.className?.toString()?.substringAfterLast('.') ?: "View",
+                                isClickable = node.isClickable,
+                                isEditable = node.isEditable,
+                                isScrollable = node.isScrollable,
+                                bounds = "[${rect.left},${rect.top}][${rect.right},${rect.bottom}]"
+                            )
                         )
-                    )
+                    }
                 }
-            }
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.addLast(it) }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.addLast(it) }
+                }
             }
         }
         return summaries
@@ -212,34 +214,36 @@ object AccessibilityBridge {
         testTapOverride?.let { return it(cleanQuery) }
 
         val service = serviceRef?.get() ?: return false
-        val root = runCatching { service.rootInActiveWindow }.getOrNull() ?: return false
-        val matched = findMatchingNode(root, cleanQuery) ?: return false
+        return runCatching {
+            val root = service.rootInActiveWindow ?: return@runCatching false
+            val matched = findMatchingNode(root, cleanQuery) ?: return@runCatching false
 
-        var clickable: AccessibilityNodeInfo? = matched
-        var hops = 0
-        while (clickable != null && !clickable.isClickable && hops < 5) {
-            clickable = clickable.parent
-            hops++
-        }
-        if (clickable != null && clickable.isClickable) {
-            if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return true
+            var clickable: AccessibilityNodeInfo? = matched
+            var hops = 0
+            while (clickable != null && !clickable.isClickable && hops < 5) {
+                clickable = clickable.parent
+                hops++
             }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val rect = Rect()
-            matched.getBoundsInScreen(rect)
-            if (!rect.isEmpty) {
-                val path = Path().apply {
-                    moveTo(rect.exactCenterX(), rect.exactCenterY())
+            if (clickable != null && clickable.isClickable) {
+                if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return@runCatching true
                 }
-                val gesture = GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 65L))
-                    .build()
-                return service.dispatchGesture(gesture, null, null)
             }
-        }
-        return false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val rect = Rect()
+                matched.getBoundsInScreen(rect)
+                if (!rect.isEmpty) {
+                    val path = Path().apply {
+                        moveTo(rect.exactCenterX(), rect.exactCenterY())
+                    }
+                    val gesture = GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(path, 0L, 65L))
+                        .build()
+                    return@runCatching service.dispatchGesture(gesture, null, null)
+                }
+            }
+            false
+        }.getOrDefault(false)
     }
 
     /**
@@ -250,52 +254,54 @@ object AccessibilityBridge {
         testScrollOverride?.let { return it(norm) }
 
         val service = serviceRef?.get() ?: return false
-        val root = runCatching { service.rootInActiveWindow }.getOrNull() ?: return false
-        val scrollable = findFirstScrollableNode(root)
-        val forward = norm == "down" || norm == "forward" || norm == "right"
-        if (scrollable != null) {
-            val action = if (forward) {
-                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-            } else {
-                AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-            }
-            if (scrollable.performAction(action)) {
-                return true
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val rect = Rect()
-            root.getBoundsInScreen(rect)
-            val width = rect.width().coerceAtLeast(400)
-            val height = rect.height().coerceAtLeast(800)
-            val cx = width / 2f
-            val cy = height / 2f
-            val path = Path().apply {
-                when (norm) {
-                    "up", "backward" -> {
-                        moveTo(cx, height * 0.30f)
-                        lineTo(cx, height * 0.75f)
-                    }
-                    "left" -> {
-                        moveTo(width * 0.25f, cy)
-                        lineTo(width * 0.80f, cy)
-                    }
-                    "right" -> {
-                        moveTo(width * 0.80f, cy)
-                        lineTo(width * 0.25f, cy)
-                    }
-                    else -> {
-                        moveTo(cx, height * 0.75f)
-                        lineTo(cx, height * 0.25f)
-                    }
+        return runCatching {
+            val root = service.rootInActiveWindow ?: return@runCatching false
+            val scrollable = findFirstScrollableNode(root)
+            val forward = norm == "down" || norm == "forward" || norm == "right"
+            if (scrollable != null) {
+                val action = if (forward) {
+                    AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                } else {
+                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                }
+                if (scrollable.performAction(action)) {
+                    return@runCatching true
                 }
             }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0L, 220L))
-                .build()
-            return service.dispatchGesture(gesture, null, null)
-        }
-        return false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val rect = Rect()
+                root.getBoundsInScreen(rect)
+                val width = rect.width().coerceAtLeast(400)
+                val height = rect.height().coerceAtLeast(800)
+                val cx = width / 2f
+                val cy = height / 2f
+                val path = Path().apply {
+                    when (norm) {
+                        "up", "backward" -> {
+                            moveTo(cx, height * 0.30f)
+                            lineTo(cx, height * 0.75f)
+                        }
+                        "left" -> {
+                            moveTo(width * 0.25f, cy)
+                            lineTo(width * 0.80f, cy)
+                        }
+                        "right" -> {
+                            moveTo(width * 0.80f, cy)
+                            lineTo(width * 0.25f, cy)
+                        }
+                        else -> {
+                            moveTo(cx, height * 0.75f)
+                            lineTo(cx, height * 0.25f)
+                        }
+                    }
+                }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 220L))
+                    .build()
+                return@runCatching service.dispatchGesture(gesture, null, null)
+            }
+            false
+        }.getOrDefault(false)
     }
 
     /**
@@ -307,21 +313,23 @@ object AccessibilityBridge {
         testInputOverride?.let { return it(targetQuery, text) }
 
         val service = serviceRef?.get() ?: return false
-        val root = runCatching { service.rootInActiveWindow }.getOrNull() ?: return false
-        val targetNode = if (!targetQuery.isNullOrBlank()) {
-            findMatchingNode(root, targetQuery.trim(), requireEditable = true)
-        } else {
-            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
-                ?: findFirstEditableNode(root)
-        } ?: return false
+        return runCatching {
+            val root = service.rootInActiveWindow ?: return@runCatching false
+            val targetNode = if (!targetQuery.isNullOrBlank()) {
+                findMatchingNode(root, targetQuery.trim(), requireEditable = true)
+            } else {
+                root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+                    ?: findFirstEditableNode(root)
+            } ?: return@runCatching false
 
-        // Security guardrail: never allow automated text injection into password fields.
-        if (targetNode.isPassword) return false
+            // Security guardrail: never allow automated text injection into password fields.
+            if (targetNode.isPassword) return@runCatching false
 
-        val args = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-        }
-        return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        }.getOrDefault(false)
     }
 
     private fun findMatchingNode(
@@ -335,16 +343,21 @@ object AccessibilityBridge {
         while (queue.isNotEmpty() && visited < 100) {
             val node = queue.removeFirst()
             visited++
-            if (node.isVisibleToUser && (!requireEditable || node.isEditable)) {
-                val textMatch = node.text?.toString()?.contains(query, ignoreCase = true) == true
-                val descMatch = node.contentDescription?.toString()?.contains(query, ignoreCase = true) == true
-                val idMatch = node.viewIdResourceName?.contains(query, ignoreCase = true) == true
-                if (textMatch || descMatch || idMatch) {
-                    return node
+            val matched = runCatching {
+                if (node.isVisibleToUser && (!requireEditable || node.isEditable)) {
+                    val textMatch = node.text?.toString()?.contains(query, ignoreCase = true) == true
+                    val descMatch = node.contentDescription?.toString()?.contains(query, ignoreCase = true) == true
+                    val idMatch = node.viewIdResourceName?.contains(query, ignoreCase = true) == true
+                    textMatch || descMatch || idMatch
+                } else {
+                    false
                 }
-            }
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.addLast(it) }
+            }.getOrDefault(false)
+            if (matched) return node
+            runCatching {
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.addLast(it) }
+                }
             }
         }
         return null
@@ -357,9 +370,12 @@ object AccessibilityBridge {
         while (queue.isNotEmpty() && visited < 80) {
             val node = queue.removeFirst()
             visited++
-            if (node.isVisibleToUser && node.isScrollable) return node
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.addLast(it) }
+            val found = runCatching { node.isVisibleToUser && node.isScrollable }.getOrDefault(false)
+            if (found) return node
+            runCatching {
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.addLast(it) }
+                }
             }
         }
         return null
@@ -372,9 +388,12 @@ object AccessibilityBridge {
         while (queue.isNotEmpty() && visited < 80) {
             val node = queue.removeFirst()
             visited++
-            if (node.isVisibleToUser && node.isEditable && !node.isPassword) return node
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.addLast(it) }
+            val found = runCatching { node.isVisibleToUser && node.isEditable && !node.isPassword }.getOrDefault(false)
+            if (found) return node
+            runCatching {
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.addLast(it) }
+                }
             }
         }
         return null

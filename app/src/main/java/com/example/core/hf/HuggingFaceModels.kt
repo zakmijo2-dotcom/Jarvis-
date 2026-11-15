@@ -180,7 +180,8 @@ object HfMetadataParser {
         val modelType = (config?.get("model_type") as? JsonPrimitive)?.contentOrNull
         if (!modelType.isNullOrBlank()) return modelType.replaceFirstChar { it.uppercase(Locale.US) }
 
-        if (!gguf?.architecture.isNullOrBlank()) return gguf!!.architecture!!
+        val ggufArch = gguf?.architecture?.takeIf { it.isNotBlank() }
+        if (ggufArch != null) return ggufArch
 
         val lowerRepo = repoId.lowercase(Locale.US)
         val archCandidates = listOf(

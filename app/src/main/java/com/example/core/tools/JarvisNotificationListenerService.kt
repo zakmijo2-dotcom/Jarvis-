@@ -8,6 +8,7 @@ import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.Locale
 
 object NotificationBridge {
@@ -86,14 +87,17 @@ object NotificationBridge {
             postedAtMillis = postedAtMillis
         )
 
-        val updated = (_notifications.value.filterNot { it.key == key } + item)
-            .sortedByDescending { it.postedAtMillis }
-            .take(MAX_BUFFER_SIZE)
-        _notifications.value = updated
+        _notifications.update { current ->
+            (current.filterNot { it.key == key } + item)
+                .sortedByDescending { it.postedAtMillis }
+                .take(MAX_BUFFER_SIZE)
+        }
     }
 
     fun removeByKey(key: String) {
-        _notifications.value = _notifications.value.filterNot { it.key == key }
+        _notifications.update { current ->
+            current.filterNot { it.key == key }
+        }
     }
 
     internal fun maskSensitiveText(text: String): String {
@@ -122,6 +126,8 @@ class JarvisNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
         if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) return
+        val sourcePackage = sbn.packageName ?: return
+        val notifKey = sbn.key ?: "$sourcePackage:${sbn.id}:${sbn.postTime}"
 
         val extras = notification.extras
         val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
@@ -129,15 +135,15 @@ class JarvisNotificationListenerService : NotificationListenerService() {
             ?: extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
 
         val appLabel = runCatching {
-            val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
+            val appInfo = packageManager.getApplicationInfo(sourcePackage, 0)
             packageManager.getApplicationLabel(appInfo).toString()
-        }.getOrDefault(sbn.packageName.substringAfterLast('.').replaceFirstChar {
+        }.getOrDefault(sourcePackage.substringAfterLast('.').replaceFirstChar {
             it.titlecase(Locale.getDefault())
         })
 
         NotificationBridge.recordNotification(
-            key = sbn.key,
-            packageName = sbn.packageName,
+            key = notifKey,
+            packageName = sourcePackage,
             appLabel = appLabel,
             title = title,
             bodyText = body,

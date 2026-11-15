@@ -129,6 +129,9 @@ class DownloadQueueManager(
         if (!SecureCredentialStore.isSafeModelFilename(request.fileName)) {
             return@withLock EnqueueResult.Rejected("Security policy blocked unsafe filename '${request.fileName}'.")
         }
+        if (!isSafeDownloadUrl(request.downloadUrl)) {
+            return@withLock EnqueueResult.Rejected("Security policy blocked insecure or invalid download URL.")
+        }
 
         val existing = queueDao.findByRepoAndFile(request.repoId, request.fileName)?.toDomain()
         if (existing != null && existing.status in ACTIVE_OR_PAUSED_STATUSES) {
@@ -140,6 +143,11 @@ class DownloadQueueManager(
 
         val safeLeaf = SecureCredentialStore.sanitizeLocalFileLeaf(request.repoId, request.fileName)
         val destFile = File(modelsDirectory, safeLeaf)
+        val canonicalModelsRoot = runCatching { modelsDirectory.canonicalPath }.getOrNull()
+        val canonicalDest = runCatching { destFile.canonicalPath }.getOrNull()
+        if (canonicalModelsRoot == null || canonicalDest == null || !canonicalDest.startsWith("$canonicalModelsRoot${File.separator}")) {
+            return@withLock EnqueueResult.Rejected("Security policy blocked invalid download destination path.")
+        }
         if (existing?.status == DownloadQueueStatus.COMPLETED && destFile.exists() && destFile.length() > 1024L) {
             return@withLock EnqueueResult.Duplicate(
                 existing = existing,
@@ -595,13 +603,26 @@ class DownloadQueueManager(
         }
     }
 
+    private fun isSafeDownloadUrl(url: String): Boolean {
+        val parsed = url.trim().toHttpUrlOrNull() ?: return false
+        if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return false
+        val host = parsed.host.lowercase()
+        if (host == "169.254.169.254" || host == "metadata.google.internal" || host.startsWith("169.254.")) {
+            return false
+        }
+        return parsed.isHttps || (parsed.scheme == "http" && (host == "localhost" || host == "127.0.0.1"))
+    }
+
     private fun isTrustedAuthHost(url: String): Boolean {
-        val host = url.toHttpUrlOrNull()?.host ?: return false
-        return host == "huggingface.co" ||
-            host.endsWith(".huggingface.co") ||
-            host.endsWith(".hf.co") ||
-            host == "localhost" ||
-            host == "127.0.0.1"
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        val host = parsed.host.lowercase()
+        val isTrustedHttpsHf = parsed.isHttps && (
+            host == "huggingface.co" ||
+                host.endsWith(".huggingface.co") ||
+                host.endsWith(".hf.co")
+            )
+        val isLoopback = host == "localhost" || host == "127.0.0.1"
+        return isTrustedHttpsHf || isLoopback
     }
 
     private fun computeSha256(file: File): String {
@@ -672,10 +693,7 @@ class DownloadQueueManager(
                         }
                         ContextCompat.startForegroundService(appContext, intent)
                     } else {
-                        val intent = Intent(appContext, ModelDownloadService::class.java).apply {
-                            action = ModelDownloadService.ACTION_STOP
-                        }
-                        appContext.startService(intent)
+                        appContext.stopService(Intent(appContext, ModelDownloadService::class.java))
                     }
                 }
             }

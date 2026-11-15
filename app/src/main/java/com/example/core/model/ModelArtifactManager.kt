@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -93,6 +94,15 @@ class ModelArtifactManager(
         url: String,
         bearerToken: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (!isSafeDownloadUrl(url)) {
+            val msg = "Security policy blocked insecure or invalid model download URL."
+            _transferState.value = ArtifactTransferState.Error(slot.id, msg)
+            return@withContext Result.failure(IllegalArgumentException(msg))
+        }
+
+        val (targetFile, partFile) = resolveArtifactFiles(slot.id)
+            ?: return@withContext Result.failure(SecurityException("Invalid model slot identifier '${slot.id}'."))
+
         val requiredBytes = if (slot.expectedSizeBytes > 0L) {
             slot.expectedSizeBytes + STORAGE_HEADROOM_BYTES
         } else {
@@ -107,8 +117,6 @@ class ModelArtifactManager(
             return@withContext Result.failure(IllegalStateException(msg))
         }
 
-        val targetFile = File(modelsDirectory, "${slot.id}.litertlm")
-        val partFile = File(modelsDirectory, "${slot.id}.litertlm.part")
         partFile.delete()
 
         modelManager.updateArtifactState(
@@ -119,7 +127,7 @@ class ModelArtifactManager(
         )
 
         val requestBuilder = Request.Builder().url(url).get()
-        if (bearerToken.isNotBlank()) {
+        if (bearerToken.isNotBlank() && isTrustedAuthHost(url)) {
             requestBuilder.header("Authorization", "Bearer ${bearerToken.trim()}")
         }
 
@@ -254,8 +262,8 @@ class ModelArtifactManager(
 
     suspend fun importFromUriInternal(slot: ModelSlot, uri: Uri): Result<String> =
         withContext(Dispatchers.IO) {
-            val partFile = File(modelsDirectory, "${slot.id}.litertlm.part")
-            val targetFile = File(modelsDirectory, "${slot.id}.litertlm")
+            val (targetFile, partFile) = resolveArtifactFiles(slot.id)
+                ?: return@withContext Result.failure(SecurityException("Invalid model slot identifier '${slot.id}'."))
             partFile.delete()
 
             try {
@@ -283,8 +291,8 @@ class ModelArtifactManager(
 
     suspend fun importFromFileInternal(slot: ModelSlot, sourceFile: File): Result<String> =
         withContext(Dispatchers.IO) {
-            val partFile = File(modelsDirectory, "${slot.id}.litertlm.part")
-            val targetFile = File(modelsDirectory, "${slot.id}.litertlm")
+            val (targetFile, partFile) = resolveArtifactFiles(slot.id)
+                ?: return@withContext Result.failure(SecurityException("Invalid model slot identifier '${slot.id}'."))
             partFile.delete()
             try {
                 if (!sourceFile.exists() || !sourceFile.isFile) {
@@ -434,8 +442,10 @@ class ModelArtifactManager(
 
     suspend fun deleteArtifact(slot: ModelSlot) = withContext(Dispatchers.IO) {
         slot.localFilePath?.let { runCatching { File(it).delete() } }
-        File(modelsDirectory, "${slot.id}.litertlm").delete()
-        File(modelsDirectory, "${slot.id}.litertlm.part").delete()
+        resolveArtifactFiles(slot.id)?.let { (targetFile, partFile) ->
+            targetFile.delete()
+            partFile.delete()
+        }
         modelManager.updateArtifactState(
             id = slot.id,
             localFilePath = null,
@@ -458,6 +468,46 @@ class ModelArtifactManager(
         }
     }
 
+    private fun resolveArtifactFiles(slotId: String): Pair<File, File>? {
+        val cleanId = slotId.trim()
+        if (cleanId.isEmpty() ||
+            cleanId.contains("..") ||
+            cleanId.contains('/') ||
+            cleanId.contains('\\') ||
+            !SAFE_SLOT_ID_REGEX.matches(cleanId)
+        ) {
+            return null
+        }
+        val rootCanonical = runCatching { modelsDirectory.canonicalPath }.getOrNull() ?: return null
+        val targetFile = File(modelsDirectory, "$cleanId.litertlm")
+        val partFile = File(modelsDirectory, "$cleanId.litertlm.part")
+        val targetCanonical = runCatching { targetFile.canonicalPath }.getOrNull() ?: return null
+        if (!targetCanonical.startsWith("$rootCanonical${File.separator}")) return null
+        return targetFile to partFile
+    }
+
+    private fun isSafeDownloadUrl(url: String): Boolean {
+        val parsed = url.trim().toHttpUrlOrNull() ?: return false
+        if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return false
+        val host = parsed.host.lowercase()
+        if (host == "169.254.169.254" || host == "metadata.google.internal" || host.startsWith("169.254.")) {
+            return false
+        }
+        return parsed.isHttps || (parsed.scheme == "http" && (host == "localhost" || host == "127.0.0.1"))
+    }
+
+    private fun isTrustedAuthHost(url: String): Boolean {
+        val parsed = url.trim().toHttpUrlOrNull() ?: return false
+        val host = parsed.host.lowercase()
+        val isTrustedHttpsHf = parsed.isHttps && (
+            host == "huggingface.co" ||
+                host.endsWith(".huggingface.co") ||
+                host.endsWith(".hf.co")
+            )
+        val isLoopback = host == "localhost" || host == "127.0.0.1"
+        return isTrustedHttpsHf || isLoopback
+    }
+
     private fun computeSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(64 * 1024)
@@ -472,6 +522,7 @@ class ModelArtifactManager(
     }
 
     companion object {
+        private val SAFE_SLOT_ID_REGEX = Regex("^[a-zA-Z0-9._-]+$")
         private const val STORAGE_HEADROOM_BYTES = 128L * 1024L * 1024L
         private const val MIN_REQUIRED_SPACE_BYTES = 256L * 1024L * 1024L
 

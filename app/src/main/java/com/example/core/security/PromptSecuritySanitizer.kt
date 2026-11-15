@@ -9,7 +9,7 @@ package com.example.core.security
 object PromptSecuritySanitizer {
 
     private val SPOOFED_TOOL_TAG_REGEX = Regex(
-        """\[/?TOOL_CALL]|\[/?TOOL_RESULT]|<\|?(?:system|im_start|im_end)\|?>""",
+        """\[/?TOOL_CALL\]|\[/?TOOL_RESULT\]|<\|?(?:system|im_start|im_end)\|?>""",
         RegexOption.IGNORE_CASE
     )
 

@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -39,7 +38,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -72,12 +70,17 @@ import com.example.core.model.DownloadQueueItem
 import com.example.core.model.DownloadQueueStatus
 import com.example.core.model.ModelSlot
 import com.example.core.model.RuntimeFormatAdapter
-import com.example.core.model.RuntimeFormatId
 import com.example.data.local.db.ModelBenchmarkEntity
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudPanel
-import com.example.ui.theme.NominalGreen
-import com.example.ui.theme.SignalAmber
+import com.example.ui.components.hairlineDp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChipDefaults
+import com.example.ui.theme.JarvisMonoMetricStyle
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisThemeTokens
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -94,6 +97,7 @@ fun DiscoverSearchHeader(
     onSearch: () -> Unit,
     onOpenManualRepo: () -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     HudPanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -106,23 +110,25 @@ fun DiscoverSearchHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "HUGGING FACE MODEL HUB",
+                text = "Hugging Face",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
             HudBadge(
-                text = if (hasToken) "TOKEN ENCRYPTED" else "PUBLIC ACCESS",
-                color = if (hasToken) NominalGreen else MaterialTheme.colorScheme.secondary
+                text = if (hasToken) "Token saved" else "Public access",
+                color = if (hasToken) palette.onHue else MaterialTheme.colorScheme.onSurfaceVariant,
+                containerColor = if (hasToken) palette.sageContainer else MaterialTheme.colorScheme.surfaceContainerHigh
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
             value = discover.searchQuery,
             onValueChange = onQueryChange,
-            label = { Text("Search model name or keywords (e.g. gemma, qwen)") },
+            label = { Text("Search models (e.g. gemma, qwen)") },
             singleLine = true,
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("hf_search_query_input")
@@ -138,8 +144,9 @@ fun DiscoverSearchHeader(
             OutlinedTextField(
                 value = discover.authorFilter,
                 onValueChange = onAuthorChange,
-                label = { Text("Author / Org (optional)") },
+                label = { Text("Author or org (optional)") },
                 singleLine = true,
+                shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("hf_author_input")
@@ -147,6 +154,11 @@ fun DiscoverSearchHeader(
             Button(
                 onClick = onSearch,
                 enabled = !discover.isLoading,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.sageContainer,
+                    contentColor = palette.onHue
+                ),
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .testTag("hf_search_button")
@@ -165,29 +177,30 @@ fun DiscoverSearchHeader(
         ) {
             val presets = listOf(
                 "litert-lm" to "LiteRT-LM (.litertlm)",
-                null to "All Repos",
-                "text-generation" to "Text Gen"
+                null to "All repositories",
+                "text-generation" to "Text generation"
             )
             presets.forEach { (tag, label) ->
                 FilterChip(
                     selected = discover.selectedTagFilter == tag,
                     onClick = { onSelectTagFilter(tag) },
-                    label = { Text(label) }
+                    label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = palette.sageContainer,
+                        selectedLabelColor = palette.onHue
+                    )
                 )
             }
         }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 10.dp),
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-        )
+        EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
 
         Text(
-            text = "Open Repository ID Directly",
-            style = MaterialTheme.typography.labelLarge,
+            text = "Open repository directly",
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -198,6 +211,7 @@ fun DiscoverSearchHeader(
                 onValueChange = onManualRepoChange,
                 label = { Text("owner/repo (e.g. litert-community/Gemma3-1B-IT)") },
                 singleLine = true,
+                shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("hf_manual_repo_input")
@@ -215,7 +229,7 @@ fun DiscoverSearchHeader(
         }
 
         if (discover.isLoading) {
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
         discover.errorMessage?.let { err ->
@@ -242,11 +256,11 @@ fun HfRepoSummaryCard(
             .clickable(onClick = onInspect)
             .testTag("hf_repo_card_${repo.repoId}"),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(hairlineDp(), MaterialTheme.colorScheme.outline)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
@@ -258,33 +272,37 @@ fun HfRepoSummaryCard(
                     Text(
                         text = repo.repoId,
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Author: ${repo.author.ifBlank { "Community" }} • ${formatCompactCount(repo.downloads)} downloads • ${repo.likes} likes",
+                        text = "${repo.author.ifBlank { "Community" }} · ${formatCompactCount(repo.downloads)} downloads · ${repo.likes} likes",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (repo.isGated) {
-                    HudBadge(text = "GATED", color = SignalAmber)
+                    HudBadge(text = "Gated", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 repo.libraryName?.let {
-                    HudBadge(text = it.uppercase(Locale.US), color = MaterialTheme.colorScheme.secondary)
+                    HudBadge(text = it, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 repo.pipelineTag?.let {
                     HudBadge(text = it, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 repo.license?.let {
-                    HudBadge(text = "License: $it", color = MaterialTheme.colorScheme.primary)
+                    HudBadge(
+                        text = "License: $it",
+                        color = JarvisThemeTokens.palette.onHue,
+                        containerColor = JarvisThemeTokens.palette.sageContainer
+                    )
                 }
             }
 
@@ -296,7 +314,7 @@ fun HfRepoSummaryCard(
                     onClick = onInspect,
                     modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
-                    Text("Inspect Files & Compatibility")
+                    Text("Inspect files")
                 }
             }
         }
@@ -310,11 +328,22 @@ fun DownloadQueueCard(
     onResume: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     val badgeColor = when (item.status) {
-        DownloadQueueStatus.COMPLETED -> NominalGreen
-        DownloadQueueStatus.DOWNLOADING, DownloadQueueStatus.VERIFYING -> MaterialTheme.colorScheme.primary
-        DownloadQueueStatus.PAUSED, DownloadQueueStatus.QUEUED -> SignalAmber
-        DownloadQueueStatus.FAILED, DownloadQueueStatus.CANCELLED -> MaterialTheme.colorScheme.error
+        DownloadQueueStatus.COMPLETED, DownloadQueueStatus.DOWNLOADING, DownloadQueueStatus.VERIFYING ->
+            palette.onHue
+        DownloadQueueStatus.PAUSED, DownloadQueueStatus.QUEUED ->
+            MaterialTheme.colorScheme.onSurfaceVariant
+        DownloadQueueStatus.FAILED, DownloadQueueStatus.CANCELLED ->
+            palette.onHue
+    }
+    val badgeContainer = when (item.status) {
+        DownloadQueueStatus.COMPLETED, DownloadQueueStatus.DOWNLOADING, DownloadQueueStatus.VERIFYING ->
+            palette.sageContainer
+        DownloadQueueStatus.PAUSED, DownloadQueueStatus.QUEUED ->
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        DownloadQueueStatus.FAILED, DownloadQueueStatus.CANCELLED ->
+            palette.coralContainer
     }
 
     HudPanel(
@@ -328,7 +357,7 @@ fun DownloadQueueCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
                     text = item.displayName,
                     style = MaterialTheme.typography.titleSmall,
@@ -337,15 +366,15 @@ fun DownloadQueueCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${item.repoId} • ${item.runtimeFormat.label}",
+                    text = "${item.repoId} · ${item.runtimeFormat.label}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            HudBadge(text = item.status.label.uppercase(Locale.US), color = badgeColor)
+            HudBadge(text = item.status.label, color = badgeColor, containerColor = badgeContainer)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         if (item.status == DownloadQueueStatus.DOWNLOADING ||
             item.status == DownloadQueueStatus.PAUSED ||
@@ -353,9 +382,11 @@ fun DownloadQueueCard(
         ) {
             LinearProgressIndicator(
                 progress = { item.progress },
+                color = palette.sageAccent,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         val dlMb = item.downloadedBytes / (1024f * 1024f)
@@ -366,20 +397,20 @@ fun DownloadQueueCard(
         val statsText = when (item.status) {
             DownloadQueueStatus.DOWNLOADING -> String.format(
                 Locale.US,
-                "%.1f / %.1f MB (%.0f%%) • %.2f MB/s • %.1f MB left%s",
+                "%.1f / %.1f MB (%.0f%%) · %.2f MB/s · %.1f MB left%s",
                 dlMb,
                 totalMb,
                 item.progress * 100f,
                 speedMb,
                 remMb,
-                if (item.etaSeconds >= 0L) " • ETA ${formatDuration(item.etaSeconds)}" else ""
+                if (item.etaSeconds >= 0L) " · ETA ${formatDuration(item.etaSeconds)}" else ""
             )
             DownloadQueueStatus.PAUSED -> String.format(
                 Locale.US,
-                "Paused at %.1f / %.1f MB • %s",
+                "Paused at %.1f / %.1f MB · %s",
                 dlMb,
                 totalMb,
-                if (item.supportsResume) "HTTP Range resume supported" else "Will restart if resumed"
+                if (item.supportsResume) "Resumable" else "Restart on resume"
             )
             DownloadQueueStatus.VERIFYING -> "Verifying SHA-256 checksum…"
             DownloadQueueStatus.COMPLETED -> String.format(Locale.US, "Verified %.1f MB stored offline", dlMb)
@@ -390,7 +421,7 @@ fun DownloadQueueCard(
 
         Text(
             text = statsText,
-            style = MaterialTheme.typography.labelMedium,
+            style = JarvisMonoTelemetryStyle,
             color = if (item.status == DownloadQueueStatus.FAILED) {
                 MaterialTheme.colorScheme.error
             } else {
@@ -416,6 +447,11 @@ fun DownloadQueueCard(
             if (item.status == DownloadQueueStatus.PAUSED || item.status == DownloadQueueStatus.FAILED) {
                 Button(
                     onClick = onResume,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.sageContainer,
+                        contentColor = palette.onHue
+                    ),
                     modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -448,6 +484,7 @@ fun BenchmarkHistoryCard(
     nativeMemoryMb: Float = 0f,
     lastBenchmark: GenerationBenchmark? = null
 ) {
+    val palette = JarvisThemeTokens.palette
     val avgTtftMs = remember(benchmarks) {
         if (benchmarks.isEmpty()) null else benchmarks.map { it.ttftMs }.average().toLong()
     }
@@ -478,7 +515,7 @@ fun BenchmarkHistoryCard(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 840.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         HudPanel(
             modifier = Modifier
@@ -494,15 +531,18 @@ fun BenchmarkHistoryCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Filled.Speed, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Filled.Speed, contentDescription = null, tint = palette.sageAccent)
                     Text(
-                        text = "MODEL BENCHMARK HISTORY",
+                        text = "Benchmark history",
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 if (benchmarks.isNotEmpty()) {
-                    TextButton(onClick = onClearBenchmarks) {
+                    TextButton(
+                        onClick = onClearBenchmarks,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
                         Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Clear")
@@ -510,73 +550,69 @@ fun BenchmarkHistoryCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Aggregate Benchmark KPIs Row 1
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                BenchmarkKpiTile(
-                    label = "AVG TTFT",
+                BenchmarkMetricColumn(
+                    label = "Avg TTFT",
                     value = avgTtftMs?.let { "${it} ms" } ?: "—",
                     modifier = Modifier.weight(1f)
                 )
-                BenchmarkKpiTile(
-                    label = "AVG DECODE",
+                BenchmarkMetricColumn(
+                    label = "Avg decode",
                     value = avgTps?.let { String.format(Locale.US, "%.1f tok/s", it) } ?: "—",
                     modifier = Modifier.weight(1f)
                 )
-                BenchmarkKpiTile(
-                    label = "PEAK MEMORY",
+                BenchmarkMetricColumn(
+                    label = "Peak memory",
                     value = String.format(Locale.US, "%.1f MB", peakMemMb),
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-            // Aggregate Benchmark KPIs Row 2
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                BenchmarkKpiTile(
-                    label = "INIT TIME",
+                BenchmarkMetricColumn(
+                    label = "Init time",
                     value = if (activeInitMs > 0L) "${activeInitMs} ms" else "—",
                     modifier = Modifier.weight(1f)
                 )
-                BenchmarkKpiTile(
-                    label = "MODEL SIZE",
-                    value = if (activeFileSizeBytes > 0L) formatFileSize(activeFileSizeBytes) else "Not Installed",
+                BenchmarkMetricColumn(
+                    label = "Model size",
+                    value = if (activeFileSizeBytes > 0L) formatFileSize(activeFileSizeBytes) else "Not installed",
                     modifier = Modifier.weight(1f)
                 )
-                BenchmarkKpiTile(
-                    label = "THERMAL / BACKEND",
-                    value = "$latestThermal • ${activeBackend.substringBefore(" (")}",
+                BenchmarkMetricColumn(
+                    label = "Thermal & backend",
+                    value = "$latestThermal · ${activeBackend.substringBefore(" (")}",
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
-            Spacer(modifier = Modifier.height(8.dp))
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             if (benchmarks.isEmpty()) {
                 Text(
-                    text = "No inference runs recorded yet. Send prompts using a loaded LiteRT-LM or Cloud model to log init latency, TTFT, decode tok/s, peak heap, artifact size, and thermal/battery telemetry.",
+                    text = "No inference runs recorded yet. Send a prompt with a loaded LiteRT-LM or cloud model to log latency, throughput, and memory.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                benchmarks.forEach { entry ->
+                benchmarks.forEachIndexed { index, entry ->
                     val timeLabel = SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date(entry.timestamp))
-                    val sizeLabel = if (entry.modelSizeBytes > 0L) formatFileSize(entry.modelSizeBytes) else "Cloud/Stream"
+                    val sizeLabel = if (entry.modelSizeBytes > 0L) formatFileSize(entry.modelSizeBytes) else "Cloud"
                     val effectivePeak = maxOf(entry.peakMemoryMb, entry.nativeHeapMb)
                     val batteryNote = if (entry.batteryPercent >= 0) {
                         "${entry.batteryPercent}% (${String.format(Locale.US, "%.1f", entry.batteryTempCelsius)}°C)"
                     } else {
-                        "Battery N/A"
+                        "Battery unavailable"
                     }
 
                     Column(
@@ -598,7 +634,7 @@ fun BenchmarkHistoryCard(
                             )
                             Text(
                                 text = timeLabel,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = JarvisMonoTelemetryStyle,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -606,55 +642,53 @@ fun BenchmarkHistoryCard(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            HudBadge(text = entry.backendUsed, color = MaterialTheme.colorScheme.primary)
                             HudBadge(
-                                text = "Thermal: ${entry.thermalStatus}",
-                                color = if (entry.thermalStatus == "Nominal" || entry.thermalStatus == "Light") {
-                                    NominalGreen
-                                } else {
-                                    SignalAmber
-                                }
+                                text = entry.backendUsed,
+                                color = palette.onHue,
+                                containerColor = palette.sageContainer
                             )
-                            HudBadge(text = batteryNote, color = MaterialTheme.colorScheme.secondary)
+                            HudBadge(text = "Thermal: ${entry.thermalStatus}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            HudBadge(text = batteryNote, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(
                             text = String.format(
                                 Locale.US,
-                                "Init %d ms • TTFT %d ms • %.1f tok/s • %d out / %d prefill • Peak %.1f MB (Heap %.1f MB) • Size %s",
+                                "Init %d ms · TTFT %d ms · %.1f tok/s · %d out / %d prefill · Peak %.1f MB · %s",
                                 entry.initTimeMs,
                                 entry.ttftMs,
                                 entry.tokensPerSecond,
                                 entry.outputTokens,
                                 entry.prefillTokens,
                                 effectivePeak,
-                                entry.nativeHeapMb,
                                 sizeLabel
                             ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
+                            style = JarvisMonoTelemetryStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    if (index < benchmarks.lastIndex) {
+                        EditorialHairlineDivider()
+                    }
                 }
             }
         }
 
         HudPanel(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "RUNTIME FORMAT ADAPTERS",
+                text = "Format adapters",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.secondary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(8.dp))
-            formatAdapters.forEach { adapter ->
+            formatAdapters.forEachIndexed { index, adapter ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             text = adapter.displayName,
                             style = MaterialTheme.typography.titleSmall,
@@ -667,9 +701,13 @@ fun BenchmarkHistoryCard(
                         )
                     }
                     HudBadge(
-                        text = if (adapter.isExecutionSupported) "ACTIVE" else "PREPARED",
-                        color = if (adapter.isExecutionSupported) NominalGreen else SignalAmber
+                        text = if (adapter.isExecutionSupported) "Active" else "Prepared",
+                        color = if (adapter.isExecutionSupported) palette.onHue else MaterialTheme.colorScheme.onSurfaceVariant,
+                        containerColor = if (adapter.isExecutionSupported) palette.sageContainer else MaterialTheme.colorScheme.surfaceContainerHigh
                     )
+                }
+                if (index < formatAdapters.lastIndex) {
+                    EditorialHairlineDivider()
                 }
             }
         }
@@ -677,36 +715,29 @@ fun BenchmarkHistoryCard(
 }
 
 @Composable
-private fun BenchmarkKpiTile(
+private fun BenchmarkMetricColumn(
     label: String,
     value: String,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    Column(
         modifier = modifier,
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            style = JarvisMonoMetricStyle,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -723,7 +754,7 @@ fun RepoDetailDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = state.detail?.repoId ?: "Repository Inspection",
+                text = state.detail?.repoId ?: "Repository details",
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -746,7 +777,7 @@ fun RepoDetailDialog(
                         ) {
                             CircularProgressIndicator()
                             Text(
-                                text = "Fetching Hugging Face metadata & running compatibility inspection…",
+                                text = "Fetching repository metadata and checking compatibility…",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -770,79 +801,80 @@ fun RepoDetailDialog(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                HudBadge(text = "Arch: ${detail.architecture}", color = MaterialTheme.colorScheme.primary)
-                                HudBadge(text = "Params: ${detail.parameterCount}", color = MaterialTheme.colorScheme.secondary)
-                                HudBadge(text = "Quant: ${detail.quantizationSummary}", color = MaterialTheme.colorScheme.tertiary)
-                                HudBadge(text = "License: ${detail.license}", color = NominalGreen)
+                                val palette = JarvisThemeTokens.palette
+                                HudBadge(
+                                    text = detail.architecture,
+                                    color = palette.onHue,
+                                    containerColor = palette.sageContainer
+                                )
+                                HudBadge(text = detail.parameterCount, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                HudBadge(text = detail.quantizationSummary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                HudBadge(text = detail.license, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (detail.isGated) {
-                                    HudBadge(text = "GATED (${detail.gatedMode ?: "manual"})", color = SignalAmber)
+                                    HudBadge(text = "Gated (${detail.gatedMode ?: "manual"})", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
                             Text(
                                 text = "Tasks: ${detail.supportedTasks.joinToString(", ")}",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
                             detail.gatedPrompt?.let { prompt ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
-                                    shape = MaterialTheme.shapes.small
+                                Row(
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Icon(Icons.Filled.Lock, contentDescription = null, tint = SignalAmber, modifier = Modifier.size(16.dp))
-                                        Text(
-                                            text = prompt,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
+                                    Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                    Text(
+                                        text = prompt,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                             }
 
                             if (!detail.modelCardMarkdown.isNullOrBlank()) {
                                 OutlinedButton(
                                     onClick = { showReadme = !showReadme },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
                                 ) {
                                     Icon(
                                         imageVector = if (showReadme) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                                         contentDescription = null
                                     )
                                     Spacer(Modifier.width(6.dp))
-                                    Text(if (showReadme) "Hide Model Card (README)" else "View Model Card (README)")
+                                    Text(if (showReadme) "Hide README" else "View README")
                                 }
                                 if (showReadme) {
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        shape = MaterialTheme.shapes.small
-                                    ) {
-                                        Text(
-                                            text = detail.modelCardMarkdown,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.padding(10.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = detail.modelCardMarkdown,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
                             }
 
+                            EditorialHairlineDivider()
+
                             Text(
-                                text = "REPOSITORY FILES & COMPATIBILITY AUDIT",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
+                                text = "Repository files",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
 
-                            state.filesWithCompatibility.forEach { (file, report) ->
+                            state.filesWithCompatibility.forEachIndexed { index, (file, report) ->
                                 FileCompatibilityRow(
                                     file = file,
                                     report = report,
                                     onDownload = { onDownloadFile(detail, file, report) }
                                 )
+                                if (index < state.filesWithCompatibility.lastIndex) {
+                                    EditorialHairlineDivider()
+                                }
                             }
                         }
                     }
@@ -863,104 +895,112 @@ private fun FileCompatibilityRow(
     report: CompatibilityReport,
     onDownload: () -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     var expandedChecks by remember { mutableStateOf(false) }
     val verdictColor = when (report.verdict) {
-        CompatibilityVerdict.READY_TO_INSTALL -> NominalGreen
-        CompatibilityVerdict.INSTALLABLE_WITH_WARNING, CompatibilityVerdict.PREPARED_RUNTIME_ONLY -> SignalAmber
-        CompatibilityVerdict.BLOCKED -> MaterialTheme.colorScheme.error
+        CompatibilityVerdict.READY_TO_INSTALL -> palette.sageAccent
+        CompatibilityVerdict.INSTALLABLE_WITH_WARNING, CompatibilityVerdict.PREPARED_RUNTIME_ONLY -> palette.sandAccent
+        CompatibilityVerdict.BLOCKED -> palette.errorAccent
+    }
+    val verdictBadgeContainer = when (report.verdict) {
+        CompatibilityVerdict.READY_TO_INSTALL -> palette.sageContainer
+        CompatibilityVerdict.INSTALLABLE_WITH_WARNING, CompatibilityVerdict.PREPARED_RUNTIME_ONLY -> palette.sandContainer
+        CompatibilityVerdict.BLOCKED -> palette.coralContainer
     }
 
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
-        border = BorderStroke(1.dp, verdictColor.copy(alpha = 0.5f))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.FolderZip, contentDescription = null, modifier = Modifier.size(16.dp), tint = verdictColor)
-                    Column {
-                        Text(
-                            text = file.fileName,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${formatFileSize(file.sizeBytes)} • ${report.formatId.label} • Quant: ${report.quantization}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                IconButton(onClick = { expandedChecks = !expandedChecks }) {
-                    Icon(
-                        imageVector = if (expandedChecks) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = "Toggle compatibility details"
+                Icon(Icons.Filled.FolderZip, contentDescription = null, modifier = Modifier.size(16.dp), tint = verdictColor)
+                Column {
+                    Text(
+                        text = file.fileName,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${formatFileSize(file.sizeBytes)} · ${report.formatId.label} · ${report.quantization}",
+                        style = JarvisMonoTelemetryStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
+            IconButton(
+                onClick = { expandedChecks = !expandedChecks },
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
+                Icon(
+                    imageVector = if (expandedChecks) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = "Toggle compatibility details"
+                )
+            }
+        }
 
-            HudBadge(text = report.verdict.label.uppercase(Locale.US), color = verdictColor)
+        HudBadge(text = report.verdict.label, color = palette.onHue, containerColor = verdictBadgeContainer)
 
-            Text(
-                text = report.summaryReason,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Text(
+            text = report.summaryReason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
-            if (expandedChecks) {
-                report.checks.forEach { check ->
-                    val icon = when (check.status) {
-                        CheckStatus.PASS -> Icons.Filled.CheckCircle
-                        CheckStatus.WARN -> Icons.Filled.Warning
-                        CheckStatus.BLOCK -> Icons.Filled.Block
-                    }
-                    val color = when (check.status) {
-                        CheckStatus.PASS -> NominalGreen
-                        CheckStatus.WARN -> SignalAmber
-                        CheckStatus.BLOCK -> MaterialTheme.colorScheme.error
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
-                        Text(
-                            text = "${check.category}: ${check.detail}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+        if (expandedChecks) {
+            report.checks.forEach { check ->
+                val icon = when (check.status) {
+                    CheckStatus.PASS -> Icons.Filled.CheckCircle
+                    CheckStatus.WARN -> Icons.Filled.Warning
+                    CheckStatus.BLOCK -> Icons.Filled.Block
+                }
+                val color = when (check.status) {
+                    CheckStatus.PASS -> palette.sageAccent
+                    CheckStatus.WARN -> palette.sandAccent
+                    CheckStatus.BLOCK -> palette.errorAccent
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+                    Text(
+                        text = "${check.category}: ${check.detail}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
+        }
 
-            if (report.canDownloadToDevice && report.canRunInJarvisNow) {
-                Button(
-                    onClick = onDownload,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .minimumInteractiveComponentSize()
-                        .testTag("hf_download_file_${file.fileName}")
-                ) {
-                    Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Download & Install (.litertlm)")
-                }
+        if (report.canDownloadToDevice && report.canRunInJarvisNow) {
+            Button(
+                onClick = onDownload,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.sageContainer,
+                    contentColor = palette.onHue
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .testTag("hf_download_file_${file.fileName}")
+            ) {
+                Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Download and install (.litertlm)")
             }
         }
     }

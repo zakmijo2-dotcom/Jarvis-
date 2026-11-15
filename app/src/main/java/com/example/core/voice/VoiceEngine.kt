@@ -111,9 +111,13 @@ class AndroidVoiceEngine(
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
+    private val ttsLock = Any()
+    @Volatile
     private var ttsInitialized = false
+    @Volatile
     private var ttsInitializing = false
     private val pendingTtsCallbacks = mutableListOf<() -> Unit>()
+    @Volatile
     private var activeFinalUtteranceId: String? = null
     private var activeLanguageOption: VoiceLanguageOption = VoiceLanguageOption.AUTO
     private var focusRequest: AudioFocusRequest? = null
@@ -126,42 +130,53 @@ class AndroidVoiceEngine(
     }
 
     private fun ensureTtsInitialized(onReady: (() -> Unit)?) {
-        if (ttsInitialized && textToSpeech != null) {
+        val alreadyReady = synchronized(ttsLock) {
+            if (ttsInitialized && textToSpeech != null) {
+                true
+            } else {
+                if (onReady != null) {
+                    pendingTtsCallbacks.add(onReady)
+                }
+                if (ttsInitializing) return
+                ttsInitializing = true
+                false
+            }
+        }
+        if (alreadyReady) {
             onReady?.invoke()
             return
         }
-        if (onReady != null) {
-            pendingTtsCallbacks.add(onReady)
-        }
-        if (ttsInitializing) return
-        ttsInitializing = true
 
         runOnMain {
             if (textToSpeech == null) {
                 runCatching {
                     textToSpeech = TextToSpeech(appContext) { status ->
-                        ttsInitializing = false
-                        if (status == TextToSpeech.SUCCESS) {
-                            configureTtsListeners()
-                            ttsInitialized = true
-                            _isTtsReady.value = true
-                            refreshSystemVoicesAndLocales()
-                            val callbacks = pendingTtsCallbacks.toList()
+                        val callbacks = synchronized(ttsLock) {
+                            ttsInitializing = false
+                            if (status == TextToSpeech.SUCCESS) {
+                                configureTtsListeners()
+                                ttsInitialized = true
+                                _isTtsReady.value = true
+                            } else {
+                                ttsInitialized = false
+                                _isTtsReady.value = false
+                            }
+                            val list = pendingTtsCallbacks.toList()
                             pendingTtsCallbacks.clear()
-                            callbacks.forEach { it.invoke() }
-                        } else {
-                            ttsInitialized = false
-                            _isTtsReady.value = false
-                            val callbacks = pendingTtsCallbacks.toList()
-                            pendingTtsCallbacks.clear()
-                            callbacks.forEach { it.invoke() }
+                            list
                         }
+                        if (status == TextToSpeech.SUCCESS) {
+                            refreshSystemVoicesAndLocales()
+                        }
+                        callbacks.forEach { it.invoke() }
                     }
                 }.onFailure {
-                    ttsInitializing = false
-                    ttsInitialized = false
+                    synchronized(ttsLock) {
+                        ttsInitializing = false
+                        ttsInitialized = false
+                        pendingTtsCallbacks.clear()
+                    }
                     _isTtsReady.value = false
-                    pendingTtsCallbacks.clear()
                 }
             }
         }
@@ -197,11 +212,20 @@ class AndroidVoiceEngine(
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+                handleTtsError(utteranceId, -1)
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                handleTtsError(utteranceId, errorCode)
+            }
+
+            private fun handleTtsError(utteranceId: String?, errorCode: Int) {
                 if (utteranceId != null && utteranceId == activeFinalUtteranceId) {
                     activeFinalUtteranceId = null
                     abandonAudioFocus()
+                    val codeSuffix = if (errorCode != -1) " (code $errorCode)" else ""
                     _state.value = VoiceEngineState.Error(
-                        message = "Text-to-speech playback failed.",
+                        message = "Text-to-speech playback failed$codeSuffix.",
                         kind = VoiceErrorKind.FATAL
                     )
                     _speechCompletionEvents.tryEmit(SpeechCompletionEvent(interrupted = true))
@@ -397,9 +421,11 @@ class AndroidVoiceEngine(
             stopSpeakingInternal(emitInterruption = false)
             runCatching { textToSpeech?.shutdown() }
             textToSpeech = null
-            ttsInitialized = false
-            ttsInitializing = false
-            pendingTtsCallbacks.clear()
+            synchronized(ttsLock) {
+                ttsInitialized = false
+                ttsInitializing = false
+                pendingTtsCallbacks.clear()
+            }
             _isTtsReady.value = false
         }
     }

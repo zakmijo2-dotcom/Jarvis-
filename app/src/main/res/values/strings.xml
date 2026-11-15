@@ -1,67 +1,92 @@
 <resources>
     <string name="app_name">Jarvis</string>
-    <string name="hud_brand_title">J.A.R.V.I.S.</string>
-    <string name="hud_phase_badge">HYBRID // LOCAL AI</string>
+    <string name="hud_brand_title">Jarvis</string>
+    <string name="hud_phase_badge">Hybrid assistant</string>
 
     <!-- Navigation -->
+    <string name="nav_home">Home</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_voice">Voice</string>
     <string name="nav_models">Models</string>
+    <string name="nav_more">More</string>
     <string name="nav_device">Device</string>
     <string name="nav_settings">Settings</string>
+    <string name="cd_navigate_back">Navigate back</string>
+
+    <!-- Home Screen -->
+    <string name="home_greeting_prefix">Hi, %1$s</string>
+    <string name="home_default_name">there</string>
+    <string name="home_headline">How can I help?</string>
+    <string name="home_tile_voice_subtitle">Tap to talk with live speech and hands-free tools</string>
+    <string name="home_tile_chat_subtitle">Conversations and reasoning</string>
+    <string name="home_tile_models_subtitle">Local LiteRT-LM &amp; hub</string>
+    <string name="home_tile_device_subtitle">Telemetry, tools, and permissions</string>
+    <string name="home_history_header">History</string>
+    <string name="home_history_see_all">See all</string>
+    <string name="home_history_empty">No recent conversations yet. Start a chat or voice session above.</string>
+    <string name="cd_open_settings">Open settings</string>
+
+    <!-- More Screen -->
+    <string name="more_title">More</string>
+    <string name="more_voice_subtitle">Speech console, continuous listening, and wake word</string>
+    <string name="more_device_subtitle">Hardware telemetry, device tools, and permissions</string>
+    <string name="more_settings_subtitle">Inference, cloud routing, voice, memory, and skills</string>
+    <string name="more_overview_header">Status</string>
 
     <!-- History Drawer -->
-    <string name="drawer_title">SESSION ARCHIVE</string>
-    <string name="drawer_new_session">New Session</string>
+    <string name="drawer_title">Sessions</string>
+    <string name="drawer_new_session">New session</string>
     <string name="drawer_search_hint">Filter sessions…</string>
-    <string name="drawer_empty">No archived sessions yet.</string>
+    <string name="drawer_empty">No saved sessions yet.</string>
     <string name="cd_open_history">Open conversation history</string>
     <string name="cd_delete_session">Delete session</string>
     <string name="cd_rename_session">Rename session</string>
     <string name="cd_pin_session">Pin session</string>
 
     <!-- Chat Screen -->
-    <string name="chat_input_hint">Enter command or message…</string>
+    <string name="chat_input_hint">Ask anything or enter a command…</string>
     <string name="cd_send_message">Send message</string>
-    <string name="cd_voice_handoff">Switch to voice console</string>
-    <string name="chat_empty_title">CORE STANDBY</string>
-    <string name="chat_empty_subtitle">Local LiteRT-LM, Hugging Face Hub, voice console, Android automation tools, and optional Cloud AI routing are ready.</string>
-    <string name="chip_telemetry_snapshot">System Snapshot</string>
-    <string name="chip_engine_status">Engine Readiness</string>
-    <string name="chip_open_models">Inspect Models</string>
+    <string name="cd_voice_handoff">Switch to voice</string>
+    <string name="chat_empty_title">Ready when you are</string>
+    <string name="chat_empty_subtitle">Local LiteRT-LM models, Android actions, web search, and optional cloud routing.</string>
+    <string name="chip_telemetry_snapshot">System status</string>
+    <string name="chip_engine_status">Check engine</string>
+    <string name="chip_open_models">Models</string>
 
     <!-- Voice Screen -->
-    <string name="voice_title">VOICE CONSOLE</string>
-    <string name="voice_tap_to_listen">Tap orb or Hold Push-to-Talk to speak</string>
-    <string name="voice_listening">Listening… speak clearly</string>
-    <string name="voice_permission_needed">Microphone permission required for SpeechRecognizer and voice standby.</string>
-    <string name="voice_grant_permission">Grant Microphone</string>
-    <string name="voice_speak_status">Speak Status</string>
-    <string name="voice_stop_tts">Stop Speaking</string>
-    <string name="voice_send_to_chat">Open in Chat</string>
-    <string name="cd_voice_orb">Toggle voice recognition</string>
-    <string name="voice_fallback_hint">Text fallback (if mic unavailable or denied)…</string>
-    <string name="voice_fgs_channel_name">JARVIS Microphone Service</string>
-    <string name="voice_fgs_channel_desc">Persistent OS indicator while continuous voice or wake-word standby is active.</string>
+    <string name="voice_title">Voice</string>
+    <string name="voice_tap_to_listen">Tap the sphere or hold mic to speak</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_permission_needed">Microphone permission is required for speech recognition and standby listening.</string>
+    <string name="voice_grant_permission">Allow microphone</string>
+    <string name="voice_speak_status">Read status</string>
+    <string name="voice_stop_tts">Stop speaking</string>
+    <string name="voice_send_to_chat">Open in chat</string>
+    <string name="cd_voice_orb">Toggle voice listening</string>
+    <string name="cd_voice_type">Toggle text command input</string>
+    <string name="cd_voice_close">Close voice session</string>
+    <string name="voice_fallback_hint">Type a command if mic is unavailable…</string>
+    <string name="voice_fgs_channel_name">Jarvis microphone service</string>
+    <string name="voice_fgs_channel_desc">Persistent indicator while continuous voice or wake-word standby is active.</string>
 
     <!-- Model Manager Screen -->
-    <string name="models_title">MODEL REGISTRY</string>
+    <string name="models_title">Models</string>
     <string name="models_filter_all">All</string>
-    <string name="models_filter_local">On-Device</string>
+    <string name="models_filter_local">On-device</string>
     <string name="models_filter_cloud">Cloud</string>
-    <string name="models_add_slot">Register Slot</string>
-    <string name="models_phase2_notice">Model slots, Hugging Face downloads, integrity hashes, and LiteRT-LM runtime state are stored locally in Room.</string>
+    <string name="models_add_slot">Add slot</string>
+    <string name="models_phase2_notice">Model slots, downloads, checksums, and runtime state are stored locally.</string>
 
     <!-- Device Dashboard Screen -->
-    <string name="device_title">SYSTEM TELEMETRY</string>
+    <string name="device_title">Device</string>
     <string name="cd_refresh_telemetry">Refresh device telemetry</string>
 
     <!-- Settings Screen -->
-    <string name="settings_title">CORE CONFIGURATION</string>
-    <string name="settings_clear_history">Purge Conversation Archive</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_clear_history">Clear all conversations and memory</string>
 
     <!-- Device Control & Accessibility -->
-    <string name="notification_listener_label">JARVIS Notification Reader</string>
-    <string name="accessibility_service_label">JARVIS Device Automation</string>
+    <string name="notification_listener_label">Jarvis Notification Reader</string>
+    <string name="accessibility_service_label">Jarvis Device Automation</string>
     <string name="accessibility_service_description">User-authorized navigation and on-demand UI actions (Home, Back, Recents, Inspect Screen, Tap, Scroll, Input) triggered only after explicit confirmation. Zero background screen scraping; password fields are redacted.</string>
 </resources>

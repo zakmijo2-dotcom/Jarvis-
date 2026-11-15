@@ -364,7 +364,9 @@ class JarvisVoiceService : Service() {
             .setContentIntent(openPending)
             .build()
         val nm = getSystemService(NotificationManager::class.java)
-        nm?.notify(WAKE_ALERT_NOTIFICATION_ID, notification)
+        runCatching {
+            nm?.notify(WAKE_ALERT_NOTIFICATION_ID, notification)
+        }
     }
 
     companion object {

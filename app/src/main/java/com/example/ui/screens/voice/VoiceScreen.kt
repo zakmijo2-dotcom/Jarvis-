@@ -3,6 +3,7 @@ package com.example.ui.screens.voice
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -34,9 +36,11 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,19 +59,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.core.voice.MicStatus
 import com.example.core.voice.VoiceConversationMode
 import com.example.core.voice.VoiceEngineState
 import com.example.core.voice.VoiceLanguageOption
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
 import com.example.ui.components.JarvisOrb
 import com.example.ui.components.OrbMode
+import com.example.ui.components.hairlineDp
+import com.example.ui.theme.JarvisTheme
+import com.example.ui.theme.JarvisThemeTokens
 
 @Composable
 fun VoiceScreen(
@@ -95,11 +114,14 @@ fun VoiceScreen(
     onCancelActiveTool: () -> Unit = {},
     onDismissPermissionPrompt: () -> Unit = {},
     onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
-    onOpenDeviceControls: () -> Unit = {}
+    onOpenDeviceControls: () -> Unit = {},
+    onClose: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
     var fallbackInput by remember { mutableStateOf("") }
     var showVoicePicker by remember { mutableStateOf(false) }
+    var showTextInput by remember { mutableStateOf(true) }
 
     var hasMicPermission by remember {
         mutableStateOf(
@@ -167,6 +189,9 @@ fun VoiceScreen(
     }
 
     val engineState = uiState.engineState
+    val isListening = engineState is VoiceEngineState.Listening || uiState.isContinuousSessionActive
+    val isSpeakingOrGenerating = engineState is VoiceEngineState.Speaking || uiState.isGeneratingReply
+
     val orbMode = when {
         uiState.isGeneratingReply -> OrbMode.PROCESSING
         engineState is VoiceEngineState.Listening -> OrbMode.LISTENING
@@ -178,11 +203,11 @@ fun VoiceScreen(
     val rmsDb = (engineState as? VoiceEngineState.Listening)?.rmsDb ?: 0f
 
     val statusText = when {
-        uiState.isGeneratingReply -> "Local AI generating spoken response…"
+        uiState.isGeneratingReply -> "Preparing response…"
         engineState is VoiceEngineState.Idle -> if (hasMicPermission) {
             if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
-                if (uiState.isContinuousSessionActive) "Continuous mode armed — listening loop active"
-                else "Tap orb or Start Continuous Conversation"
+                if (uiState.isContinuousSessionActive) "Continuous listening active"
+                else "Tap the sphere or start continuous listening"
             } else {
                 stringResource(R.string.voice_tap_to_listen)
             }
@@ -190,11 +215,25 @@ fun VoiceScreen(
             stringResource(R.string.voice_permission_needed)
         }
         engineState is VoiceEngineState.Listening -> stringResource(R.string.voice_listening)
-        engineState is VoiceEngineState.Processing -> "Processing speech buffer…"
-        engineState is VoiceEngineState.Speaking -> "Speaking via Android TextToSpeech…"
+        engineState is VoiceEngineState.Processing -> "Processing speech…"
+        engineState is VoiceEngineState.Speaking -> "Speaking reply…"
         engineState is VoiceEngineState.Unavailable -> engineState.reason
         engineState is VoiceEngineState.Error -> engineState.message
         else -> ""
+    }
+
+    val focalCopy = when {
+        engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank() ->
+            engineState.partialTranscript
+        uiState.streamingReply.isNotBlank() -> uiState.streamingReply
+        uiState.lastTranscript.isNotBlank() -> uiState.lastTranscript
+        uiState.voiceTurns.isNotEmpty() -> uiState.voiceTurns.last().text
+        else -> statusText
+    }
+    val focalDirection = if (containsArabicText(focalCopy)) {
+        LayoutDirection.Rtl
+    } else {
+        LocalLayoutDirection.current
     }
 
     HudBackground {
@@ -203,10 +242,11 @@ fun VoiceScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Top bar with Peach section hue icon + status pill
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -214,36 +254,45 @@ fun VoiceScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.voice_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                HudBadge(
-                    text = if (uiState.isRecognitionAvailable) "ANDROID STT READY" else "STT UNAVAILABLE",
-                    color = if (uiState.isRecognitionAvailable) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.tertiary
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = palette.peachContainer
+                    ) {
+                        Box(
+                            modifier = Modifier.size(36.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.GraphicEq,
+                                contentDescription = null,
+                                tint = palette.onHue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
+                    Text(
+                        text = stringResource(R.string.voice_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = palette.text
+                    )
+                }
+
+                HudBadge(
+                    text = if (uiState.isRecognitionAvailable) "Speech ready" else "Speech unavailable",
+                    color = if (uiState.isRecognitionAvailable) palette.peachAccent else palette.textSecondary
                 )
             }
 
-            PersistentMicStatusBanner(
-                micStatus = uiState.micStatus,
-                isFgsRunning = uiState.isForegroundServiceRunning,
-                isContinuousActive = uiState.isContinuousSessionActive,
-                detectedLanguage = uiState.detectedLanguage,
-                restrictionNotice = uiState.serviceRestrictionNotice,
-                onDisableListening = onInterruptAllVoice,
-                onDismissNotice = onDismissError
-            )
-
+            // Active tool / plan progress banner
             AnimatedVisibility(visible = uiState.activePlan != null || uiState.activeToolName != null) {
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                    shape = RoundedCornerShape(20.dp),
+                    color = palette.surface,
+                    border = BorderStroke(hairlineDp(), palette.peachAccent),
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 720.dp)
@@ -252,27 +301,28 @@ fun VoiceScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val activePlan = uiState.activePlan
                         val stepInfo = when {
-                            uiState.activeToolName != null -> "Executing tool: ${uiState.activeToolName}…"
+                            uiState.activeToolName != null -> "Running ${uiState.activeToolName}…"
                             activePlan != null -> {
                                 val done = activePlan.steps.count { it.status.name == "COMPLETED" || it.status.name == "RECOVERED" }
-                                "HYBRID AGENT • ${activePlan.routeDecision.route.label} ($done/${activePlan.steps.size})"
+                                "${activePlan.routeDecision.route.label} ($done/${activePlan.steps.size})"
                             }
-                            else -> "Hybrid Agent Active"
+                            else -> "Working…"
                         }
                         Text(
                             text = stepInfo,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = palette.peachAccent,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedButton(
                             onClick = onCancelActiveTool,
+                            shape = CircleShape,
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .testTag("voice_cancel_plan_button")
@@ -283,20 +333,21 @@ fun VoiceScreen(
                 }
             }
 
+            // Tool confirmation card
             val pendingConfirm = uiState.pendingToolConfirmation
             AnimatedVisibility(visible = pendingConfirm != null) {
                 if (pendingConfirm != null) {
                     Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+                        shape = RoundedCornerShape(20.dp),
+                        color = palette.surface,
+                        border = BorderStroke(hairlineDp(), palette.peachAccent),
                         modifier = Modifier
                             .fillMaxWidth()
                             .widthIn(max = 720.dp)
                             .testTag("voice_confirmation_card")
                     ) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(
@@ -306,30 +357,31 @@ fun VoiceScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Security,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary
+                                    tint = palette.peachAccent
                                 )
                                 Text(
-                                    text = "Confirm Action: ${pendingConfirm.request.toolName}",
+                                    text = "Confirm ${pendingConfirm.request.toolName}",
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.secondary
+                                    color = palette.text
                                 )
                             }
                             Text(
                                 text = pendingConfirm.confirmationMessage,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = palette.text
                             )
                             Text(
                                 text = pendingConfirm.sensitivityWarning,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = palette.textSecondary
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 OutlinedButton(
                                     onClick = onCancelPendingTool,
+                                    shape = CircleShape,
                                     modifier = Modifier
                                         .weight(1f)
                                         .minimumInteractiveComponentSize()
@@ -339,12 +391,17 @@ fun VoiceScreen(
                                 }
                                 Button(
                                     onClick = onConfirmPendingTool,
+                                    shape = CircleShape,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = palette.peachContainer,
+                                        contentColor = palette.onHue
+                                    ),
                                     modifier = Modifier
                                         .weight(1f)
                                         .minimumInteractiveComponentSize()
                                         .testTag("voice_confirm_tool_button")
                                 ) {
-                                    Text("Approve & Run")
+                                    Text("Approve")
                                 }
                             }
                         }
@@ -352,36 +409,37 @@ fun VoiceScreen(
                 }
             }
 
+            // Tool runtime / special permission prompt card
             val pendingPerm = uiState.pendingRuntimePermission
             val pendingSpecial = uiState.pendingSpecialAccess
             AnimatedVisibility(visible = pendingPerm != null || pendingSpecial != null) {
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+                    shape = RoundedCornerShape(20.dp),
+                    color = palette.surface,
+                    border = BorderStroke(hairlineDp(), palette.hairline),
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 720.dp)
                         .testTag("voice_permission_card")
                 ) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = if (pendingPerm != null) "Permission Required" else "${pendingSpecial?.label} Required",
+                            text = if (pendingPerm != null) "Permission required" else "${pendingSpecial?.label} required",
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.tertiary
+                            color = palette.text
                         )
                         Text(
                             text = uiState.permissionRationale
-                                ?: "JARVIS requires explicit authorization before accessing this Android capability.",
+                                ?: "Explicit authorization is required before using this Android feature.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = palette.textSecondary
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             OutlinedButton(
                                 onClick = {
@@ -390,12 +448,13 @@ fun VoiceScreen(
                                         onOpenDeviceControls()
                                     }
                                 },
+                                shape = CircleShape,
                                 modifier = Modifier
                                     .weight(1f)
                                     .minimumInteractiveComponentSize()
                                     .testTag("voice_dismiss_permission_button")
                             ) {
-                                Text(if (pendingSpecial != null) "Privacy Controls" else "Dismiss")
+                                Text(if (pendingSpecial != null) "Privacy controls" else "Dismiss")
                             }
                             Button(
                                 onClick = {
@@ -411,24 +470,33 @@ fun VoiceScreen(
                                         onDismissPermissionPrompt()
                                     }
                                 },
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = palette.peachContainer,
+                                    contentColor = palette.onHue
+                                ),
                                 modifier = Modifier
                                     .weight(1f)
                                     .minimumInteractiveComponentSize()
                                     .testTag("voice_grant_tool_permission_button")
                             ) {
-                                Text(if (pendingPerm != null) "Grant Permission" else "Open Settings")
+                                Text(if (pendingPerm != null) "Allow" else "Open settings")
                             }
                         }
                     }
                 }
             }
 
+            // Centered hero stage: Iridescent Orb + large readable transcript/answer
+            Spacer(modifier = Modifier.height(8.dp))
+
             JarvisOrb(
                 mode = orbMode,
-                size = 216.dp,
+                size = 212.dp,
                 audioLevel = rmsDb,
                 animationEnabled = uiState.settings.orbAnimationEnabled,
                 glowIntensity = uiState.settings.orbGlowIntensity,
+                isModelGenerating = uiState.isGeneratingReply,
                 statusDescription = stringResource(R.string.cd_voice_orb),
                 modifier = Modifier
                     .clip(CircleShape)
@@ -448,79 +516,229 @@ fun VoiceScreen(
                     .testTag("voice_orb_button")
             )
 
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (engineState is VoiceEngineState.Error || engineState is VoiceEngineState.Unavailable) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 520.dp)
-            )
-
-            if (!hasMicPermission) {
-                Button(
-                    onClick = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+            // Big readable transcript / answer below the orb
+            CompositionLocalProvider(LocalLayoutDirection provides focalDirection) {
+                Text(
+                    text = focalCopy,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Medium),
+                    color = if (engineState is VoiceEngineState.Error || engineState is VoiceEngineState.Unavailable) {
+                        palette.errorAccent
+                    } else {
+                        palette.text
+                    },
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("voice_grant_permission_button")
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .padding(horizontal = 8.dp)
+                )
+            }
+
+            if (focalCopy != statusText) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.textSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 520.dp)
+                )
+            }
+
+            // Permission denied card with Coral error tint & pill CTA
+            if (!hasMicPermission) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = palette.coralContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 520.dp)
                 ) {
-                    Icon(imageVector = Icons.Filled.Mic, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.voice_grant_permission))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Mic,
+                            contentDescription = null,
+                            tint = palette.onHue
+                        )
+                        Text(
+                            text = stringResource(R.string.voice_permission_needed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.onHue,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = palette.surface,
+                                contentColor = palette.text
+                            ),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("voice_grant_permission_button")
+                        ) {
+                            Text(stringResource(R.string.voice_grant_permission))
+                        }
+                    }
                 }
             }
 
-            // Primary voice action row: Push-to-Talk Hold / Continuous Toggle + Stop Speaking
+            // Centered primary control row: Type button | Large round Mic (hold to talk) | Close
+            val micCd = stringResource(R.string.cd_voice_orb)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp)
+                    .padding(vertical = 8.dp)
+                    .testTag("voice_bottom_controls"),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Type button
+                Surface(
+                    shape = CircleShape,
+                    color = if (showTextInput) palette.skyContainer else palette.surfaceHigh,
+                    border = BorderStroke(hairlineDp(), palette.hairline),
+                    modifier = Modifier
+                        .size(56.dp)
+                        .minimumInteractiveComponentSize()
+                        .clip(CircleShape)
+                        .clickable { showTextInput = !showTextInput }
+                        .testTag("voice_toggle_type_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Keyboard,
+                            contentDescription = stringResource(R.string.cd_voice_type),
+                            tint = if (showTextInput) palette.onHue else palette.text,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                // Large round Mic button (supports tap + hold-to-talk in PTT + semantics click)
+                val micFill = when {
+                    isListening -> palette.coralContainer
+                    else -> palette.peachContainer
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = micFill,
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .semantics {
+                            contentDescription = micCd
+                            role = Role.Button
+                            onClick(label = micCd) {
+                                onDismissError()
+                                if (isSpeakingOrGenerating) {
+                                    onInterruptAllVoice()
+                                } else {
+                                    requestMicThen {
+                                        if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
+                                            ensurePostNotificationsIfNeeded()
+                                        }
+                                        onToggleListening()
+                                    }
+                                }
+                                true
+                            }
+                        }
+                        .pointerInput(hasMicPermission, uiState.conversationMode, isSpeakingOrGenerating) {
+                            detectTapGestures(
+                                onPress = {
+                                    if (isSpeakingOrGenerating) {
+                                        return@detectTapGestures
+                                    }
+                                    if (uiState.conversationMode == VoiceConversationMode.PUSH_TO_TALK && hasMicPermission) {
+                                        val startedAt = System.currentTimeMillis()
+                                        onPushToTalkPressed()
+                                        val released = tryAwaitRelease()
+                                        val heldMs = System.currentTimeMillis() - startedAt
+                                        if (released) {
+                                            onPushToTalkReleased()
+                                            if (heldMs < 180L) {
+                                                onToggleListening()
+                                            }
+                                        } else {
+                                            onPushToTalkReleased()
+                                        }
+                                    }
+                                },
+                                onTap = {
+                                    onDismissError()
+                                    if (isSpeakingOrGenerating) {
+                                        onInterruptAllVoice()
+                                    } else if (uiState.conversationMode != VoiceConversationMode.PUSH_TO_TALK || !hasMicPermission) {
+                                        requestMicThen {
+                                            if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
+                                                ensurePostNotificationsIfNeeded()
+                                            }
+                                            onToggleListening()
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        .testTag("voice_listen_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isListening || isSpeakingOrGenerating) Icons.Filled.Stop else Icons.Filled.Mic,
+                            contentDescription = micCd,
+                            tint = palette.onHue,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+
+                // Close button
+                Surface(
+                    shape = CircleShape,
+                    color = palette.surfaceHigh,
+                    border = BorderStroke(hairlineDp(), palette.hairline),
+                    modifier = Modifier
+                        .size(56.dp)
+                        .minimumInteractiveComponentSize()
+                        .clip(CircleShape)
+                        .clickable {
+                            onInterruptAllVoice()
+                            onClose()
+                        }
+                        .testTag("voice_close_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = stringResource(R.string.cd_voice_close),
+                            tint = palette.text,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+
+            // Secondary quick actions row (Hold-to-Talk label / Read Status / Stop Speaking / Open in Chat)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 720.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(
-                    onClick = {
-                        onDismissError()
-                        requestMicThen {
-                            if (uiState.conversationMode == VoiceConversationMode.CONTINUOUS) {
-                                ensurePostNotificationsIfNeeded()
-                            }
-                            onToggleListening()
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .minimumInteractiveComponentSize()
-                        .testTag("voice_listen_button")
-                ) {
-                    Icon(
-                        imageVector = if (engineState is VoiceEngineState.Listening || uiState.isContinuousSessionActive) {
-                            Icons.Filled.Stop
-                        } else {
-                            Icons.Filled.Mic
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        when {
-                            uiState.conversationMode == VoiceConversationMode.CONTINUOUS && uiState.isContinuousSessionActive -> "Stop Loop"
-                            uiState.conversationMode == VoiceConversationMode.CONTINUOUS -> "Start Loop"
-                            engineState is VoiceEngineState.Listening -> "Stop"
-                            else -> "Listen"
-                        }
-                    )
-                }
-
-                if (engineState is VoiceEngineState.Speaking || uiState.isGeneratingReply) {
+                if (isSpeakingOrGenerating) {
                     Button(
                         onClick = onInterruptAllVoice,
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
+                            containerColor = palette.coralContainer,
+                            contentColor = palette.onHue
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -528,12 +746,13 @@ fun VoiceScreen(
                             .testTag("voice_stop_speaking_button")
                     ) {
                         Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.voice_stop_tts))
                     }
                 } else {
-                    FilledTonalButton(
+                    OutlinedButton(
                         onClick = onSpeakStatus,
+                        shape = CircleShape,
                         modifier = Modifier
                             .weight(1f)
                             .minimumInteractiveComponentSize()
@@ -544,91 +763,19 @@ fun VoiceScreen(
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.voice_speak_status))
                     }
                 }
-            }
 
-            // Dedicated Press-and-Hold Push-to-Talk surface when in PTT mode
-            if (uiState.conversationMode == VoiceConversationMode.PUSH_TO_TALK) {
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (engineState is VoiceEngineState.Listening) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 720.dp)
-                        .minimumInteractiveComponentSize()
-                        .pointerInput(hasMicPermission) {
-                            detectTapGestures(
-                                onPress = {
-                                    if (hasMicPermission) {
-                                        onPushToTalkPressed()
-                                        tryAwaitRelease()
-                                        onPushToTalkReleased()
-                                    } else {
-                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    }
-                                }
-                            )
-                        }
-                        .testTag("voice_ptt_hold_button")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 14.dp, horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Filled.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text(
-                                text = if (engineState is VoiceEngineState.Listening) {
-                                    "Release Push-to-Talk to Send"
-                                } else {
-                                    "Hold for Push-to-Talk"
-                                },
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
-            VoiceTranscriptAndConversationCard(
-                engineState = engineState,
-                lastTranscript = uiState.lastTranscript,
-                isGeneratingReply = uiState.isGeneratingReply,
-                streamingReply = uiState.streamingReply,
-                voiceTurns = uiState.voiceTurns,
-                onSpeakTurn = onSpeakTranscript
-            )
-
-            if (uiState.lastTranscript.isNotBlank()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 720.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { onSpeakTranscript(uiState.lastTranscript) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .minimumInteractiveComponentSize()
-                    ) {
-                        Text("Read Transcript")
-                    }
+                if (uiState.lastTranscript.isNotBlank()) {
                     Button(
                         onClick = { onLogTranscriptToChat(uiState.lastTranscript) },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.skyContainer,
+                            contentColor = palette.onHue
+                        ),
                         modifier = Modifier
                             .weight(1f)
                             .minimumInteractiveComponentSize()
@@ -639,23 +786,46 @@ fun VoiceScreen(
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.voice_send_to_chat))
                     }
                 }
             }
 
-            VoiceTextFallbackBar(
-                inputText = fallbackInput,
-                isGenerating = uiState.isGeneratingReply,
-                onInputChange = { fallbackInput = it },
-                onSubmit = {
-                    val text = fallbackInput.trim()
-                    if (text.isNotEmpty()) {
-                        fallbackInput = ""
-                        onSubmitTextFallback(text)
+            AnimatedVisibility(visible = showTextInput) {
+                VoiceTextFallbackBar(
+                    inputText = fallbackInput,
+                    isGenerating = uiState.isGeneratingReply,
+                    onInputChange = { fallbackInput = it },
+                    onSubmit = {
+                        val text = fallbackInput.trim()
+                        if (text.isNotEmpty()) {
+                            fallbackInput = ""
+                            onSubmitTextFallback(text)
+                        }
                     }
-                }
+                )
+            }
+
+            EditorialHairlineDivider(modifier = Modifier.widthIn(max = 720.dp))
+
+            PersistentMicStatusBanner(
+                micStatus = uiState.micStatus,
+                isFgsRunning = uiState.isForegroundServiceRunning,
+                isContinuousActive = uiState.isContinuousSessionActive,
+                detectedLanguage = uiState.detectedLanguage,
+                restrictionNotice = uiState.serviceRestrictionNotice,
+                onDisableListening = onInterruptAllVoice,
+                onDismissNotice = onDismissError
+            )
+
+            VoiceTranscriptAndConversationCard(
+                engineState = engineState,
+                lastTranscript = uiState.lastTranscript,
+                isGeneratingReply = uiState.isGeneratingReply,
+                streamingReply = uiState.streamingReply,
+                voiceTurns = uiState.voiceTurns,
+                onSpeakTurn = onSpeakTranscript
             )
 
             VoiceConversationControlsCard(
@@ -707,6 +877,42 @@ fun VoiceScreen(
             selectedVoiceName = uiState.settings.selectedTtsVoiceName,
             onSelectVoice = onSelectTtsVoice,
             onDismiss = { showVoicePicker = false }
+        )
+    }
+}
+
+private fun containsArabicText(text: String): Boolean =
+    text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }
+
+@Preview(name = "Voice Light", showBackground = true)
+@Preview(name = "Voice Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun VoiceScreenPreview() {
+    JarvisTheme {
+        VoiceScreen(
+            uiState = VoiceUiState(
+                isRecognitionAvailable = true,
+                micStatus = MicStatus.OFF,
+                lastTranscript = "Check battery level"
+            ),
+            onMicPermissionChanged = {},
+            onToggleListening = {},
+            onPushToTalkPressed = {},
+            onPushToTalkReleased = {},
+            onInterruptAllVoice = {},
+            onSpeakStatus = {},
+            onSpeakTranscript = {},
+            onStopSpeaking = {},
+            onDismissError = {},
+            onSubmitTextFallback = {},
+            onSelectConversationMode = {},
+            onSelectLanguage = {},
+            onSelectTtsVoice = {},
+            onSetSpeechRate = {},
+            onSetAutoSpeak = {},
+            onToggleWakeWordStandby = {},
+            onTogglePauseInBackground = {},
+            onLogTranscriptToChat = {}
         )
     }
 }

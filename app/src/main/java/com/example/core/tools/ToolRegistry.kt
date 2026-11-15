@@ -334,7 +334,7 @@ class ToolRegistry(
 
         fun parseModelToolCall(modelOutput: String): ToolCallRequest? {
             val tagMatch = Regex(
-                """\[TOOL_CALL]\s*(\{.*?})\s*\[/TOOL_CALL]""",
+                """\[TOOL_CALL\]\s*(\{.*?\})\s*\[/TOOL_CALL\]""",
                 setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
             ).find(modelOutput)
             if (tagMatch != null) {

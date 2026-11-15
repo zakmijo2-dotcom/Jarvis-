@@ -272,9 +272,9 @@ class OkHttpCloudAiClient(
             CloudProviderKind.GEMINI_REST -> {
                 val base = config.endpointUrl.trimEnd('/')
                 val url = if (base.contains(":streamGenerateContent")) {
-                    base
+                    if (base.contains("alt=sse")) base else if ('?' in base) "$base&alt=sse" else "$base?alt=sse"
                 } else {
-                    "$base/models/${config.modelId}:streamGenerateContent?alt=sse&key=${config.apiKey}"
+                    "$base/models/${config.modelId}:streamGenerateContent?alt=sse"
                 }
                 val contents = JSONArray()
                 for (msg in recentHistory) {
@@ -318,6 +318,7 @@ class OkHttpCloudAiClient(
                 Request.Builder()
                     .url(url)
                     .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .header("x-goog-api-key", config.apiKey)
                     .header("Accept", "text/event-stream")
                     .build()
             }
@@ -595,8 +596,18 @@ class OkHttpCloudAiClient(
 
         fun isSafeEndpointUrl(url: String): Boolean {
             val parsed = runCatching { URI(url.trim()) }.getOrNull() ?: return false
+            if (!parsed.userInfo.isNullOrEmpty()) return false
             val scheme = parsed.scheme?.lowercase() ?: return false
-            val host = parsed.host?.lowercase() ?: return false
+            val host = parsed.host?.lowercase()?.trim('[', ']') ?: return false
+            if (host.isBlank()) return false
+            if (host == "169.254.169.254" ||
+                host == "metadata.google.internal" ||
+                host.startsWith("169.254.") ||
+                host == "0.0.0.0" ||
+                host == "::"
+            ) {
+                return false
+            }
             if (scheme == "https") return true
             return scheme == "http" && (host == "127.0.0.1" || host == "localhost" || host == "::1")
         }

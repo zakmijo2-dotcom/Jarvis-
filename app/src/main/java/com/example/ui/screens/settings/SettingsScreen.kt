@@ -1,6 +1,13 @@
 package com.example.ui.screens.settings
 
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -13,15 +20,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -29,6 +45,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +66,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.core.agent.AgentRoutingMode
@@ -55,9 +74,18 @@ import com.example.core.cloud.CloudProviderKind
 import com.example.core.memory.MemoryKind
 import com.example.core.web.WebSearchProviderKind
 import com.example.data.repository.InferenceBackendPreference
-import com.example.ui.components.HudBadge
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBackground
 import com.example.ui.components.HudPanel
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Surface
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisTheme
+import com.example.ui.theme.JarvisThemeTokens
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -97,11 +125,22 @@ fun SettingsScreen(
     onAddMemory: (MemoryKind, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onEditMemory: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onDeleteMemory: (String) -> Unit = {},
-    onDeleteSkill: (String) -> Unit = {}
+    onDeleteSkill: (String) -> Unit = {},
+    onNavigateBack: () -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
     val settings = uiState.settings
     var hfTokenDraft by remember(settings.huggingFaceToken) { mutableStateOf(settings.huggingFaceToken) }
+
+    var localExpanded by rememberSaveable { mutableStateOf(true) }
+    var cloudExpanded by rememberSaveable { mutableStateOf(false) }
+    var webExpanded by rememberSaveable { mutableStateOf(false) }
+    var memoryExpanded by rememberSaveable { mutableStateOf(false) }
+    var skillsExpanded by rememberSaveable { mutableStateOf(false) }
+    var historyExpanded by rememberSaveable { mutableStateOf(false) }
+    var voiceExpanded by rememberSaveable { mutableStateOf(false) }
+    var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+    var dataExpanded by rememberSaveable { mutableStateOf(false) }
 
     HudBackground {
         LazyColumn(
@@ -110,33 +149,62 @@ fun SettingsScreen(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .testTag("settings_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             item {
+                val headerPalette = JarvisThemeTokens.palette
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 840.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("settings_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_navigate_back),
+                            tint = headerPalette.text
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = headerPalette.lavenderContainer
+                    ) {
+                        Box(
+                            modifier = Modifier.size(36.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = null,
+                                tint = headerPalette.onHue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = stringResource(R.string.settings_title),
                         style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = headerPalette.text
                     )
-                    HudBadge(text = "DATASTORE PERSISTED")
                 }
             }
 
-            item {
-                AnimatedVisibility(visible = uiState.statusBannerMessage != null) {
+            if (uiState.statusBannerMessage != null) {
+                item {
+                    val bannerPalette = JarvisThemeTokens.palette
                     HudPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .widthIn(max = 840.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        containerColor = bannerPalette.lavenderContainer
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -144,67 +212,98 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = uiState.statusBannerMessage.orEmpty(),
+                                text = uiState.statusBannerMessage,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = bannerPalette.onHue,
                                 modifier = Modifier.weight(1f)
                             )
-                            TextButton(onClick = onDismissBanner) {
-                                Text("OK")
+                            TextButton(
+                                onClick = onDismissBanner,
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Text("OK", color = bannerPalette.onHue)
                             }
                         }
                     }
                 }
             }
 
+            // 1. Local inference
             item {
-                SettingsGroupCard(
-                    title = "LOCAL AI INFERENCE (LITERT-LM)",
-                    icon = Icons.Filled.Memory
+                CollapsibleSettingsSection(
+                    title = "Local inference",
+                    summary = "${settings.inferenceBackend.label} · ${settings.contextLengthTokens} ctx",
+                    icon = Icons.Filled.Memory,
+                    expanded = localExpanded,
+                    onToggle = { localExpanded = !localExpanded },
+                    headerTestTag = "settings_section_local"
                 ) {
                     Text(
-                        text = "Acceleration Backend",
+                        text = "Acceleration backend",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    val localPalette = JarvisThemeTokens.palette
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         InferenceBackendPreference.entries.forEach { pref ->
                             FilterChip(
                                 selected = settings.inferenceBackend == pref,
                                 onClick = { onSetInferenceBackend(pref) },
                                 label = { Text(pref.label) },
-                                modifier = Modifier.testTag("backend_chip_${pref.name.lowercase()}")
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = localPalette.lavenderContainer,
+                                    selectedLabelColor = localPalette.onHue
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("backend_chip_${pref.name.lowercase()}")
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Context Length Ceiling: ${settings.contextLengthTokens} tokens",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    EditorialHairlineDivider()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Context length",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${settings.contextLengthTokens} tokens",
+                            style = JarvisMonoTelemetryStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(1024, 2048, 4096, 8192).forEach { ctx ->
                             FilterChip(
                                 selected = settings.contextLengthTokens == ctx,
                                 onClick = { onSetContextLengthTokens(ctx) },
                                 label = { Text("$ctx") },
-                                modifier = Modifier.testTag("context_chip_$ctx")
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = localPalette.lavenderContainer,
+                                    selectedLabelColor = localPalette.onHue
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("context_chip_$ctx")
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Max Output Tokens: ${settings.maxOutputTokens}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                    EditorialHairlineDivider()
+
+                    SliderLabelRow(
+                        label = "Max output tokens",
+                        valueText = "${settings.maxOutputTokens}"
                     )
                     Slider(
                         value = settings.maxOutputTokens.toFloat(),
@@ -213,10 +312,9 @@ fun SettingsScreen(
                         modifier = Modifier.testTag("slider_max_output_tokens")
                     )
 
-                    Text(
-                        text = String.format(Locale.US, "Temperature: %.2f", settings.samplerTemperature),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                    SliderLabelRow(
+                        label = "Temperature",
+                        valueText = String.format(Locale.US, "%.2f", settings.samplerTemperature)
                     )
                     Slider(
                         value = settings.samplerTemperature,
@@ -225,10 +323,9 @@ fun SettingsScreen(
                         modifier = Modifier.testTag("slider_temperature")
                     )
 
-                    Text(
-                        text = "Top-K: ${settings.samplerTopK}  •  Top-P: ${String.format(Locale.US, "%.2f", settings.samplerTopP)}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                    SliderLabelRow(
+                        label = "Top-K and Top-P",
+                        valueText = "${settings.samplerTopK} · ${String.format(Locale.US, "%.2f", settings.samplerTopP)}"
                     )
                     Slider(
                         value = settings.samplerTopK.toFloat(),
@@ -241,137 +338,165 @@ fun SettingsScreen(
                         valueRange = 0.1f..1.0f
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    EditorialHairlineDivider()
+
                     OutlinedTextField(
                         value = hfTokenDraft,
                         onValueChange = { hfTokenDraft = it },
-                        label = { Text("Hugging Face Read Token (optional)") },
+                        label = { Text("Hugging Face read token (optional)") },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("hf_token_input")
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Reload model in Models after changing context/backend.",
+                            text = "Reload the active model after changing context or backend.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
+                        val keyPalette = JarvisThemeTokens.palette
                         Button(
                             onClick = { onSetHuggingFaceToken(hfTokenDraft) },
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = keyPalette.lavenderContainer,
+                                contentColor = keyPalette.onHue
+                            ),
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .testTag("save_hf_token_button")
                         ) {
-                            Text("Save Key")
+                            Text("Save key")
                         }
                     }
                 }
             }
 
+            // 2. Routing and cloud
             item {
-                HybridRoutingAndCloudCard(
-                    uiState = uiState,
-                    onSetRoutingMode = onSetRoutingMode,
-                    onSetCloudUploadConsent = onSetCloudUploadConsent,
-                    onSetCloudProvider = onSetCloudProvider,
-                    onSetCloudEndpoint = onSetCloudEndpoint,
-                    onSetCloudModelId = onSetCloudModelId,
-                    onSetCloudApiKey = onSetCloudApiKey,
-                    onSetCloudTimeoutSeconds = onSetCloudTimeoutSeconds,
-                    onResetUsageStats = onResetCloudUsageStats
-                )
-            }
-
-            item {
-                WebResearchSettingsCard(
-                    uiState = uiState,
-                    onSetWebResearchEnabled = onSetWebResearchEnabled,
-                    onSetWebSearchProvider = onSetWebSearchProvider,
-                    onSetWebCustomUrl = onSetWebCustomUrl,
-                    onSetWebApiKey = onSetWebApiKey
-                )
-            }
-
-            item {
-                LocalMemoryManagerCard(
-                    uiState = uiState,
-                    onSearchQueryChange = onMemorySearchQueryChange,
-                    onAddMemory = onAddMemory,
-                    onEditMemory = onEditMemory,
-                    onDeleteMemory = onDeleteMemory
-                )
-            }
-
-            item {
-                SkillsLibraryCard(
-                    uiState = uiState,
-                    onDeleteSkill = onDeleteSkill
-                )
-            }
-
-            item {
-                ExecutionHistoryCard(uiState = uiState)
-            }
-
-            item {
-                SettingsGroupCard(
-                    title = "ORB & VISUAL ENGINE",
-                    icon = Icons.Filled.Tune
+                CollapsibleSettingsSection(
+                    title = "Routing and cloud",
+                    summary = "${settings.routingMode.label} · ${if (settings.cloudUploadConsentGranted) settings.cloudProviderKind.label else "Cloud off"}",
+                    icon = Icons.Filled.Cloud,
+                    expanded = cloudExpanded,
+                    onToggle = { cloudExpanded = !cloudExpanded },
+                    headerTestTag = "settings_section_cloud"
                 ) {
-                    SettingsSwitchRow(
-                        label = "Animated Telemetry Orb",
-                        description = "Run continuous counter-rotating orbital arcs",
-                        checked = settings.orbAnimationEnabled,
-                        onCheckedChange = onSetOrbAnimation,
-                        testTag = "switch_orb_animation"
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = String.format(Locale.US, "Orb Glow Intensity: %.0f%%", settings.orbGlowIntensity * 100f),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Slider(
-                        value = settings.orbGlowIntensity,
-                        onValueChange = onSetOrbGlow,
-                        valueRange = 0.2f..1.0f,
-                        modifier = Modifier.testTag("slider_orb_glow")
-                    )
-                    SettingsSwitchRow(
-                        label = "HUD Haptic Feedback",
-                        description = "Tactile response on primary navigation actions",
-                        checked = settings.hapticsEnabled,
-                        onCheckedChange = onSetHaptics,
-                        testTag = "switch_haptics"
+                    HybridRoutingAndCloudCard(
+                        uiState = uiState,
+                        onSetRoutingMode = onSetRoutingMode,
+                        onSetCloudUploadConsent = onSetCloudUploadConsent,
+                        onSetCloudProvider = onSetCloudProvider,
+                        onSetCloudEndpoint = onSetCloudEndpoint,
+                        onSetCloudModelId = onSetCloudModelId,
+                        onSetCloudApiKey = onSetCloudApiKey,
+                        onSetCloudTimeoutSeconds = onSetCloudTimeoutSeconds,
+                        onResetUsageStats = onResetCloudUsageStats
                     )
                 }
             }
 
+            // 3. Web search
             item {
-                SettingsGroupCard(
-                    title = "VOICE & SPEECH SYNTHESIS",
-                    icon = Icons.Filled.GraphicEq
+                CollapsibleSettingsSection(
+                    title = "Web search",
+                    summary = if (settings.webResearchEnabled) settings.webSearchProvider.label else "Disabled",
+                    icon = Icons.Filled.Public,
+                    expanded = webExpanded,
+                    onToggle = { webExpanded = !webExpanded },
+                    headerTestTag = "settings_section_web"
+                ) {
+                    WebResearchSettingsCard(
+                        uiState = uiState,
+                        onSetWebResearchEnabled = onSetWebResearchEnabled,
+                        onSetWebSearchProvider = onSetWebSearchProvider,
+                        onSetWebCustomUrl = onSetWebCustomUrl,
+                        onSetWebApiKey = onSetWebApiKey
+                    )
+                }
+            }
+
+            // 4. Memory
+            item {
+                CollapsibleSettingsSection(
+                    title = "Memory",
+                    summary = "${uiState.memoryFactsCount} saved",
+                    icon = Icons.Filled.Psychology,
+                    expanded = memoryExpanded,
+                    onToggle = { memoryExpanded = !memoryExpanded },
+                    headerTestTag = "settings_section_memory"
+                ) {
+                    LocalMemoryManagerCard(
+                        uiState = uiState,
+                        onSearchQueryChange = onMemorySearchQueryChange,
+                        onAddMemory = onAddMemory,
+                        onEditMemory = onEditMemory,
+                        onDeleteMemory = onDeleteMemory
+                    )
+                }
+            }
+
+            // 5. Saved skills
+            item {
+                CollapsibleSettingsSection(
+                    title = "Saved skills",
+                    summary = "${uiState.skills.size} saved",
+                    icon = Icons.Filled.AutoFixHigh,
+                    expanded = skillsExpanded,
+                    onToggle = { skillsExpanded = !skillsExpanded },
+                    headerTestTag = "settings_section_skills"
+                ) {
+                    SkillsLibraryCard(
+                        uiState = uiState,
+                        onDeleteSkill = onDeleteSkill
+                    )
+                }
+            }
+
+            // 6. Agent history
+            item {
+                CollapsibleSettingsSection(
+                    title = "Agent history",
+                    summary = "${uiState.executionHistory.size} runs",
+                    icon = Icons.Filled.History,
+                    expanded = historyExpanded,
+                    onToggle = { historyExpanded = !historyExpanded },
+                    headerTestTag = "settings_section_history"
+                ) {
+                    ExecutionHistoryCard(uiState = uiState)
+                }
+            }
+
+            // 7. Voice and wake word
+            item {
+                CollapsibleSettingsSection(
+                    title = "Voice and wake word",
+                    summary = "${if (settings.wakeWordStandbyEnabled) "Standby on" else "Standby off"} · ${String.format(Locale.US, "%.1fx", settings.ttsSpeechRate)}",
+                    icon = Icons.Filled.GraphicEq,
+                    expanded = voiceExpanded,
+                    onToggle = { voiceExpanded = !voiceExpanded },
+                    headerTestTag = "settings_section_voice"
                 ) {
                     SettingsSwitchRow(
-                        label = "Auto-Speak System Notices",
-                        description = "Read voice console diagnostics via Android TTS",
+                        label = "Auto-speak responses",
+                        description = "Read voice console replies and notices aloud via Android TTS",
                         checked = settings.ttsAutoSpeak,
                         onCheckedChange = onSetTtsAutoSpeak,
                         testTag = "switch_tts_autospeak"
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = String.format(Locale.US, "TTS Speech Rate: %.2fx", settings.ttsSpeechRate),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                    EditorialHairlineDivider()
+                    SliderLabelRow(
+                        label = "Speech rate",
+                        valueText = String.format(Locale.US, "%.2fx", settings.ttsSpeechRate)
                     )
                     Slider(
                         value = settings.ttsSpeechRate,
@@ -379,64 +504,122 @@ fun SettingsScreen(
                         valueRange = 0.6f..1.6f,
                         modifier = Modifier.testTag("slider_tts_rate")
                     )
-                }
-            }
-
-            item {
-                SettingsGroupCard(
-                    title = "WAKE WORD & TELEMETRY",
-                    icon = Icons.Filled.Radar
-                ) {
+                    EditorialHairlineDivider()
                     SettingsSwitchRow(
-                        label = "Wake Word Standby (\"${uiState.wakeWordKeyword}\")",
-                        description = "Interface status: ${uiState.wakeWordState.label} (KWS requires Porcupine key / ONNX mic test)",
+                        label = "Wake word standby (\"${uiState.wakeWordKeyword}\")",
+                        description = "Status: ${uiState.wakeWordState.label} (KWS uses Porcupine key or audio gate)",
                         checked = settings.wakeWordStandbyEnabled,
                         onCheckedChange = onSetWakeWordStandby,
                         testTag = "switch_wake_word"
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+
+            // 8. Appearance and telemetry
+            item {
+                CollapsibleSettingsSection(
+                    title = "Appearance and telemetry",
+                    summary = "Polling ${settings.telemetryPollingSeconds}s",
+                    icon = Icons.Filled.Tune,
+                    expanded = appearanceExpanded,
+                    onToggle = { appearanceExpanded = !appearanceExpanded },
+                    headerTestTag = "settings_section_appearance"
+                ) {
+                    SettingsSwitchRow(
+                        label = "Animate voice sphere",
+                        description = "Slow breathing, listening reactivity, and gentle rotation (paused off-screen)",
+                        checked = settings.orbAnimationEnabled,
+                        onCheckedChange = onSetOrbAnimation,
+                        testTag = "switch_orb_animation"
+                    )
+                    SliderLabelRow(
+                        label = "Sphere shading response",
+                        valueText = String.format(Locale.US, "%.0f%%", settings.orbGlowIntensity * 100f)
+                    )
+                    Slider(
+                        value = settings.orbGlowIntensity,
+                        onValueChange = onSetOrbGlow,
+                        valueRange = 0.2f..1.0f,
+                        modifier = Modifier.testTag("slider_orb_glow")
+                    )
+                    EditorialHairlineDivider()
+                    SettingsSwitchRow(
+                        label = "Haptic feedback",
+                        description = "Subtle tactile pulse on primary navigation actions",
+                        checked = settings.hapticsEnabled,
+                        onCheckedChange = onSetHaptics,
+                        testTag = "switch_haptics"
+                    )
+                    EditorialHairlineDivider()
                     Text(
-                        text = "Telemetry Polling Interval",
+                        text = "Telemetry polling interval",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    val pollPalette = JarvisThemeTokens.palette
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(2, 5, 10, 15).forEach { sec ->
                             FilterChip(
                                 selected = settings.telemetryPollingSeconds == sec,
                                 onClick = { onSetTelemetryInterval(sec) },
                                 label = { Text("${sec}s") },
-                                modifier = Modifier.testTag("polling_chip_${sec}s")
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = pollPalette.lavenderContainer,
+                                    selectedLabelColor = pollPalette.onHue
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("polling_chip_${sec}s")
                             )
                         }
                     }
                 }
             }
 
+            // 9. Data and archive
             item {
-                SettingsGroupCard(
-                    title = "LOCAL MEMORY & ARCHIVE",
-                    icon = Icons.Filled.Storage
+                CollapsibleSettingsSection(
+                    title = "Data and archive",
+                    summary = "${uiState.memoryFactsCount} stored facts",
+                    icon = Icons.Filled.Storage,
+                    expanded = dataExpanded,
+                    onToggle = { dataExpanded = !dataExpanded },
+                    headerTestTag = "settings_section_data"
                 ) {
-                    Text(
-                        text = "Stored Local Memory Facts: ${uiState.memoryFactsCount}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    val dataPalette = JarvisThemeTokens.palette
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Stored local memory facts",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = dataPalette.textSecondary
+                        )
+                        Text(
+                            text = "${uiState.memoryFactsCount}",
+                            style = JarvisMonoTelemetryStyle,
+                            color = dataPalette.text
+                        )
+                    }
                     OutlinedButton(
                         onClick = { showPurgeDialog = true },
+                        shape = CircleShape,
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
+                            contentColor = dataPalette.errorAccent
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .minimumInteractiveComponentSize()
                             .testTag("purge_archive_button")
                     ) {
-                        Icon(imageVector = Icons.Filled.DeleteForever, contentDescription = null)
-                        Spacer(modifier = Modifier.widthIn(min = 8.dp))
+                        Icon(
+                            imageVector = Icons.Filled.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.settings_clear_history))
                     }
                 }
@@ -447,7 +630,7 @@ fun SettingsScreen(
     if (showPurgeDialog) {
         AlertDialog(
             onDismissRequest = { showPurgeDialog = false },
-            title = { Text("Purge Conversation Archive?") },
+            title = { Text("Clear conversation archive?") },
             text = {
                 Text("This permanently deletes all local Room conversations, messages, and memory facts on this device.")
             },
@@ -460,13 +643,17 @@ fun SettingsScreen(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
-                    )
+                    ),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
-                    Text("Purge All")
+                    Text("Clear all")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPurgeDialog = false }) {
+                TextButton(
+                    onClick = { showPurgeDialog = false },
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
                     Text("Cancel")
                 }
             }
@@ -475,9 +662,13 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsGroupCard(
+private fun CollapsibleSettingsSection(
     title: String,
+    summary: String,
     icon: ImageVector,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    headerTestTag: String,
     content: @Composable () -> Unit
 ) {
     HudPanel(
@@ -486,22 +677,88 @@ private fun SettingsGroupCard(
             .widthIn(max = 840.dp)
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .testTag(headerTestTag)
+                .clickable(onClick = onToggle),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            val sectionPalette = JarvisThemeTokens.palette
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = sectionPalette.lavenderAccent,
+                    modifier = Modifier.size(20.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        content()
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                EditorialHairlineDivider()
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SliderLabelRow(
+    label: String,
+    valueText: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = valueText,
+            style = JarvisMonoTelemetryStyle,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -523,7 +780,8 @@ private fun SettingsSwitchRow(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 12.dp)
+                .padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 text = label,
@@ -539,7 +797,36 @@ private fun SettingsSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag(testTag)
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag(testTag)
+        )
+    }
+}
+
+@Preview(name = "Settings Light", showBackground = true)
+@Preview(name = "Settings Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun SettingsScreenPreview() {
+    JarvisTheme {
+        SettingsScreen(
+            uiState = SettingsUiState(memoryFactsCount = 4),
+            onSetOrbAnimation = {},
+            onSetOrbGlow = {},
+            onSetTtsAutoSpeak = {},
+            onSetTtsSpeechRate = {},
+            onSetWakeWordStandby = {},
+            onSetTelemetryInterval = {},
+            onSetHaptics = {},
+            onSetInferenceBackend = {},
+            onSetContextLengthTokens = {},
+            onSetMaxOutputTokens = {},
+            onSetSamplerTemperature = {},
+            onSetSamplerTopK = {},
+            onSetSamplerTopP = {},
+            onSetHuggingFaceToken = {},
+            onPurgeHistory = {},
+            onDismissBanner = {}
         )
     }
 }

@@ -86,10 +86,10 @@ class ModelCompatibilityEngine(
 
         // 1. File Format & Runtime Check
         when {
-            formatId == RuntimeFormatId.SAFETENSORS_RAW -> {
+            formatId == RuntimeFormatId.SAFETENSORS_RAW && adapter != null -> {
                 checks += CompatibilityCheckItem(
                     category = "Format & Runtime",
-                    detail = adapter!!.runtimeNotes,
+                    detail = adapter.runtimeNotes,
                     status = CheckStatus.BLOCK
                 )
             }

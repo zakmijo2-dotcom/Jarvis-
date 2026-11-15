@@ -1,6 +1,6 @@
 package com.example.ui.screens.voice
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
@@ -28,18 +29,16 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -69,11 +69,12 @@ import com.example.core.voice.VoiceTurnItem
 import com.example.core.wakeword.WakeWordAudioMetrics
 import com.example.core.wakeword.WakeWordEvaluationReport
 import com.example.core.wakeword.WakeWordState
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudPanel
 import com.example.ui.components.TelemetryProgressBar
-import com.example.ui.theme.NominalGreen
-import com.example.ui.theme.SignalAmber
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisThemeTokens
 import java.util.Locale
 
 @Composable
@@ -86,20 +87,18 @@ fun PersistentMicStatusBanner(
     onDisableListening: () -> Unit,
     onDismissNotice: () -> Unit
 ) {
-    val badgeColor = when (micStatus) {
-        MicStatus.ACTIVE_STT -> NominalGreen
-        MicStatus.STANDBY_WAKE_WORD -> MaterialTheme.colorScheme.secondary
-        MicStatus.PERMISSION_DENIED, MicStatus.UNAVAILABLE -> MaterialTheme.colorScheme.error
-        MicStatus.PAUSED_BACKGROUND -> SignalAmber
-        MicStatus.OFF -> MaterialTheme.colorScheme.onSurfaceVariant
+    val palette = JarvisThemeTokens.palette
+    val stateColor = when (micStatus) {
+        MicStatus.ACTIVE_STT, MicStatus.STANDBY_WAKE_WORD -> palette.peachAccent
+        MicStatus.PERMISSION_DENIED, MicStatus.UNAVAILABLE -> palette.errorAccent
+        MicStatus.PAUSED_BACKGROUND, MicStatus.OFF -> palette.textSecondary
     }
 
     HudPanel(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 720.dp)
-            .testTag("mic_status_indicator"),
-        borderColor = badgeColor.copy(alpha = 0.7f)
+            .testTag("mic_status_indicator")
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -108,7 +107,7 @@ fun PersistentMicStatusBanner(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
@@ -117,22 +116,22 @@ fun PersistentMicStatusBanner(
                     } else {
                         Icons.Filled.Mic
                     },
-                    contentDescription = "Microphone state",
-                    tint = badgeColor,
+                    contentDescription = "Microphone status",
+                    tint = stateColor,
                     modifier = Modifier.size(20.dp)
                 )
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = micStatus.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = badgeColor
+                        style = MaterialTheme.typography.titleSmall,
+                        color = stateColor
                     )
                     Text(
                         text = buildString {
-                            append("Detected: ${detectedLanguage.label}")
-                            if (isFgsRunning) append(" • FGS Mic Notification Active")
+                            append("Language: ${detectedLanguage.label}")
+                            if (isFgsRunning) append(" · Background service active")
                         },
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -145,19 +144,19 @@ fun PersistentMicStatusBanner(
                         .testTag("mic_disable_button")
                 ) {
                     Icon(Icons.Filled.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text("Disable")
                 }
             } else {
                 HudBadge(
-                    text = if (isFgsRunning) "FGS ON" else "BATTERY SAFE",
-                    color = if (isFgsRunning) NominalGreen else MaterialTheme.colorScheme.primary
+                    text = if (isFgsRunning) "Service on" else "Idle",
+                    color = if (isFgsRunning) palette.peachAccent else palette.textSecondary
                 )
             }
         }
 
         if (!restrictionNotice.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -166,11 +165,14 @@ fun PersistentMicStatusBanner(
                 Text(
                     text = restrictionNotice,
                     style = MaterialTheme.typography.bodySmall,
-                    color = SignalAmber,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onDismissNotice) {
-                    Text("OK")
+                TextButton(
+                    onClick = onDismissNotice,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Text("Dismiss")
                 }
             }
         }
@@ -193,6 +195,7 @@ fun VoiceConversationControlsCard(
     onSetSpeechRate: (Float) -> Unit,
     onOpenVoicePicker: () -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     HudPanel(
         modifier = Modifier
             .fillMaxWidth()
@@ -200,11 +203,11 @@ fun VoiceConversationControlsCard(
             .testTag("voice_controls_panel")
     ) {
         Text(
-            text = "CONVERSATION & LANGUAGE MATRIX",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary
+            text = "Conversation & language",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -216,29 +219,37 @@ fun VoiceConversationControlsCard(
                 } else {
                     "voice_mode_continuous"
                 }
-                FilterChip(
+                    FilterChip(
                     selected = conversationMode == mode,
                     onClick = { onSelectMode(mode) },
                     label = { Text(mode.label) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.primary
+                        selectedContainerColor = palette.peachContainer,
+                        selectedLabelColor = palette.onHue
                     ),
                     modifier = Modifier.testTag(tag)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Filled.Language, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Language,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(
-                text = "Speech & Voice Language",
-                style = MaterialTheme.typography.labelMedium,
+                text = "Speech & voice language",
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -246,39 +257,59 @@ fun VoiceConversationControlsCard(
         ) {
             VoiceLanguageOption.entries.forEach { option ->
                 val check = localeChecks.firstOrNull { it.option == option }
-                val suffix = when {
-                    check == null -> ""
-                    check.isOfflineDataInstalled -> " ✓"
-                    check.isTtsSupported -> " ◌"
-                    else -> ""
+                val leadingIcon: (@Composable () -> Unit)? = when {
+                    check == null -> null
+                    check.isOfflineDataInstalled -> {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Offline voice installed",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    check.isTtsSupported -> {
+                        {
+                            Icon(
+                                imageVector = Icons.Outlined.CloudDownload,
+                                contentDescription = "Online voice available",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    else -> null
                 }
+                val chipPalette = JarvisThemeTokens.palette
                 FilterChip(
                     selected = selectedLanguage == option,
                     onClick = { onSelectLanguage(option) },
-                    label = { Text("${option.label}$suffix") },
+                    leadingIcon = leadingIcon,
+                    label = { Text(option.label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = chipPalette.peachContainer,
+                        selectedLabelColor = chipPalette.onHue,
+                        selectedLeadingIconColor = chipPalette.onHue
+                    ),
                     modifier = Modifier.testTag("voice_lang_${option.tag.lowercase(Locale.ROOT)}")
                 )
             }
         }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 10.dp),
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-        )
+        EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                 Text(
-                    text = "Automatic Response Playback",
+                    text = "Speak replies automatically",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Sanitizes markdown, links, & telemetry before speaking",
+                    text = "Reads assistant replies aloud with markdown stripped",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -290,17 +321,28 @@ fun VoiceConversationControlsCard(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = String.format(Locale.US, "Speech Rate: %.2fx", ttsSpeechRate),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Speech rate",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                val ratePalette = JarvisThemeTokens.palette
+                Text(
+                    text = String.format(Locale.US, "%.2fx", ttsSpeechRate),
+                    style = JarvisMonoTelemetryStyle,
+                    color = ratePalette.peachAccent
+                )
+            }
             OutlinedButton(
                 onClick = onOpenVoicePicker,
                 modifier = Modifier
@@ -311,9 +353,9 @@ fun VoiceConversationControlsCard(
                 Spacer(Modifier.width(6.dp))
                 Text(
                     if (selectedVoiceName.isBlank()) {
-                        "System Voice ($availableVoicesCount)"
+                        "System voice ($availableVoicesCount)"
                     } else {
-                        "Voice: ${selectedVoiceName.take(14)}"
+                        selectedVoiceName.take(16)
                     }
                 )
             }
@@ -336,6 +378,7 @@ fun VoiceTranscriptAndConversationCard(
     voiceTurns: List<VoiceTurnItem>,
     onSpeakTurn: (String) -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     val rmsDb = (engineState as? VoiceEngineState.Listening)?.rmsDb ?: 0f
     val vadActive = (engineState as? VoiceEngineState.Listening)?.isVoiceActive == true
 
@@ -350,28 +393,28 @@ fun VoiceTranscriptAndConversationCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "VOICE ACTIVITY & TRANSCRIPT",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
+                text = "Transcript",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
             )
             HudBadge(
-                text = if (vadActive) "VAD: SPEECH" else "VAD: STANDBY",
-                color = if (vadActive) NominalGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                text = if (vadActive) "Speech detected" else "Standby",
+                color = if (vadActive) palette.peachAccent else palette.textSecondary
             )
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         TelemetryProgressBar(
-            label = "AUDIO INPUT RMS",
+            label = "Input level",
             valueText = String.format(Locale.US, "%.1f dB", rmsDb),
             progress = (rmsDb / 12f).coerceIn(0f, 1f),
-            accentColor = MaterialTheme.colorScheme.primary
+            accentColor = palette.peachAccent
         )
         Spacer(modifier = Modifier.height(12.dp))
         val displayedTranscript = when {
             engineState is VoiceEngineState.Listening && engineState.partialTranscript.isNotBlank() ->
                 engineState.partialTranscript
             lastTranscript.isNotBlank() -> lastTranscript
-            else -> "No speech captured yet. Use Push-to-Talk, Continuous mode, or the text fallback below."
+            else -> "No speech captured yet. Hold Push-to-Talk, enable Continuous mode, or type below."
         }
         val transcriptDirection = if (containsArabicVoiceScript(displayedTranscript)) {
             LayoutDirection.Rtl
@@ -394,90 +437,78 @@ fun VoiceTranscriptAndConversationCard(
         }
 
         if (isGeneratingReply) {
-            Spacer(modifier = Modifier.height(10.dp))
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
             val replyDirection = if (containsArabicVoiceScript(streamingReply)) {
                 LayoutDirection.Rtl
             } else {
                 LocalLayoutDirection.current
             }
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                CompositionLocalProvider(LocalLayoutDirection provides replyDirection) {
-                    Text(
-                        text = if (streamingReply.isBlank()) "JARVIS generating reply…" else streamingReply,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp)
-                    )
-                }
+            CompositionLocalProvider(LocalLayoutDirection provides replyDirection) {
+                Text(
+                    text = if (streamingReply.isBlank()) "Thinking…" else streamingReply,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
         if (voiceTurns.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
             Text(
-                text = "RECENT VOICE EXCHANGES",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary
+                text = "Recent turns",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(6.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                voiceTurns.takeLast(4).forEach { turn ->
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = if (turn.isUser) {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        } else {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                        },
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
+            Spacer(modifier = Modifier.height(8.dp))
+            val recent = voiceTurns.takeLast(4)
+            recent.forEachIndexed { index, turn ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = (if (turn.isUser) "YOU" else "JARVIS") +
-                                        (turn.telemetryNote?.let { " • $it" } ?: ""),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (turn.isUser) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                                )
-                                val turnDir = if (containsArabicVoiceScript(turn.text)) {
-                                    LayoutDirection.Rtl
-                                } else {
-                                    LocalLayoutDirection.current
-                                }
-                                CompositionLocalProvider(LocalLayoutDirection provides turnDir) {
-                                    Text(
-                                        text = turn.text,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                            if (!turn.isUser) {
-                                IconButton(
-                                    onClick = { onSpeakTurn(turn.text) },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.GraphicEq,
-                                        contentDescription = "Speak reply",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
+                        Text(
+                            text = (if (turn.isUser) "You" else "Jarvis") +
+                                (turn.telemetryNote?.let { " · $it" } ?: ""),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (turn.isUser) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                        )
+                        val turnDir = if (containsArabicVoiceScript(turn.text)) {
+                            LayoutDirection.Rtl
+                        } else {
+                            LocalLayoutDirection.current
+                        }
+                        CompositionLocalProvider(LocalLayoutDirection provides turnDir) {
+                            Text(
+                                text = turn.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
+                    if (!turn.isUser) {
+                        IconButton(
+                            onClick = { onSpeakTurn(turn.text) },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.GraphicEq,
+                                contentDescription = "Speak reply",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+                if (index < recent.lastIndex) {
+                    EditorialHairlineDivider()
                 }
             }
         }
@@ -497,11 +528,11 @@ fun VoiceTextFallbackBar(
             .widthIn(max = 720.dp)
     ) {
         Text(
-            text = "TEXT FALLBACK INPUT",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary
+            text = "Text input",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -512,18 +543,19 @@ fun VoiceTextFallbackBar(
                 onValueChange = onInputChange,
                 placeholder = { Text(stringResource(R.string.voice_fallback_hint)) },
                 singleLine = true,
+                shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("voice_fallback_input_field")
             )
-            Button(
+            OutlinedButton(
                 onClick = onSubmit,
                 enabled = inputText.isNotBlank() && !isGenerating,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .testTag("voice_fallback_send_button")
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send fallback prompt")
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send command")
             }
         }
     }
@@ -554,17 +586,22 @@ fun WakeWordEvaluationCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Filled.Radar, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            val wakePalette = JarvisThemeTokens.palette
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.Radar, contentDescription = null, tint = wakePalette.peachAccent)
                 Column {
                     Text(
-                        text = "WAKE WORD ENGINE (\"${report?.targetPhrase ?: "Jarvis"}\")",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        text = "Wake word (\"${report?.targetPhrase ?: "Jarvis"}\")",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = wakeWordState.label,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -576,29 +613,30 @@ fun WakeWordEvaluationCard(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val wakePalette = JarvisThemeTokens.palette
             val verified = report?.isPhraseDetectionVerified == true
             HudBadge(
                 text = when {
-                    verified -> "MIC + KWS VERIFIED"
-                    porcupineAccessKey.isNotBlank() -> "PORCUPINE KEY CONFIGURED"
-                    else -> "KWS UNVERIFIED (EVALUATION)"
+                    verified -> "Keyword verified"
+                    porcupineAccessKey.isNotBlank() -> "Key configured"
+                    else -> "Evaluation mode"
                 },
-                color = if (verified) NominalGreen else SignalAmber
+                color = if (verified) wakePalette.successAccent else wakePalette.textSecondary
             )
             Text(
-                text = String.format(Locale.US, "PCM Gate: %.1f dBFS (%d frames)", metrics.rmsDbfs, metrics.framesProcessed),
-                style = MaterialTheme.typography.labelSmall,
+                text = String.format(Locale.US, "%.1f dBFS · %d frames", metrics.rmsDbfs, metrics.framesProcessed),
+                style = JarvisMonoTelemetryStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -607,10 +645,10 @@ fun WakeWordEvaluationCard(
             OutlinedTextField(
                 value = keyDraft,
                 onValueChange = { keyDraft = it },
-                label = { Text("Picovoice Porcupine AccessKey (Optional)") },
-                placeholder = { Text("Paste AccessKey for native 'Jarvis' KWS") },
+                label = { Text("Porcupine AccessKey (optional)") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
+                shape = MaterialTheme.shapes.small,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("porcupine_access_key_input")
@@ -621,38 +659,40 @@ fun WakeWordEvaluationCard(
                     .minimumInteractiveComponentSize()
                     .testTag("porcupine_access_key_save_button")
             ) {
-                Text("Save Key")
+                Text("Save")
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
         if (report != null) {
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = report.summary,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(6.dp))
             report.blockers.forEach { blocker ->
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.Top,
-                    modifier = Modifier.padding(vertical = 2.dp)
+                    modifier = Modifier.padding(top = 4.dp)
                 ) {
-                    Icon(Icons.Filled.Security, contentDescription = null, modifier = Modifier.size(14.dp), tint = SignalAmber)
+                    Icon(
+                        imageVector = Icons.Filled.Security,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Text(
                         text = blocker,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 8.dp),
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-        )
+        EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -660,19 +700,24 @@ fun WakeWordEvaluationCard(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f).padding(end = 12.dp)
             ) {
-                Icon(Icons.Filled.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(18.dp), tint = NominalGreen)
+                Icon(
+                    imageVector = Icons.Filled.BatteryChargingFull,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Column {
                     Text(
-                        text = "Pause Mic on Background",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "Pause mic in background",
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Stops FGS AudioRecord when app leaves foreground to save battery & honor Android 15 limits",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "Stops foreground mic capture when app is minimized",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -695,7 +740,7 @@ fun TtsVoicePickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select Android System Voice") },
+        title = { Text("System voice") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
@@ -703,14 +748,18 @@ fun TtsVoicePickerDialog(
                         onSelectVoice("")
                         onDismiss()
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
                 ) {
-                    Text(if (selectedVoiceName.isBlank()) "✓ Auto / Language Default" else "Auto / Language Default")
+                    if (selectedVoiceName.isBlank()) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Automatic (match language)")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 if (voices.isEmpty()) {
                     Text(
-                        text = "No enumerated TTS voices reported yet by this Android environment.",
+                        text = "No TextToSpeech voices reported on this device.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -719,34 +768,45 @@ fun TtsVoicePickerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 280.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(voices, key = { it.name }) { voice ->
                             val isSelected = voice.name == selectedVoiceName
-                            Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerHigh
-                                },
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                        else MaterialTheme.colorScheme.surface
+                                    )
+                                    .minimumInteractiveComponentSize()
                                     .clickable {
                                         onSelectVoice(voice.name)
                                         onDismiss()
                                     }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "${if (isSelected) "✓ " else ""}${voice.displayLocale} (${voice.localeTag})",
-                                        style = MaterialTheme.typography.labelLarge,
+                                        text = "${voice.displayLocale} (${voice.localeTag})",
+                                        style = MaterialTheme.typography.titleSmall,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "${voice.name} • ${if (voice.isNetworkRequired) "Network" else "Offline"}",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        text = "${voice.name} · ${if (voice.isNetworkRequired) "Online" else "Offline"}",
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }

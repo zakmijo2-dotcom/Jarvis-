@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -25,24 +26,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.MonitorHeart
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
@@ -54,7 +54,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -82,10 +81,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
@@ -95,10 +94,18 @@ import com.example.core.ai.EngineLoadState
 import com.example.core.model.ArtifactState
 import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
 import com.example.ui.components.JarvisOrb
 import com.example.ui.components.OrbMode
+import com.example.ui.components.hairlineDp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.ui.theme.JarvisMonoCodeStyle
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisTheme
+import com.example.ui.theme.JarvisThemeTokens
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -127,6 +134,7 @@ fun ChatScreen(
     onRegenerateResponse: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
     var inputText by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -148,10 +156,10 @@ fun ChatScreen(
     }
 
     val (badgeText, badgeColor) = when (val engineState = uiState.engineLoadState) {
-        is EngineLoadState.Ready -> "READY // ${engineState.backendUsed}" to MaterialTheme.colorScheme.primary
-        is EngineLoadState.Loading -> "LOADING…" to MaterialTheme.colorScheme.secondary
-        is EngineLoadState.Error -> "ENGINE ERROR" to MaterialTheme.colorScheme.error
-        is EngineLoadState.Unloaded -> "UNLOADED" to MaterialTheme.colorScheme.tertiary
+        is EngineLoadState.Ready -> engineState.backendUsed to palette.skyAccent
+        is EngineLoadState.Loading -> "Loading" to palette.textSecondary
+        is EngineLoadState.Error -> "Error" to palette.errorAccent
+        is EngineLoadState.Unloaded -> "Unloaded" to palette.textSecondary
     }
 
     HudBackground {
@@ -163,7 +171,7 @@ fun ChatScreen(
         ) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+                    containerColor = MaterialTheme.colorScheme.background
                 ),
                 navigationIcon = {
                     IconButton(
@@ -175,7 +183,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Filled.Menu,
                             contentDescription = stringResource(R.string.cd_open_history),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
@@ -184,7 +192,7 @@ fun ChatScreen(
                         Text(
                             text = stringResource(R.string.hud_brand_title),
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
                             text = uiState.activeConversationTitle,
@@ -197,18 +205,18 @@ fun ChatScreen(
                 },
                 actions = {
                     val privacyTag = when {
-                        uiState.settings.routingMode == AgentRoutingMode.LOCAL_ONLY -> "LOCAL ONLY"
-                        uiState.settings.cloudUploadConsentGranted -> "HYBRID"
-                        else -> "PRIVATE LOCAL"
+                        uiState.settings.routingMode == AgentRoutingMode.LOCAL_ONLY -> "Local"
+                        uiState.settings.cloudUploadConsentGranted -> "Hybrid"
+                        else -> "Private"
                     }
                     HudBadge(
                         text = privacyTag,
                         color = if (uiState.settings.cloudUploadConsentGranted && uiState.settings.routingMode != AgentRoutingMode.LOCAL_ONLY) {
-                            MaterialTheme.colorScheme.secondary
+                            palette.skyAccent
                         } else {
-                            MaterialTheme.colorScheme.primary
+                            palette.textSecondary
                         },
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        containerColor = palette.surfaceHigh,
                         modifier = Modifier
                             .padding(end = 4.dp)
                             .testTag("chat_privacy_badge")
@@ -216,7 +224,7 @@ fun ChatScreen(
                     HudBadge(
                         text = badgeText,
                         color = badgeColor,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        containerColor = palette.surfaceHigh,
                         modifier = Modifier
                             .padding(end = 4.dp)
                             .testTag("chat_engine_badge")
@@ -230,21 +238,23 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Filled.AddComment,
                             contentDescription = stringResource(R.string.drawer_new_session),
-                            tint = MaterialTheme.colorScheme.onSurface
+                            tint = palette.skyAccent
                         )
                     }
                 }
             )
+            EditorialHairlineDivider()
 
             if (uiState.engineLoadState is EngineLoadState.Loading) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainer
+                    color = palette.skyAccent,
+                    trackColor = palette.surfaceHigh
                 )
             }
 
             if (uiState.messages.isEmpty() && streamingText == null) {
+                Spacer(modifier = Modifier.height(8.dp))
                 UnifiedAssistantStatusHeader(
                     uiState = uiState,
                     onNavigateToVoice = onNavigateToVoice,
@@ -266,19 +276,20 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 840.dp)
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("agent_execution_monitor"),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(hairlineDp(), MaterialTheme.colorScheme.outline)
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
                                 .clickable { monitorExpanded = !monitorExpanded }
                                 .testTag("agent_monitor_toggle"),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -286,12 +297,12 @@ fun ChatScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "LIVE AGENT • ${activePlan.routeDecision.route.label} ($completedCount/${activePlan.steps.size})",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = "${activePlan.routeDecision.route.label} ($completedCount/${activePlan.steps.size})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 val subMeta = buildString {
-                                    activePlan.routeDecision.matchedSkillName?.let { append("Skill: $it • ") }
+                                    activePlan.routeDecision.matchedSkillName?.let { append("Skill: $it · ") }
                                     if (activePlan.routeDecision.capabilitySummary.isNotBlank()) {
                                         append(activePlan.routeDecision.capabilitySummary)
                                     } else {
@@ -300,7 +311,7 @@ fun ChatScreen(
                                 }
                                 Text(
                                     text = subMeta,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -310,29 +321,31 @@ fun ChatScreen(
                                 if (inProgress) {
                                     TextButton(
                                         onClick = onCancelActiveTool,
-                                        modifier = Modifier.testTag("cancel_plan_button")
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("cancel_plan_button")
                                     ) {
-                                        Text("Stop Agent")
+                                        Text("Stop")
                                     }
                                 }
                                 Icon(
                                     imageVector = if (monitorExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                    contentDescription = if (monitorExpanded) "Collapse monitor" else "Expand monitor",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    contentDescription = if (monitorExpanded) "Collapse plan" else "Expand plan",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
                         if (monitorExpanded) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                            EditorialHairlineDivider()
                             activePlan.steps.forEach { step ->
                                 val statusColor = when (step.status) {
                                     PlanStepStatus.COMPLETED, PlanStepStatus.RECOVERED -> MaterialTheme.colorScheme.primary
-                                    PlanStepStatus.RUNNING -> MaterialTheme.colorScheme.secondary
+                                    PlanStepStatus.RUNNING -> MaterialTheme.colorScheme.onSurface
                                     PlanStepStatus.FAILED, PlanStepStatus.CANCELLED -> MaterialTheme.colorScheme.error
-                                    else -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -340,14 +353,14 @@ fun ChatScreen(
                                     ) {
                                         Text(
                                             text = "${step.index + 1}. ${step.title}",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = step.status.label.uppercase(Locale.getDefault()),
+                                            text = step.status.label,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = statusColor
                                         )
@@ -374,23 +387,23 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 840.dp)
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .testTag("active_tool_banner"),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(hairlineDp(), MaterialTheme.colorScheme.outline)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Executing tool: ${uiState.activeToolName}…",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            text = "Running ${uiState.activeToolName}…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         OutlinedButton(
                             onClick = onCancelActiveTool,
@@ -425,39 +438,42 @@ fun ChatScreen(
                         }
                         JarvisOrb(
                             mode = orbMode,
-                            size = 176.dp,
+                            size = 160.dp,
                             animationEnabled = uiState.settings.orbAnimationEnabled,
-                            glowIntensity = uiState.settings.orbGlowIntensity
+                            glowIntensity = uiState.settings.orbGlowIntensity,
+                            isModelGenerating = uiState.isGenerating
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
                         Text(
                             text = when (uiState.engineLoadState) {
-                                is EngineLoadState.Ready -> "GEMMA 3 1B ONLINE"
-                                is EngineLoadState.Loading -> "INITIALIZING LITERT-LM"
+                                is EngineLoadState.Ready -> "Gemma 3 1B ready"
+                                is EngineLoadState.Loading -> "Loading LiteRT-LM"
                                 else -> stringResource(R.string.chat_empty_title)
                             },
                             style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onBackground,
+                            textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         val subtitle = when (val load = uiState.engineLoadState) {
                             is EngineLoadState.Ready ->
-                                "Local LiteRT-LM session ready on ${load.backendUsed}. Native heap: ${String.format(Locale.US, "%.1f", uiState.nativeMemoryMb)} MB. Context: ${uiState.settings.contextLengthTokens} tok."
+                                "Session ready on ${load.backendUsed} (${String.format(Locale.US, "%.1f", uiState.nativeMemoryMb)} MB heap, ${uiState.settings.contextLengthTokens} context)."
                             is EngineLoadState.Loading ->
-                                "Loading ${load.modelName} weights on ${load.targetBackend} off the UI thread…"
+                                "Loading ${load.modelName} on ${load.targetBackend}…"
                             is EngineLoadState.Error -> load.message
                             is EngineLoadState.Unloaded ->
                                 if (uiState.activeModel?.artifactState == ArtifactState.READY) {
                                     "${uiState.activeModel.displayName} is verified and ready to load offline."
                                 } else {
-                                    "Offline LiteRT-LM runtime ready. Download or import Gemma 3 1B Int4 in Models to begin local generation."
+                                    stringResource(R.string.chat_empty_subtitle)
                                 }
                         }
                         Text(
                             text = subtitle,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.widthIn(max = 460.dp)
                         )
                     }
                 } else {
@@ -466,8 +482,8 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("chat_message_list"),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(uiState.messages, key = { it.id }) { message ->
                             ChatMessageBubble(
@@ -490,12 +506,12 @@ fun ChatScreen(
                 }
             }
 
-            // Quick Diagnostic & Model Control Chips
+            // Quick Actions Row
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 840.dp)
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
@@ -505,7 +521,7 @@ fun ChatScreen(
                         onClick = { onSelectRoutingMode(nextMode) },
                         label = {
                             Text(
-                                text = "Mode: ${uiState.settings.routingMode.label}",
+                                text = uiState.settings.routingMode.label,
                                 style = MaterialTheme.typography.labelMedium
                             )
                         },
@@ -521,9 +537,9 @@ fun ChatScreen(
                             )
                         },
                         colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            labelColor = MaterialTheme.colorScheme.primary,
-                            leadingIconContentColor = MaterialTheme.colorScheme.primary
+                            containerColor = palette.surface,
+                            labelColor = palette.text,
+                            leadingIconContentColor = palette.skyAccent
                         ),
                         modifier = Modifier.testTag("chip_routing_mode")
                     )
@@ -534,7 +550,7 @@ fun ChatScreen(
                             onClick = onSummarizeSession,
                             label = {
                                 Text(
-                                    text = "Save Summary",
+                                    text = "Save summary",
                                     style = MaterialTheme.typography.labelMedium
                                 )
                             },
@@ -569,9 +585,9 @@ fun ChatScreen(
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = MaterialTheme.colorScheme.primary,
-                                leadingIconContentColor = MaterialTheme.colorScheme.primary
+                                containerColor = palette.skyContainer,
+                                labelColor = palette.onHue,
+                                leadingIconContentColor = palette.onHue
                             ),
                             modifier = Modifier.testTag("chip_load_model")
                         )
@@ -593,11 +609,6 @@ fun ChatScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            labelColor = MaterialTheme.colorScheme.primary,
-                            leadingIconContentColor = MaterialTheme.colorScheme.primary
-                        ),
                         modifier = Modifier.testTag("chip_system_snapshot")
                     )
                 }
@@ -617,11 +628,6 @@ fun ChatScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            labelColor = MaterialTheme.colorScheme.secondary,
-                            leadingIconContentColor = MaterialTheme.colorScheme.secondary
-                        ),
                         modifier = Modifier.testTag("chip_engine_audit")
                     )
                 }
@@ -641,11 +647,6 @@ fun ChatScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            labelColor = MaterialTheme.colorScheme.onSurface,
-                            leadingIconContentColor = MaterialTheme.colorScheme.onSurface
-                        ),
                         modifier = Modifier.testTag("chip_inspect_models")
                     )
                 }
@@ -656,17 +657,17 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 840.dp)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = palette.surface,
+                border = BorderStroke(hairlineDp(), palette.hairline)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
                         onClick = onNavigateToVoice,
@@ -677,7 +678,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Filled.GraphicEq,
                             contentDescription = stringResource(R.string.cd_voice_handoff),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = palette.peachAccent
                         )
                     }
 
@@ -690,7 +691,8 @@ fun ChatScreen(
                         placeholder = {
                             Text(
                                 text = stringResource(R.string.chat_input_hint),
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.textSecondary
                             )
                         },
                         maxLines = 4,
@@ -704,18 +706,20 @@ fun ChatScreen(
                                 }
                             }
                         ),
+                        shape = RoundedCornerShape(20.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            focusedBorderColor = palette.skyAccent,
+                            unfocusedBorderColor = palette.hairline
                         )
                     )
 
                     if (uiState.isGenerating) {
                         FilledIconButton(
                             onClick = onCancelGeneration,
+                            shape = CircleShape,
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
+                                containerColor = palette.coralContainer,
+                                contentColor = palette.onHue
                             ),
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
@@ -735,9 +739,12 @@ fun ChatScreen(
                                 }
                             },
                             enabled = inputText.isNotBlank(),
+                            shape = CircleShape,
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                containerColor = palette.skyContainer,
+                                contentColor = palette.onHue,
+                                disabledContainerColor = palette.surfaceHigh,
+                                disabledContentColor = palette.textSecondary
                             ),
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
@@ -752,6 +759,7 @@ fun ChatScreen(
                 }
             }
 
+            val palette = JarvisThemeTokens.palette
             val pendingConfirm = uiState.pendingToolConfirmation
             if (pendingConfirm != null) {
                 AlertDialog(
@@ -761,11 +769,11 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Filled.Security,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = palette.skyAccent
                         )
                     },
                     title = {
-                        Text("Confirm Device Action (${pendingConfirm.request.toolName})")
+                        Text("Confirm ${pendingConfirm.request.toolName}")
                     },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -783,12 +791,14 @@ fun ChatScreen(
                     confirmButton = {
                         Button(
                             onClick = onConfirmPendingTool,
+                            shape = CircleShape,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
+                                containerColor = palette.skyContainer,
+                                contentColor = palette.onHue
                             ),
                             modifier = Modifier.testTag("confirm_tool_button")
                         ) {
-                            Text("Confirm & Run")
+                            Text("Approve")
                         }
                     },
                     dismissButton = {
@@ -810,14 +820,14 @@ fun ChatScreen(
                     modifier = Modifier.testTag("tool_permission_dialog"),
                     title = {
                         Text(
-                            if (pendingPerm != null) "Permission Required"
-                            else "${pendingSpecial?.label} Required"
+                            if (pendingPerm != null) "Permission required"
+                            else "${pendingSpecial?.label} required"
                         )
                     },
                     text = {
                         Text(
                             text = uiState.permissionRationale
-                                ?: "JARVIS requires explicit authorization before accessing this Android API.",
+                                ?: "Explicit authorization is required before using this Android feature.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     },
@@ -835,9 +845,14 @@ fun ChatScreen(
                                     onDismissPermissionPrompt()
                                 }
                             },
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = palette.skyContainer,
+                                contentColor = palette.onHue
+                            ),
                             modifier = Modifier.testTag("grant_tool_permission_button")
                         ) {
-                            Text(if (pendingPerm != null) "Grant Permission" else "Open Android Settings")
+                            Text(if (pendingPerm != null) "Allow" else "Open settings")
                         }
                     },
                     dismissButton = {
@@ -847,7 +862,7 @@ fun ChatScreen(
                                     onDismissPermissionPrompt()
                                     onOpenDeviceControls()
                                 }) {
-                                    Text("Privacy Controls")
+                                    Text("Privacy controls")
                                 }
                             }
                             TextButton(onClick = onDismissPermissionPrompt) {
@@ -868,6 +883,7 @@ private fun StreamingAssistantBubble(
     text: String,
     estimatedTokens: Int
 ) {
+    val palette = JarvisThemeTokens.palette
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -878,12 +894,12 @@ private fun StreamingAssistantBubble(
             modifier = Modifier
                 .widthIn(max = 600.dp)
                 .fillMaxWidth(0.94f),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+            shape = RoundedCornerShape(22.dp),
+            color = palette.surface,
+            border = BorderStroke(hairlineDp(), palette.skyAccent.copy(alpha = 0.6f))
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
@@ -892,14 +908,14 @@ private fun StreamingAssistantBubble(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${modelLabel.uppercase(Locale.getDefault())} // STREAMING",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        text = "$modelLabel · Streaming",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.skyAccent
                     )
                     Text(
-                        text = "$backendUsed • ~$estimatedTokens tok",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        text = "$backendUsed · ~$estimatedTokens tok",
+                        style = JarvisMonoTelemetryStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 val streamDirection = if (containsArabicScript(text)) {
@@ -909,7 +925,7 @@ private fun StreamingAssistantBubble(
                 }
                 CompositionLocalProvider(LocalLayoutDirection provides streamDirection) {
                     Text(
-                        text = if (text.isEmpty()) "Prefilling prompt…" else "$text▌",
+                        text = if (text.isEmpty()) "Thinking…" else "$text▌",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.fillMaxWidth()
@@ -934,38 +950,38 @@ private fun UnifiedAssistantStatusHeader(
         else -> OrbMode.IDLE
     }
     val stateLabel = when {
-        uiState.isGenerating -> "THINKING"
-        uiState.engineLoadState is EngineLoadState.Loading -> "LOADING"
-        uiState.engineLoadState is EngineLoadState.Ready -> "ONLINE"
-        uiState.engineLoadState is EngineLoadState.Error -> "ALERT"
-        else -> "STANDBY"
+        uiState.isGenerating -> "Thinking"
+        uiState.engineLoadState is EngineLoadState.Loading -> "Loading"
+        uiState.engineLoadState is EngineLoadState.Ready -> "Ready"
+        uiState.engineLoadState is EngineLoadState.Error -> "Alert"
+        else -> "Standby"
     }
-    val activeModelName = uiState.activeModel?.displayName ?: "Gemma 3 1B Int4"
+    val activeModelName = uiState.activeModel?.displayName ?: "Gemma 3 1B"
     val runtimeDetail = when (val load = uiState.engineLoadState) {
         is EngineLoadState.Ready ->
-            "${load.backendUsed} • ${String.format(Locale.US, "%.0f", uiState.nativeMemoryMb)} MB"
+            "${load.backendUsed} · ${String.format(Locale.US, "%.0f", uiState.nativeMemoryMb)} MB"
         is EngineLoadState.Loading ->
             "Loading ${load.modelName}…"
         is EngineLoadState.Error ->
             load.message
         is EngineLoadState.Unloaded ->
-            "${uiState.settings.routingMode.label} • ${uiState.settings.inferenceBackend.label}"
+            "${uiState.settings.routingMode.label} · ${uiState.settings.inferenceBackend.label}"
     }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 840.dp)
-            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .padding(horizontal = 16.dp)
             .testTag("assistant_home_header"),
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(hairlineDp(), MaterialTheme.colorScheme.outline)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -978,15 +994,16 @@ private fun UnifiedAssistantStatusHeader(
             ) {
                 JarvisOrb(
                     mode = orbMode,
-                    size = 26.dp,
+                    size = 24.dp,
                     animationEnabled = uiState.settings.orbAnimationEnabled,
                     glowIntensity = uiState.settings.orbGlowIntensity,
-                    statusDescription = "Assistant status orb"
+                    isModelGenerating = uiState.isGenerating,
+                    statusDescription = "Assistant status sphere"
                 )
             }
             Text(
-                text = "$stateLabel • $activeModelName ($runtimeDetail)",
-                style = MaterialTheme.typography.labelSmall,
+                text = "$stateLabel · $activeModelName ($runtimeDetail)",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -994,20 +1011,20 @@ private fun UnifiedAssistantStatusHeader(
             )
             Text(
                 text = "Models",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                color = JarvisThemeTokens.palette.sageAccent,
                 modifier = Modifier
                     .clickable(onClick = onNavigateToModels)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
                     .testTag("header_models_shortcut")
             )
             Text(
                 text = "Tools",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary,
+                style = MaterialTheme.typography.labelMedium,
+                color = JarvisThemeTokens.palette.sandAccent,
                 modifier = Modifier
                     .clickable(onClick = onOpenDeviceControls)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
                     .testTag("header_device_shortcut")
             )
         }
@@ -1021,6 +1038,7 @@ private fun ChatMessageBubble(
     onRegenerate: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
     val isUser = message.role == MessageRole.USER
     val isSystemNotice = message.role == MessageRole.SYSTEM_NOTICE
     val isToolSnapshot = message.role == MessageRole.TOOL_SNAPSHOT
@@ -1028,22 +1046,18 @@ private fun ChatMessageBubble(
     val timestamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
 
     val containerColor = when {
-        isUser -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-        isSystemNotice -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.38f)
-        isToolSnapshot -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.48f)
-        else -> MaterialTheme.colorScheme.surface
+        isUser -> palette.skyContainer
+        isSystemNotice -> MaterialTheme.colorScheme.surfaceContainerLow
+        isToolSnapshot -> MaterialTheme.colorScheme.surfaceContainerLow
+        else -> palette.surface
     }
-    val borderColor = when {
-        isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-        isSystemNotice -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
-        isToolSnapshot -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.50f)
-        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
-    }
-    val labelColor = when {
-        isUser -> MaterialTheme.colorScheme.primary
-        isSystemNotice -> MaterialTheme.colorScheme.tertiary
-        isToolSnapshot -> MaterialTheme.colorScheme.secondary
-        else -> MaterialTheme.colorScheme.primary
+    val bubbleTextColor = if (isUser) palette.onHue else palette.text
+    val bubbleSecondaryColor = if (isUser) palette.onHue.copy(alpha = 0.72f) else palette.textSecondary
+    val bubbleAccentColor = if (isUser) palette.onHue else palette.skyAccent
+    val borderStroke = if (isUser) {
+        null
+    } else {
+        BorderStroke(hairlineDp(), palette.hairline)
     }
 
     val segments = parseMessageSegments(message.content)
@@ -1056,13 +1070,13 @@ private fun ChatMessageBubble(
             modifier = Modifier
                 .widthIn(max = 600.dp)
                 .fillMaxWidth(if (isUser) 0.84f else 0.94f),
-            shape = MaterialTheme.shapes.medium,
+            shape = RoundedCornerShape(22.dp),
             color = containerColor,
-            border = BorderStroke(1.dp, borderColor)
+            border = borderStroke
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1070,9 +1084,9 @@ private fun ChatMessageBubble(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = message.modelLabel.uppercase(Locale.getDefault()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = labelColor,
+                        text = message.modelLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = bubbleAccentColor,
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1086,47 +1100,47 @@ private fun ChatMessageBubble(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clickable(onClick = onRegenerate)
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    .padding(horizontal = 4.dp, vertical = 4.dp)
                                     .testTag("regenerate_response_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Refresh,
-                                    contentDescription = "Regenerate response",
-                                    modifier = Modifier.size(12.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                    contentDescription = "Retry response",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = palette.skyAccent
                                 )
-                                Spacer(modifier = Modifier.size(2.dp))
+                                Spacer(modifier = Modifier.size(4.dp))
                                 Text(
                                     text = "Retry",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = palette.skyAccent
                                 )
                             }
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clickable { copyToClipboard(context, "JARVIS Message", message.content) }
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                .clickable { copyToClipboard(context, "Jarvis message", message.content) }
+                                .padding(horizontal = 4.dp, vertical = 4.dp)
                                 .testTag("copy_message_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ContentCopy,
                                 contentDescription = "Copy message",
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                modifier = Modifier.size(14.dp),
+                                tint = bubbleSecondaryColor
                             )
-                            Spacer(modifier = Modifier.size(2.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
                             Text(
                                 text = "Copy",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = bubbleSecondaryColor
                             )
                         }
                         Text(
                             text = timestamp,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = JarvisMonoTelemetryStyle,
+                            color = bubbleSecondaryColor
                         )
                     }
                 }
@@ -1136,30 +1150,30 @@ private fun ChatMessageBubble(
                     LocalLayoutDirection.current
                 }
                 CompositionLocalProvider(LocalLayoutDirection provides messageDirection) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         segments.forEach { seg ->
                             when (seg) {
                                 is MessageSegment.Prose -> {
                                     Text(
                                         text = seg.text,
                                         style = if (isToolSnapshot) {
-                                            MaterialTheme.typography.labelLarge
+                                            JarvisMonoCodeStyle
                                         } else {
                                             MaterialTheme.typography.bodyMedium
                                         },
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        color = bubbleTextColor,
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                                 is MessageSegment.CodeBlock -> {
                                     Surface(
                                         modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        border = BorderStroke(hairlineDp(), palette.hairline)
                                     ) {
                                         Column(
-                                            modifier = Modifier.padding(10.dp),
+                                            modifier = Modifier.padding(12.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Row(
@@ -1168,26 +1182,26 @@ private fun ChatMessageBubble(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = seg.language.ifBlank { "CODE" }.uppercase(Locale.US),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.secondary
+                                                    text = seg.language.ifBlank { "code" },
+                                                    style = JarvisMonoTelemetryStyle,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     modifier = Modifier
-                                                        .clickable { copyToClipboard(context, "JARVIS Code", seg.code) }
+                                                        .clickable { copyToClipboard(context, "Jarvis code", seg.code) }
                                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                                         .testTag("copy_code_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.ContentCopy,
-                                                        contentDescription = "Copy code block",
-                                                        modifier = Modifier.size(12.dp),
+                                                        contentDescription = "Copy code",
+                                                        modifier = Modifier.size(14.dp),
                                                         tint = MaterialTheme.colorScheme.primary
                                                     )
                                                     Spacer(modifier = Modifier.size(4.dp))
                                                     Text(
-                                                        text = "Copy Code",
+                                                        text = "Copy code",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.primary
                                                     )
@@ -1195,7 +1209,7 @@ private fun ChatMessageBubble(
                                             }
                                             Text(
                                                 text = seg.code,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                                style = JarvisMonoCodeStyle,
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
@@ -1209,29 +1223,26 @@ private fun ChatMessageBubble(
                 if (message.role == MessageRole.ASSISTANT &&
                     (message.ttftMs != null || message.tokensPerSecond != null)
                 ) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(top = 2.dp),
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-                    )
+                    EditorialHairlineDivider(modifier = Modifier.padding(top = 4.dp))
                     val metricsText = buildString {
                         message.ttftMs?.let { append("TTFT ${it}ms") }
                         message.tokensPerSecond?.let {
-                            if (isNotEmpty()) append(" • ")
+                            if (isNotEmpty()) append(" · ")
                             append(String.format(Locale.US, "%.1f tok/s", it))
                         }
                         message.outputTokens?.let {
-                            if (isNotEmpty()) append(" • ")
+                            if (isNotEmpty()) append(" · ")
                             append("$it tok")
                         }
                         message.backendUsed?.let {
-                            if (isNotEmpty()) append(" • ")
+                            if (isNotEmpty()) append(" · ")
                             append(it)
                         }
                     }
                     Text(
                         text = metricsText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
+                        style = JarvisMonoTelemetryStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("message_benchmark_footer")
                     )
                 }
@@ -1282,3 +1293,66 @@ private fun copyToClipboard(context: Context, label: String, text: String) {
 private fun containsArabicScript(text: String): Boolean =
     text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }
 
+@Preview(name = "Chat Standby Light", showBackground = true)
+@Preview(name = "Chat Standby Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun ChatScreenStandbyPreview() {
+    JarvisTheme {
+        ChatScreen(
+            uiState = ChatUiState(activeConversationTitle = "Session 1"),
+            onOpenDrawer = {},
+            onNewSession = {},
+            onSendMessage = {},
+            onCancelGeneration = {},
+            onLoadActiveModel = {},
+            onRunSystemSnapshot = {},
+            onRunReadinessAudit = {},
+            onNavigateToVoice = {},
+            onNavigateToModels = {}
+        )
+    }
+}
+
+@Preview(name = "Chat Active Light", showBackground = true)
+@Preview(name = "Chat Active Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun ChatScreenConversationPreview() {
+    JarvisTheme {
+        ChatScreen(
+            uiState = ChatUiState(
+                activeConversationTitle = "Battery & Diagnostics",
+                messages = listOf(
+                    MessageEntity(
+                        id = "m1",
+                        conversationId = "c1",
+                        role = MessageRole.USER,
+                        content = "Check my battery and show a Kotlin snippet.",
+                        timestamp = 1700000000000L,
+                        modelLabel = "You"
+                    ),
+                    MessageEntity(
+                        id = "m2",
+                        conversationId = "c1",
+                        role = MessageRole.ASSISTANT,
+                        content = "Battery is at 88%.\n```kotlin\nval level = batteryManager.getIntProperty(BATTERY_PROPERTY_CAPACITY)\n```",
+                        timestamp = 1700000010000L,
+                        modelLabel = "Gemma 3 1B",
+                        ttftMs = 210L,
+                        tokensPerSecond = 19.4f,
+                        outputTokens = 28,
+                        backendUsed = "GPU"
+                    )
+                )
+            ),
+            onOpenDrawer = {},
+            onNewSession = {},
+            onSendMessage = {},
+            onCancelGeneration = {},
+            onLoadActiveModel = {},
+            onRunSystemSnapshot = {},
+            onRunReadinessAudit = {},
+            onNavigateToVoice = {},
+            onNavigateToModels = {}
+        )
+    }
+}

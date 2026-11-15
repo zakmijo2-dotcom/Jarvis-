@@ -167,7 +167,7 @@ class RoomSkillEngine(
         if (requiredParams.size == 1) {
             val singleParam = requiredParams.first()
             if (extracted[singleParam].isNullOrBlank()) {
-                val quoted = Regex("""(?:"([^"]+)"|'([^']+)'|«([^»]+)""")
+                val quoted = QUOTED_PARAM_REGEX
                     .find(trimmedPrompt)
                     ?.groupValues
                     ?.drop(1)
@@ -490,7 +490,8 @@ class RoomSkillEngine(
     }.getOrDefault(emptyList())
 
     companion object {
-        val PLACEHOLDER_REGEX = Regex("""\{\{?([a-zA-Z0-9_]+)\}?}""")
+        val PLACEHOLDER_REGEX = Regex("""\{\{?([a-zA-Z0-9_]+)\}?\}""")
+        private val QUOTED_PARAM_REGEX = Regex("""(?:"([^"]+)"|'([^']+)'|«([^»]+)»)""")
         val DANGEROUS_AUTO_SKILL_TOOLS = setOf(
             "initiate_phone_call",
             "compose_message",

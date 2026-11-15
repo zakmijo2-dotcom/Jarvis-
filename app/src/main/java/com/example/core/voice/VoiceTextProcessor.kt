@@ -80,7 +80,7 @@ object VoiceLanguageDetector {
 object TtsSanitizer {
 
     private val fencedCodeBlockRegex = Regex("```[\\s\\S]*?```")
-    private val markdownLinkRegex = Regex("\\[([^\\]]+)]\\(([^)]+)\\)")
+    private val markdownLinkRegex = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)")
     private val urlRegex = Regex("https?://\\S+")
     private val markdownHeadingRegex = Regex("(?m)^\\s{0,3}#{1,6}\\s*")
     private val blockquoteRegex = Regex("(?m)^\\s*>\\s*")
@@ -88,7 +88,7 @@ object TtsSanitizer {
     private val telemetrySuffixRegex = Regex(
         "(?i)\\b(TTFT|tok/s|tokens/sec|prefill|output tokens|native heap|GPU \\(OpenCL\\)|CPU \\(XNNPACK\\))\\b[^\\n]*"
     )
-    private val bracketNoticeRegex = Regex("\\[(Generation stopped|Model Error|System Notice)]", RegexOption.IGNORE_CASE)
+    private val bracketNoticeRegex = Regex("\\[(Generation stopped|Model Error|System Notice)\\]", RegexOption.IGNORE_CASE)
 
     fun sanitizeForSpeech(raw: String): String {
         if (raw.isBlank()) return ""

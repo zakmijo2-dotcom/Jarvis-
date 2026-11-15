@@ -12,9 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,38 +22,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+
+@Composable
+fun hairlineDp(): Dp {
+    val density = LocalDensity.current.density.coerceAtLeast(1f)
+    return (1f / density).dp
+}
+
+@Composable
+fun EditorialHairlineDivider(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.outline
+) {
+    HorizontalDivider(
+        modifier = modifier,
+        thickness = hairlineDp(),
+        color = color
+    )
+}
 
 @Composable
 fun HudBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val voidColor = MaterialTheme.colorScheme.background
-    val slateColor = MaterialTheme.colorScheme.surfaceContainerLow
-    val cyanColor = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        slateColor,
-                        voidColor,
-                        voidColor
-                    )
-                )
-            )
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        cyanColor.copy(alpha = 0.035f),
-                        Color.Transparent
-                    )
-                )
-            ),
+            .background(MaterialTheme.colorScheme.background),
         content = content
     )
 }
@@ -62,16 +62,16 @@ fun HudBackground(
 @Composable
 fun HudPanel(
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    borderColor: Color = MaterialTheme.colorScheme.outline,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
         color = containerColor,
-        border = BorderStroke(1.dp, borderColor),
-        tonalElevation = 1.dp
+        border = BorderStroke(hairlineDp(), borderColor),
+        tonalElevation = 0.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -83,35 +83,26 @@ fun HudPanel(
 @Composable
 fun HudBadge(
     text: String,
-    color: Color = MaterialTheme.colorScheme.primary,
-    containerColor: Color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.50f),
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(50),
+        shape = CircleShapeCompat,
         color = containerColor,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.32f))
+        tonalElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelSmall,
-                color = color
-            )
-        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
     }
 }
+
+private val CircleShapeCompat = RoundedCornerShape(50)
 
 @Composable
 fun TelemetryProgressBar(
@@ -123,7 +114,7 @@ fun TelemetryProgressBar(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -132,12 +123,12 @@ fun TelemetryProgressBar(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = valueText,
-                style = MaterialTheme.typography.labelLarge,
+                style = JarvisMonoTelemetryStyle,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }

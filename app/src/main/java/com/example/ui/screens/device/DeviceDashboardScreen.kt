@@ -1,5 +1,6 @@
 package com.example.ui.screens.device
 
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Pause
@@ -39,15 +42,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.core.tools.DeviceTelemetry
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
 import com.example.ui.components.HudPanel
 import com.example.ui.components.TelemetryProgressBar
-import com.example.ui.theme.NominalGreen
-import com.example.ui.theme.SignalAmber
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material3.Surface
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisTheme
+import com.example.ui.theme.JarvisThemeTokens
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,7 +80,8 @@ fun DeviceDashboardScreen(
     onSetNotificationPrivacyMaskEnabled: (Boolean) -> Unit = {},
     onClearNotificationBuffer: () -> Unit = {},
     onSetAccessibilityAutomationEnabled: (Boolean) -> Unit = {},
-    onSetCloudUploadConsentGranted: (Boolean) -> Unit = {}
+    onSetCloudUploadConsentGranted: (Boolean) -> Unit = {},
+    onNavigateBack: () -> Unit = {}
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -90,7 +102,7 @@ fun DeviceDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
@@ -100,27 +112,75 @@ fun DeviceDashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.device_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (uiState is DeviceTelemetryUiState.Ready) {
-                        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                            .format(Date(uiState.telemetry.capturedAtMillis))
-                        Text(
-                            text = "Updated $time • Interval ${uiState.pollingIntervalSeconds}s",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("device_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_navigate_back),
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                    val headerPalette = JarvisThemeTokens.palette
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = headerPalette.sandContainer
+                    ) {
+                        Box(
+                            modifier = Modifier.size(36.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MonitorHeart,
+                                contentDescription = null,
+                                tint = headerPalette.onHue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.device_title),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = headerPalette.text
+                        )
+                        if (uiState is DeviceTelemetryUiState.Ready) {
+                            val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                                .format(Date(uiState.telemetry.capturedAtMillis))
+                            Text(
+                                text = "Updated $time · ${uiState.pollingIntervalSeconds}s",
+                                style = JarvisMonoTelemetryStyle,
+                                color = headerPalette.textSecondary
+                            )
+                        }
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                val actionPalette = JarvisThemeTokens.palette
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     if (uiState is DeviceTelemetryUiState.Ready) {
                         HudBadge(
-                            text = if (uiState.autoPollingEnabled) "LIVE" else "PAUSED",
-                            color = if (uiState.autoPollingEnabled) NominalGreen else SignalAmber
+                            text = if (uiState.autoPollingEnabled) "Live" else "Paused",
+                            color = if (uiState.autoPollingEnabled) {
+                                actionPalette.onHue
+                            } else {
+                                actionPalette.textSecondary
+                            },
+                            containerColor = if (uiState.autoPollingEnabled) {
+                                actionPalette.sandContainer
+                            } else {
+                                actionPalette.surfaceHigh
+                            }
                         )
                     }
                     IconButton(
@@ -133,7 +193,7 @@ fun DeviceDashboardScreen(
                         Icon(
                             imageVector = if (isPolling) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = "Toggle telemetry polling",
-                            tint = MaterialTheme.colorScheme.onSurface
+                            tint = actionPalette.text
                         )
                     }
                     IconButton(
@@ -145,7 +205,7 @@ fun DeviceDashboardScreen(
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = stringResource(R.string.cd_refresh_telemetry),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = actionPalette.sandAccent
                         )
                     }
                 }
@@ -158,7 +218,7 @@ fun DeviceDashboardScreen(
                 onSelectTab = onSelectTab
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             when (controlsState.activeTab) {
                 DeviceDashboardTab.CONTROLS -> {
@@ -193,9 +253,9 @@ fun DeviceDashboardScreen(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "Querying Android system telemetry…",
+                                    text = "Reading Android telemetry…",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -233,14 +293,14 @@ private fun TelemetryGrid(telemetry: DeviceTelemetry) {
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("device_telemetry_list"),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (isWide) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         HardwareCard(telemetry, Modifier.weight(1f))
                         OsBuildCard(telemetry, Modifier.weight(1f))
@@ -249,7 +309,7 @@ private fun TelemetryGrid(telemetry: DeviceTelemetry) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         MemoryAndStorageCard(telemetry, Modifier.weight(1f))
                         BatteryAndThermalCard(telemetry, Modifier.weight(1f))
@@ -272,30 +332,38 @@ private fun TelemetryGrid(telemetry: DeviceTelemetry) {
 @Composable
 private fun HardwareCard(telemetry: DeviceTelemetry, modifier: Modifier) {
     TelemetrySectionCard(
-        title = "HARDWARE & SILICON",
+        title = "Hardware",
         icon = Icons.Filled.Memory,
         modifier = modifier
     ) {
         TelemetryRow("Device", "${telemetry.manufacturer} ${telemetry.model}")
+        EditorialHairlineDivider()
         TelemetryRow("Codename", "${telemetry.brand} / ${telemetry.device}")
+        EditorialHairlineDivider()
         TelemetryRow("SoC / Platform", telemetry.socModel)
-        TelemetryRow("Hardware Tag", telemetry.hardware)
-        TelemetryRow("CPU Threads", "${telemetry.cpuCoreCount} cores")
-        TelemetryRow("ABIs", telemetry.supportedAbis.ifBlank { "N/A" })
+        EditorialHairlineDivider()
+        TelemetryRow("Hardware tag", telemetry.hardware)
+        EditorialHairlineDivider()
+        TelemetryRow("CPU threads", "${telemetry.cpuCoreCount} cores", monospace = true)
+        EditorialHairlineDivider()
+        TelemetryRow("ABIs", telemetry.supportedAbis.ifBlank { "N/A" }, monospace = true)
     }
 }
 
 @Composable
 private fun OsBuildCard(telemetry: DeviceTelemetry, modifier: Modifier) {
     TelemetrySectionCard(
-        title = "OS & SYSTEM BUILD",
+        title = "System build",
         icon = Icons.Filled.PhoneAndroid,
         modifier = modifier
     ) {
-        TelemetryRow("Android Release", "Android ${telemetry.androidRelease}")
-        TelemetryRow("SDK Level", "API ${telemetry.sdkInt}")
-        TelemetryRow("Security Patch", telemetry.securityPatch)
-        TelemetryRow("Build Display", telemetry.buildDisplay.ifBlank { "Standard" })
+        TelemetryRow("Android release", "Android ${telemetry.androidRelease}", monospace = true)
+        EditorialHairlineDivider()
+        TelemetryRow("SDK level", "API ${telemetry.sdkInt}", monospace = true)
+        EditorialHairlineDivider()
+        TelemetryRow("Security patch", telemetry.securityPatch, monospace = true)
+        EditorialHairlineDivider()
+        TelemetryRow("Build display", telemetry.buildDisplay.ifBlank { "Standard" })
     }
 }
 
@@ -310,12 +378,13 @@ private fun MemoryAndStorageCard(telemetry: DeviceTelemetry, modifier: Modifier)
     val storageProgress = usedStorage.toFloat() / totalStorage.toFloat()
 
     TelemetrySectionCard(
-        title = "MEMORY & STORAGE",
+        title = "Memory and storage",
         icon = Icons.Filled.Storage,
         modifier = modifier
     ) {
+        val palette = JarvisThemeTokens.palette
         TelemetryProgressBar(
-            label = "RAM UTILIZATION",
+            label = "RAM usage",
             valueText = String.format(
                 Locale.US,
                 "%.2f / %.2f GB",
@@ -323,11 +392,15 @@ private fun MemoryAndStorageCard(telemetry: DeviceTelemetry, modifier: Modifier)
                 totalRam / 1_073_741_824f
             ),
             progress = ramProgress,
-            accentColor = if (telemetry.lowMemory) SignalAmber else MaterialTheme.colorScheme.primary
+            accentColor = if (telemetry.lowMemory) {
+                palette.errorAccent
+            } else {
+                palette.sandAccent
+            }
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         TelemetryProgressBar(
-            label = "INTERNAL STORAGE (/data)",
+            label = "Internal storage (/data)",
             valueText = String.format(
                 Locale.US,
                 "%.1f / %.1f GB",
@@ -335,48 +408,68 @@ private fun MemoryAndStorageCard(telemetry: DeviceTelemetry, modifier: Modifier)
                 totalStorage / 1_073_741_824f
             ),
             progress = storageProgress,
-            accentColor = MaterialTheme.colorScheme.secondary
+            accentColor = palette.sandAccent
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        TelemetryRow("Low Memory Alert", if (telemetry.lowMemory) "ACTIVE" else "Nominal")
+        EditorialHairlineDivider(modifier = Modifier.padding(vertical = 4.dp))
+        TelemetryRow(
+            label = "Low memory alert",
+            value = if (telemetry.lowMemory) "Active" else "Normal",
+            isAlert = telemetry.lowMemory
+        )
     }
 }
 
 @Composable
 private fun BatteryAndThermalCard(telemetry: DeviceTelemetry, modifier: Modifier) {
+    val palette = JarvisThemeTokens.palette
     val pct = telemetry.batteryPercent.coerceAtLeast(0)
     TelemetrySectionCard(
-        title = "BATTERY & THERMAL",
+        title = "Battery and thermal",
         icon = Icons.Filled.BatteryChargingFull,
         modifier = modifier
     ) {
         TelemetryProgressBar(
-            label = "CHARGE LEVEL (${telemetry.batteryStatus})",
+            label = "Charge (${telemetry.batteryStatus})",
             valueText = if (telemetry.batteryPercent >= 0) "$pct%" else "N/A",
             progress = pct / 100f,
-            accentColor = if (pct in 1..20) SignalAmber else NominalGreen
+            accentColor = if (pct in 1..15) {
+                palette.errorAccent
+            } else {
+                palette.successAccent
+            }
         )
-        Spacer(modifier = Modifier.height(10.dp))
-        TelemetryRow("Power Source", telemetry.batteryPlugged)
-        TelemetryRow("Battery Temp", String.format(Locale.US, "%.1f °C", telemetry.batteryTempCelsius))
-        TelemetryRow("Voltage", "${telemetry.batteryVoltageMv} mV")
-        TelemetryRow("Battery Health", telemetry.batteryHealth)
+        Spacer(modifier = Modifier.height(4.dp))
+        TelemetryRow("Power source", telemetry.batteryPlugged)
+        EditorialHairlineDivider()
+        TelemetryRow(
+            "Battery temp",
+            String.format(Locale.US, "%.1f °C", telemetry.batteryTempCelsius),
+            monospace = true
+        )
+        EditorialHairlineDivider()
+        TelemetryRow("Voltage", "${telemetry.batteryVoltageMv} mV", monospace = true)
+        EditorialHairlineDivider()
+        TelemetryRow("Battery health", telemetry.batteryHealth)
+        EditorialHairlineDivider()
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.Thermostat,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Thermal Status",
+                    text = "Thermal status",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -384,7 +477,11 @@ private fun BatteryAndThermalCard(telemetry: DeviceTelemetry, modifier: Modifier
             Text(
                 text = telemetry.thermalStatusLabel,
                 style = MaterialTheme.typography.labelLarge,
-                color = if (telemetry.thermalCode >= 3) SignalAmber else MaterialTheme.colorScheme.primary
+                color = if (telemetry.thermalCode >= 3) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             )
         }
     }
@@ -393,15 +490,23 @@ private fun BatteryAndThermalCard(telemetry: DeviceTelemetry, modifier: Modifier
 @Composable
 private fun NetworkCard(telemetry: DeviceTelemetry, modifier: Modifier) {
     TelemetrySectionCard(
-        title = "NETWORK & TRANSPORT",
+        title = "Network",
         icon = Icons.Filled.Router,
         modifier = modifier
     ) {
-        TelemetryRow("Link State", if (telemetry.isNetworkConnected) "Connected" else "Offline")
+        TelemetryRow("Link state", if (telemetry.isNetworkConnected) "Connected" else "Offline")
+        EditorialHairlineDivider()
         TelemetryRow("Transport", telemetry.networkTransport)
-        TelemetryRow("Validated Internet", if (telemetry.isNetworkValidated) "Yes" else "No")
-        TelemetryRow("Metered Link", if (telemetry.isNetworkMetered) "Metered" else "Unmetered")
-        TelemetryRow("Est. Downstream", "${telemetry.downstreamBandwidthKbps} kbps")
+        EditorialHairlineDivider()
+        TelemetryRow("Validated internet", if (telemetry.isNetworkValidated) "Yes" else "No")
+        EditorialHairlineDivider()
+        TelemetryRow("Metered link", if (telemetry.isNetworkMetered) "Metered" else "Unmetered")
+        EditorialHairlineDivider()
+        TelemetryRow(
+            "Estimated downstream",
+            "${telemetry.downstreamBandwidthKbps} kbps",
+            monospace = true
+        )
     }
 }
 
@@ -413,6 +518,7 @@ private fun TelemetrySectionCard(
     content: @Composable () -> Unit
 ) {
     HudPanel(modifier = modifier) {
+        val sectionPalette = JarvisThemeTokens.palette
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -420,25 +526,38 @@ private fun TelemetrySectionCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
+                tint = sectionPalette.sandAccent,
+                modifier = Modifier.size(20.dp)
             )
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             content()
         }
     }
 }
 
 @Composable
-private fun TelemetryRow(label: String, value: String) {
+private fun TelemetryRow(
+    label: String,
+    value: String,
+    monospace: Boolean = false,
+    isAlert: Boolean = false
+) {
+    val valueStyle: TextStyle = if (monospace) {
+        JarvisMonoTelemetryStyle
+    } else {
+        MaterialTheme.typography.labelLarge
+    }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -449,8 +568,58 @@ private fun TelemetryRow(label: String, value: String) {
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface
+            style = valueStyle,
+            color = if (isAlert) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Preview(name = "Device Light", showBackground = true)
+@Preview(name = "Device Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun DeviceDashboardScreenPreview() {
+    JarvisTheme {
+        DeviceDashboardScreen(
+            uiState = DeviceTelemetryUiState.Ready(
+                telemetry = DeviceTelemetry(
+                    manufacturer = "Google",
+                    model = "Pixel 9 Pro",
+                    brand = "google",
+                    device = "caiman",
+                    socModel = "Tensor G4",
+                    hardware = "caiman",
+                    cpuCoreCount = 8,
+                    supportedAbis = "arm64-v8a",
+                    androidRelease = "15",
+                    sdkInt = 35,
+                    securityPatch = "2026-03-05",
+                    buildDisplay = "AP4A.260305",
+                    totalRamBytes = 16L * 1024 * 1024 * 1024,
+                    availRamBytes = 9L * 1024 * 1024 * 1024,
+                    totalStorageBytes = 256L * 1024 * 1024 * 1024,
+                    freeStorageBytes = 148L * 1024 * 1024 * 1024,
+                    lowMemory = false,
+                    batteryPercent = 82,
+                    batteryStatus = "Discharging",
+                    batteryPlugged = "Unplugged",
+                    batteryTempCelsius = 31.4f,
+                    batteryVoltageMv = 4180,
+                    batteryHealth = "Good",
+                    thermalCode = 0,
+                    thermalStatusLabel = "None",
+                    isNetworkConnected = true,
+                    networkTransport = "Wi-Fi",
+                    isNetworkValidated = true,
+                    isNetworkMetered = false,
+                    downstreamBandwidthKbps = 128000,
+                    capturedAtMillis = 1700000000000L
+                ),
+                pollingIntervalSeconds = 5,
+                autoPollingEnabled = true
+            ),
+            onRefreshNow = {},
+            onToggleAutoPolling = {},
+            controlsState = DeviceControlsState(activeTab = DeviceDashboardTab.TELEMETRY)
         )
     }
 }

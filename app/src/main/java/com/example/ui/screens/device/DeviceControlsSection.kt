@@ -4,7 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,16 +12,19 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Call
@@ -34,21 +37,19 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -57,16 +58,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
+import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudPanel
-import com.example.ui.theme.NominalGreen
-import com.example.ui.theme.SignalAmber
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.SwitchDefaults
+import com.example.ui.theme.JarvisMonoTelemetryStyle
+import com.example.ui.theme.JarvisThemeTokens
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,6 +90,7 @@ fun DeviceControlsConsole(
     onSetAccessibilityAutomationEnabled: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
     var appQuery by rememberSaveable { mutableStateOf("Settings") }
     var contactQuery by rememberSaveable { mutableStateOf("") }
     var phoneTarget by rememberSaveable { mutableStateOf("") }
@@ -95,8 +102,8 @@ fun DeviceControlsConsole(
             .fillMaxSize()
             .widthIn(max = 960.dp)
             .testTag("device_controls_list"),
-        contentPadding = PaddingValues(bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (controlsState.activeToolName != null) {
             item {
@@ -107,13 +114,16 @@ fun DeviceControlsConsole(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Running: ${controlsState.activeToolName}…",
+                            text = "Running ${controlsState.activeToolName}…",
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
+                            color = palette.sandAccent
                         )
                         OutlinedButton(
                             onClick = onCancelActiveTool,
-                            modifier = Modifier.testTag("controls_cancel_tool_button")
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("controls_cancel_tool_button")
                         ) {
                             Text("Cancel")
                         }
@@ -128,17 +138,17 @@ fun DeviceControlsConsole(
             }
         }
 
-        // 1. Application & Quick Settings Control
+        // 1. Application and Quick Settings Control
         item {
             ControlsSectionPanel(
-                title = "APPLICATION & SETTINGS CONTROL",
+                title = "Apps and navigation",
                 icon = Icons.Filled.Apps,
-                badgeText = "${controlsState.registeredToolCount} TOOLS"
+                badgeText = "${controlsState.registeredToolCount} tools"
             ) {
                 OutlinedTextField(
                     value = appQuery,
                     onValueChange = { appQuery = it },
-                    label = { Text("App Name or Package ID") },
+                    label = { Text("App name or package ID") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -146,54 +156,82 @@ fun DeviceControlsConsole(
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val palette = JarvisThemeTokens.palette
                     Button(
                         onClick = { onRunTool("launch_installed_app", mapOf("app_query" to appQuery)) },
-                        modifier = Modifier.testTag("btn_launch_app")
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.sandContainer,
+                            contentColor = palette.onHue
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_launch_app")
                     ) {
-                        Text("Launch App")
+                        Text("Launch app")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("go_home_screen", emptyMap()) },
-                        modifier = Modifier.testTag("btn_go_home")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_go_home")
                     ) {
-                        Icon(Icons.Filled.Home, contentDescription = null)
-                        Spacer(Modifier.height(0.dp).padding(start = 4.dp))
-                        Text("Go Home")
+                        Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Home")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("open_android_settings", mapOf("page" to "wifi")) },
-                        modifier = Modifier.testTag("btn_open_wifi_settings")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_open_wifi_settings")
                     ) {
-                        Icon(Icons.Filled.Settings, contentDescription = null)
-                        Text(" Wi-Fi Settings")
+                        Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Wi-Fi settings")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("open_android_settings", mapOf("page" to "bluetooth")) },
-                        modifier = Modifier.testTag("btn_open_bt_settings")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_open_bt_settings")
                     ) {
-                        Text("Bluetooth Settings")
+                        Text("Bluetooth settings")
                     }
                     OutlinedButton(
-                        onClick = { onRunTool("open_app_screen", mapOf("screen" to "camera")) }
+                        onClick = { onRunTool("open_app_screen", mapOf("screen" to "camera")) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
-                        Text("Open Camera")
+                        Text("Open camera")
                     }
                 }
             }
         }
 
-        // 2. Device & Media Control
+        // 2. Device, Volume, and Media Control
         item {
             ControlsSectionPanel(
-                title = "DEVICE, VOLUME & MEDIA CONTROL",
+                title = "Volume, media, and device",
                 icon = Icons.AutoMirrored.Filled.VolumeUp
             ) {
-                Text(
-                    text = "Media Volume Target: ${volumeSlider.roundToInt()}%",
-                    style = MaterialTheme.typography.labelLarge
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Media volume target",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${volumeSlider.roundToInt()}%",
+                        style = JarvisMonoTelemetryStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Slider(
                     value = volumeSlider,
                     onValueChange = { volumeSlider = it },
@@ -207,34 +245,46 @@ fun DeviceControlsConsole(
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = { onRunTool("adjust_media_volume", mapOf("action" to "down")) },
-                        modifier = Modifier.testTag("btn_vol_down")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_vol_down")
                     ) { Text("Vol -") }
                     OutlinedButton(
                         onClick = { onRunTool("adjust_media_volume", mapOf("action" to "up")) },
-                        modifier = Modifier.testTag("btn_vol_up")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_vol_up")
                     ) { Text("Vol +") }
                     OutlinedButton(
                         onClick = { onRunTool("control_media_playback", mapOf("command" to "play_pause")) },
-                        modifier = Modifier.testTag("btn_media_play_pause")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_media_play_pause")
                     ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
                         Text("Play / Pause")
                     }
                     OutlinedButton(
-                        onClick = { onRunTool("control_media_playback", mapOf("command" to "next")) }
-                    ) { Text("Next Track") }
+                        onClick = { onRunTool("control_media_playback", mapOf("command" to "next")) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) { Text("Next track") }
                     OutlinedButton(
                         onClick = { onRunTool("read_battery_status", emptyMap()) },
-                        modifier = Modifier.testTag("btn_read_battery")
-                    ) { Text("Read Battery") }
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_read_battery")
+                    ) { Text("Battery status") }
                     OutlinedButton(
                         onClick = { onRunTool("read_device_info", emptyMap()) },
-                        modifier = Modifier.testTag("btn_read_device_info")
-                    ) { Text("Device Info") }
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_read_device_info")
+                    ) { Text("Device info") }
                 }
             }
         }
@@ -242,15 +292,15 @@ fun DeviceControlsConsole(
         // 3. Communication (Contacts, Confirmed Dial, Confirmed SMS)
         item {
             ControlsSectionPanel(
-                title = "COMMUNICATION (CONFIRMATION-GATED)",
+                title = "Calls and messages",
                 icon = Icons.Filled.Contacts,
-                badgeText = if (controlsState.hasContactsPermission) "CONTACTS OK" else "PERMISSION NEEDED",
-                badgeNominal = controlsState.hasContactsPermission
+                badgeText = if (controlsState.hasContactsPermission) "Contacts ready" else "Permission needed",
+                badgeHighlighted = !controlsState.hasContactsPermission
             ) {
                 OutlinedTextField(
                     value = contactQuery,
                     onValueChange = { contactQuery = it },
-                    label = { Text("Search Contacts (name or digits)") },
+                    label = { Text("Search contacts (name or number)") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -259,7 +309,7 @@ fun DeviceControlsConsole(
                 OutlinedTextField(
                     value = phoneTarget,
                     onValueChange = { phoneTarget = it },
-                    label = { Text("Phone Number (for Call / SMS)") },
+                    label = { Text("Phone number (for call or SMS)") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -268,7 +318,7 @@ fun DeviceControlsConsole(
                 OutlinedTextField(
                     value = smsBody,
                     onValueChange = { smsBody = it },
-                    label = { Text("SMS Draft Body") },
+                    label = { Text("SMS message body") },
                     maxLines = 2,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -276,20 +326,31 @@ fun DeviceControlsConsole(
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = { onRunTool("search_contacts", mapOf("query" to contactQuery)) },
-                        modifier = Modifier.testTag("btn_search_contacts")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_search_contacts")
                     ) {
-                        Text("Search Contacts")
+                        Text("Search contacts")
                     }
+                    val palette = JarvisThemeTokens.palette
                     Button(
                         onClick = { onRunTool("initiate_phone_call", mapOf("phone_number" to phoneTarget)) },
-                        modifier = Modifier.testTag("btn_initiate_call")
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.sandContainer,
+                            contentColor = palette.onHue
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_initiate_call")
                     ) {
-                        Icon(Icons.Filled.Call, contentDescription = null)
-                        Text(" Call (Confirm)")
+                        Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Call (confirm)")
                     }
                     Button(
                         onClick = {
@@ -298,37 +359,46 @@ fun DeviceControlsConsole(
                                 mapOf("recipient" to phoneTarget, "message_body" to smsBody)
                             )
                         },
-                        modifier = Modifier.testTag("btn_compose_sms")
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.sandContainer,
+                            contentColor = palette.onHue
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_compose_sms")
                     ) {
-                        Icon(Icons.Filled.Sms, contentDescription = null)
-                        Text(" SMS (Confirm)")
+                        Icon(Icons.Filled.Sms, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("SMS (confirm)")
                     }
                 }
             }
         }
 
-        // 4. Notification Reader & Privacy Controls
+        // 4. Notification Reader and Privacy Controls
         item {
             ControlsSectionPanel(
-                title = "NOTIFICATIONS & PRIVACY CONTROLS",
+                title = "Notifications and privacy",
                 icon = Icons.Filled.Notifications,
-                badgeText = if (controlsState.isNotificationAuthorized) "OS GRANTED" else "OS DISABLED",
-                badgeNominal = controlsState.isNotificationAuthorized
+                badgeText = if (controlsState.isNotificationAuthorized) "Access granted" else "Access off",
+                badgeHighlighted = controlsState.isNotificationAuthorized
             ) {
                 Text(
-                    text = "JARVIS only captures incoming notifications in RAM when BOTH Android Notification Access is granted AND this opt-in toggle is enabled. Privacy masking redacts OTP codes and message previews.",
+                    text = "Incoming notifications are buffered in RAM only when both Android Notification Access is granted and this switch is enabled. Privacy masking redacts verification codes and message previews.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 SwitchRow(
-                    title = "Enable Notification Reader",
-                    subtitle = "Service connected: ${controlsState.isNotificationConnected} • Buffered: ${controlsState.capturedNotifications.size}",
+                    title = "Notification reader",
+                    subtitle = "Connected: ${controlsState.isNotificationConnected} · Buffered: ${controlsState.capturedNotifications.size}",
                     checked = controlsState.settings.notificationReaderEnabled,
                     onCheckedChange = onSetNotificationReaderEnabled,
                     testTag = "switch_notification_reader"
                 )
+                EditorialHairlineDivider()
                 SwitchRow(
-                    title = "Mask Sensitive Notification Content & OTPs",
+                    title = "Mask sensitive content and OTPs",
                     subtitle = "Hide message bodies and verification codes from reads",
                     checked = controlsState.settings.notificationPrivacyMaskEnabled,
                     onCheckedChange = onSetNotificationPrivacyMaskEnabled,
@@ -336,7 +406,7 @@ fun DeviceControlsConsole(
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = {
@@ -347,60 +417,62 @@ fun DeviceControlsConsole(
                                 )
                             }
                         },
-                        modifier = Modifier.testTag("btn_notification_settings")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_notification_settings")
                     ) {
-                        Text("Notification Access Settings")
+                        Text("Notification settings")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("read_notifications", mapOf("limit" to "5")) },
-                        modifier = Modifier.testTag("btn_read_notifications")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_read_notifications")
                     ) {
-                        Text("Read Notifications")
+                        Text("Read notifications")
                     }
                     TextButton(
                         onClick = onClearNotificationBuffer,
-                        modifier = Modifier.testTag("btn_clear_notifications")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_clear_notifications")
                     ) {
-                        Text("Clear Buffer")
+                        Text("Clear buffer")
                     }
                 }
             }
         }
 
-        // 5. Accessibility Disclosure & Authorized Navigation
+        // 5. Accessibility Disclosure and Authorized Navigation
         item {
             ControlsSectionPanel(
-                title = "ACCESSIBILITY DISCLOSURE & AUTOMATION",
+                title = "Accessibility automation",
                 icon = Icons.Filled.AccessibilityNew,
-                badgeText = if (controlsState.isAccessibilityAuthorized) "OS GRANTED" else "OS DISABLED",
-                badgeNominal = controlsState.isAccessibilityAuthorized,
+                badgeText = if (controlsState.isAccessibilityAuthorized) "Access granted" else "Access off",
+                badgeHighlighted = controlsState.isAccessibilityAuthorized,
                 panelTestTag = "accessibility_disclosure_card"
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.small,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "EXPLICIT ACCESSIBILITY DISCLOSURE",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "• Zero passive scraping: onAccessibilityEvent is a strict no-op in the background.\n" +
-                                "• On-demand UI element inspection, tap, scroll, and text entry run ONLY after explicit user confirmation.\n" +
-                                "• Password nodes are strictly redacted ([REDACTED_PASSWORD]) and blocked from automated input.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    Text(
+                        text = "Accessibility disclosure",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "No passive background scraping: background events are ignored. On-demand screen inspection, tap, scroll, and text entry run only after your confirmation. Password fields are redacted.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 SwitchRow(
-                    title = "Allow Authorized Accessibility Actions",
+                    title = "Allow authorized accessibility actions",
                     subtitle = "Service bound: ${controlsState.isAccessibilityConnected}",
                     checked = controlsState.settings.accessibilityAutomationEnabled,
                     onCheckedChange = onSetAccessibilityAutomationEnabled,
@@ -408,7 +480,7 @@ fun DeviceControlsConsole(
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = {
@@ -419,33 +491,49 @@ fun DeviceControlsConsole(
                                 )
                             }
                         },
-                        modifier = Modifier.testTag("btn_accessibility_settings")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_accessibility_settings")
                     ) {
-                        Text("Accessibility Settings")
+                        Text("Accessibility settings")
                     }
+                    val palette = JarvisThemeTokens.palette
                     Button(
                         onClick = { onRunTool("accessibility_global_action", mapOf("action" to "recents")) },
-                        modifier = Modifier.testTag("btn_a11y_recents")
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.sandContainer,
+                            contentColor = palette.onHue
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_a11y_recents")
                     ) {
-                        Text("Recents (Confirm)")
+                        Text("Recents (confirm)")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("accessibility_global_action", mapOf("action" to "back")) },
-                        modifier = Modifier.testTag("btn_a11y_back")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_a11y_back")
                     ) {
-                        Text("Back (Confirm)")
+                        Text("Back (confirm)")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("inspect_screen_elements", mapOf("max_elements" to "15")) },
-                        modifier = Modifier.testTag("btn_a11y_inspect_screen")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_a11y_inspect_screen")
                     ) {
-                        Text("Inspect Screen")
+                        Text("Inspect screen")
                     }
                     OutlinedButton(
                         onClick = { onRunTool("scroll_screen", mapOf("direction" to "down")) },
-                        modifier = Modifier.testTag("btn_a11y_scroll_down")
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_a11y_scroll_down")
                     ) {
-                        Text("Scroll Down")
+                        Text("Scroll down")
                     }
                 }
             }
@@ -454,13 +542,16 @@ fun DeviceControlsConsole(
         if (controlsState.executionLog.isNotEmpty()) {
             item {
                 Text(
-                    text = "RECENT TOOL EXECUTION AUDIT",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.padding(top = 4.dp)
+                    text = "Recent tool activity",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp)
                 )
             }
-            items(controlsState.executionLog.take(6), key = { "${it.toolName}_${it.executedAtMillis}" }) { item ->
+            items(
+                items = controlsState.executionLog.take(6),
+                key = { "${it.toolName}_${it.executedAtMillis}" }
+            ) { item ->
                 ToolResultCard(result = item, isPrimary = false)
             }
         }
@@ -476,6 +567,7 @@ fun DeviceToolDialogs(
     onLaunchRuntimePermission: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
     val pendingConfirm = controlsState.pendingConfirmation
     if (pendingConfirm != null) {
         AlertDialog(
@@ -485,10 +577,10 @@ fun DeviceToolDialogs(
                 Icon(
                     imageVector = Icons.Filled.Security,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = palette.sandAccent
                 )
             },
-            title = { Text("Confirm Device Action (${pendingConfirm.request.toolName})") },
+            title = { Text("Confirm action (${pendingConfirm.request.toolName})") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(pendingConfirm.confirmationMessage, style = MaterialTheme.typography.bodyMedium)
@@ -502,10 +594,14 @@ fun DeviceToolDialogs(
             confirmButton = {
                 Button(
                     onClick = onConfirmPendingTool,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.sandContainer,
+                        contentColor = palette.onHue
+                    ),
                     modifier = Modifier.testTag("confirm_device_tool_button")
                 ) {
-                    Text("Confirm & Run")
+                    Text("Confirm and run")
                 }
             },
             dismissButton = {
@@ -526,7 +622,7 @@ fun DeviceToolDialogs(
             onDismissRequest = onDismissPermissionPrompt,
             modifier = Modifier.testTag("device_tool_permission_dialog"),
             title = {
-                Text(if (pendingPerm != null) "Permission Required" else "${pendingSpecial?.label} Required")
+                Text(if (pendingPerm != null) "Permission required" else "${pendingSpecial?.label} required")
             },
             text = {
                 Text(
@@ -548,9 +644,14 @@ fun DeviceToolDialogs(
                             }
                             onDismissPermissionPrompt()
                         }
-                    }
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.sandContainer,
+                        contentColor = palette.onHue
+                    )
                 ) {
-                    Text(if (pendingPerm != null) "Grant Permission" else "Open Settings")
+                    Text(if (pendingPerm != null) "Grant permission" else "Open settings")
                 }
             },
             dismissButton = {
@@ -567,10 +668,11 @@ private fun ControlsSectionPanel(
     title: String,
     icon: ImageVector,
     badgeText: String? = null,
-    badgeNominal: Boolean = true,
+    badgeHighlighted: Boolean = false,
     panelTestTag: String? = null,
     content: @Composable () -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
     val mod = if (panelTestTag != null) {
         Modifier.fillMaxWidth().testTag(panelTestTag)
     } else {
@@ -587,22 +689,32 @@ private fun ControlsSectionPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = palette.sandAccent,
+                    modifier = Modifier.size(20.dp)
+                )
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             if (badgeText != null) {
                 HudBadge(
                     text = badgeText,
-                    color = if (badgeNominal) NominalGreen else SignalAmber
+                    color = if (badgeHighlighted) palette.onHue else MaterialTheme.colorScheme.onSurfaceVariant,
+                    containerColor = if (badgeHighlighted) {
+                        palette.sandContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    }
                 )
             }
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             content()
         }
     }
@@ -621,8 +733,13 @@ private fun SwitchRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -632,19 +749,28 @@ private fun SwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag(testTag)
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag(testTag)
         )
     }
 }
 
 @Composable
 private fun ToolResultCard(result: ToolExecutionResult, isPrimary: Boolean) {
+    val palette = JarvisThemeTokens.palette
     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(result.executedAtMillis))
-    val badgeColor = when (result.status) {
-        ToolExecutionStatus.SUCCESS -> NominalGreen
+    val statusColor = when (result.status) {
+        ToolExecutionStatus.SUCCESS -> palette.onHue
         ToolExecutionStatus.CANCELLED,
-        ToolExecutionStatus.CONFIRMATION_REQUIRED -> SignalAmber
-        else -> MaterialTheme.colorScheme.error
+        ToolExecutionStatus.CONFIRMATION_REQUIRED -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> palette.onHue
+    }
+    val statusContainer = when (result.status) {
+        ToolExecutionStatus.SUCCESS -> palette.sageContainer
+        ToolExecutionStatus.CANCELLED,
+        ToolExecutionStatus.CONFIRMATION_REQUIRED -> MaterialTheme.colorScheme.surfaceContainerHigh
+        else -> palette.coralContainer
     }
     HudPanel(
         modifier = Modifier
@@ -656,28 +782,40 @@ private fun ToolResultCard(result: ToolExecutionResult, isPrimary: Boolean) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "${result.toolName} ($time)",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = result.toolName,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = time,
+                    style = JarvisMonoTelemetryStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            HudBadge(
+                text = result.status.name.lowercase().replace('_', ' '),
+                color = statusColor,
+                containerColor = statusContainer
             )
-            HudBadge(text = result.status.name, color = badgeColor)
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             text = result.summary,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface
         )
         if (result.verifiedFacts.isNotEmpty()) {
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-            )
+            EditorialHairlineDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
-                text = "Verified: ${result.verifiedFacts.entries.joinToString(" • ") { "${it.key}=${it.value}" }}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary
+                text = result.verifiedFacts.entries.joinToString(" · ") { "${it.key}=${it.value}" },
+                style = JarvisMonoTelemetryStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -688,6 +826,12 @@ fun DeviceModeChips(
     selectedTab: DeviceDashboardTab,
     onSelectTab: (DeviceDashboardTab) -> Unit
 ) {
+    val palette = JarvisThemeTokens.palette
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = palette.sandContainer,
+        selectedLabelColor = palette.onHue,
+        selectedLeadingIconColor = palette.onHue
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -699,19 +843,28 @@ fun DeviceModeChips(
             selected = selectedTab == DeviceDashboardTab.TELEMETRY,
             onClick = { onSelectTab(DeviceDashboardTab.TELEMETRY) },
             label = { Text(DeviceDashboardTab.TELEMETRY.label) },
-            modifier = Modifier.testTag("device_tab_telemetry")
+            colors = chipColors,
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag("device_tab_telemetry")
         )
         FilterChip(
             selected = selectedTab == DeviceDashboardTab.CONTROLS,
             onClick = { onSelectTab(DeviceDashboardTab.CONTROLS) },
             label = { Text(DeviceDashboardTab.CONTROLS.label) },
-            modifier = Modifier.testTag("device_tab_controls")
+            colors = chipColors,
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag("device_tab_controls")
         )
         FilterChip(
             selected = selectedTab == DeviceDashboardTab.PERMISSIONS,
             onClick = { onSelectTab(DeviceDashboardTab.PERMISSIONS) },
             label = { Text(DeviceDashboardTab.PERMISSIONS.label) },
-            modifier = Modifier.testTag("device_tab_permissions")
+            colors = chipColors,
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag("device_tab_permissions")
         )
     }
 }
@@ -732,41 +885,41 @@ fun DevicePermissionsPrivacyConsole(
             .fillMaxSize()
             .widthIn(max = 960.dp)
             .testTag("device_permissions_list"),
-        contentPadding = PaddingValues(bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
             ControlsSectionPanel(
-                title = "RUNTIME ANDROID PERMISSIONS",
+                title = "Runtime permissions",
                 icon = Icons.Filled.Mic,
-                badgeText = "LEAST PRIVILEGE",
-                badgeNominal = true,
+                badgeText = "Least privilege",
+                badgeHighlighted = true,
                 panelTestTag = "permissions_runtime_card"
             ) {
                 PermissionStatusRow(
                     title = "Microphone (RECORD_AUDIO)",
-                    description = "Required for Android SpeechRecognizer and local voice commands.",
+                    description = "Required for speech recognition and local voice commands.",
                     granted = controlsState.hasAudioPermission,
-                    actionLabel = "Grant Mic",
+                    actionLabel = "Grant mic",
                     onAction = { onRequestRuntimePermission(Manifest.permission.RECORD_AUDIO) },
                     testTag = "perm_grant_audio_button"
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                EditorialHairlineDivider()
                 PermissionStatusRow(
                     title = "Contacts (READ_CONTACTS)",
-                    description = "Used exclusively when you explicitly invoke search_contacts.",
+                    description = "Used only when you invoke contact search.",
                     granted = controlsState.hasContactsPermission,
-                    actionLabel = "Grant Contacts",
+                    actionLabel = "Grant contacts",
                     onAction = { onRequestRuntimePermission(Manifest.permission.READ_CONTACTS) },
                     testTag = "perm_grant_contacts_button"
                 )
                 if (Build.VERSION.SDK_INT >= 33) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    EditorialHairlineDivider()
                     PermissionStatusRow(
                         title = "Notifications (POST_NOTIFICATIONS)",
-                        description = "Displays foreground voice/download progress indicators.",
+                        description = "Shows foreground microphone and download progress indicators.",
                         granted = controlsState.hasPostNotificationsPermission,
-                        actionLabel = "Grant Post Notifs",
+                        actionLabel = "Grant alerts",
                         onAction = { onRequestRuntimePermission(Manifest.permission.POST_NOTIFICATIONS) },
                         testTag = "perm_grant_post_notif_button"
                     )
@@ -776,17 +929,17 @@ fun DevicePermissionsPrivacyConsole(
 
         item {
             ControlsSectionPanel(
-                title = "SPECIAL ACCESS SERVICES",
+                title = "Special access",
                 icon = Icons.Filled.AccessibilityNew,
-                badgeText = if (controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized) "CONFIGURED" else "OS GATED",
-                badgeNominal = controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized,
+                badgeText = if (controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized) "Configured" else "OS gated",
+                badgeHighlighted = controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized,
                 panelTestTag = "permissions_special_access_card"
             ) {
                 PermissionStatusRow(
-                    title = "Accessibility Service (5-Layer Automation)",
-                    description = "Zero passive scraping; runs UI inspection/tap/scroll only on explicit user approval.",
+                    title = "Accessibility service",
+                    description = "No passive scraping; runs UI inspection, tap, or scroll only after approval.",
                     granted = controlsState.isAccessibilityAuthorized,
-                    actionLabel = "Accessibility Settings",
+                    actionLabel = "Settings",
                     onAction = {
                         runCatching {
                             context.startActivity(
@@ -798,18 +951,18 @@ fun DevicePermissionsPrivacyConsole(
                     testTag = "perm_open_a11y_settings_button"
                 )
                 SwitchRow(
-                    title = "Opt-in Accessibility Automation Actions",
-                    subtitle = "Service connected: ${controlsState.isAccessibilityConnected}",
+                    title = "Allow accessibility actions",
+                    subtitle = "Service bound: ${controlsState.isAccessibilityConnected}",
                     checked = controlsState.settings.accessibilityAutomationEnabled,
                     onCheckedChange = onSetAccessibilityAutomationEnabled,
                     testTag = "perm_switch_a11y"
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                EditorialHairlineDivider()
                 PermissionStatusRow(
-                    title = "Notification Listener Service",
-                    description = "Captures recent notifications in RAM when explicitly enabled; never exported.",
+                    title = "Notification listener",
+                    description = "Buffers recent notifications in RAM when explicitly enabled; never exported.",
                     granted = controlsState.isNotificationAuthorized,
-                    actionLabel = "Notification Settings",
+                    actionLabel = "Settings",
                     onAction = {
                         runCatching {
                             context.startActivity(
@@ -821,15 +974,15 @@ fun DevicePermissionsPrivacyConsole(
                     testTag = "perm_open_notif_settings_button"
                 )
                 SwitchRow(
-                    title = "Enable Notification Reader",
+                    title = "Notification reader",
                     subtitle = "Connected: ${controlsState.isNotificationConnected}",
                     checked = controlsState.settings.notificationReaderEnabled,
                     onCheckedChange = onSetNotificationReaderEnabled,
                     testTag = "perm_switch_notif_reader"
                 )
                 SwitchRow(
-                    title = "Mask OTPs & Message Previews",
-                    subtitle = "Redacts verification codes and sensitive snippets before AI synthesis",
+                    title = "Mask OTPs and message previews",
+                    subtitle = "Redacts verification codes before model synthesis",
                     checked = controlsState.settings.notificationPrivacyMaskEnabled,
                     onCheckedChange = onSetNotificationPrivacyMaskEnabled,
                     testTag = "perm_switch_notif_mask"
@@ -839,23 +992,22 @@ fun DevicePermissionsPrivacyConsole(
 
         item {
             ControlsSectionPanel(
-                title = "DATA PRIVACY & PROMPT SECURITY",
+                title = "Data privacy",
                 icon = Icons.Filled.VerifiedUser,
-                badgeText = if (controlsState.settings.cloudUploadConsentGranted) "CLOUD CONSENT ON" else "LOCAL PRIVATE",
-                badgeNominal = !controlsState.settings.cloudUploadConsentGranted,
+                badgeText = if (controlsState.settings.cloudUploadConsentGranted) "Cloud consent on" else "Local private",
+                badgeHighlighted = !controlsState.settings.cloudUploadConsentGranted,
                 panelTestTag = "permissions_privacy_policy_card"
             ) {
                 SwitchRow(
-                    title = "Allow Cloud API Transmission",
-                    subtitle = "When OFF, all prompts, notifications, screen snapshots, and memories stay strictly on-device.",
+                    title = "Allow cloud API transmission",
+                    subtitle = "When off, all prompts, notifications, screen snapshots, and memories stay on-device.",
                     checked = controlsState.settings.cloudUploadConsentGranted,
                     onCheckedChange = onSetCloudUploadConsentGranted,
                     testTag = "perm_switch_cloud_consent"
                 )
+                EditorialHairlineDivider()
                 Text(
-                    text = "• Untrusted external content (notifications, UI text, web snippets) is wrapped in [UNTRUSTED_EXTERNAL_DATA] boundaries with spoofed [TOOL_CALL] markers stripped.\n" +
-                        "• Dangerous tools (call, SMS, accessibility actions, reminders, skill saving) require explicit confirmation.\n" +
-                        "• Auto-skill distillation blocks high-risk or confirmation-gated tools.",
+                    text = "External content from notifications, UI trees, and web snippets is isolated as untrusted input with spoofed tool markers stripped. Sensitive actions (calls, SMS, accessibility actions, reminders, skill saving) require explicit confirmation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -878,18 +1030,32 @@ private fun PermissionStatusRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(title, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                val palette = JarvisThemeTokens.palette
                 HudBadge(
-                    text = if (granted) "GRANTED" else "MISSING",
-                    color = if (granted) NominalGreen else SignalAmber
+                    text = if (granted) "Granted" else "Missing",
+                    color = if (granted) palette.onHue else MaterialTheme.colorScheme.onSurfaceVariant,
+                    containerColor = if (granted) {
+                        palette.sageContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    }
                 )
             }
-            Spacer(Modifier.height(2.dp))
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
@@ -898,7 +1064,9 @@ private fun PermissionStatusRow(
         }
         OutlinedButton(
             onClick = onAction,
-            modifier = Modifier.testTag(testTag)
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .testTag(testTag)
         ) {
             Text(actionLabel)
         }

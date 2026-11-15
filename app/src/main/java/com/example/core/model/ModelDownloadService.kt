@@ -23,7 +23,7 @@ class ModelDownloadService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -41,18 +41,46 @@ class ModelDownloadService : Service() {
                     .setProgress(100, progress, progress == 0)
                     .build()
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
+                if (!startForegroundSafely(notification)) {
+                    stopSelf()
+                    return START_NOT_STICKY
                 }
+            }
+            else -> {
+                val fallbackNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("JARVIS Hub")
+                    .setContentText("Closing download service…")
+                    .setOngoing(false)
+                    .build()
+                startForegroundSafely(fallbackNotification)
+                stopForegroundCompat()
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun startForegroundSafely(notification: android.app.Notification): Boolean {
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun stopForegroundCompat() {
+        runCatching {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
     }
 
     private fun ensureChannel() {
