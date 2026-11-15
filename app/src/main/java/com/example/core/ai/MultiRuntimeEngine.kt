@@ -214,22 +214,7 @@ class RuntimeEngineCoordinator(
     ) : this(
         context = context,
         runtimes = mapOf(
-            RuntimeFormatId.LITERT_LM to LiteRtLmRuntimeAdapter(liteRtLmAiEngine),
-            RuntimeFormatId.GGUF_LLAMA_CPP to PreparedFormatRuntimeStub(
-                formatId = RuntimeFormatId.GGUF_LLAMA_CPP,
-                runtimeName = "GGUF / llama.cpp",
-                unavailableReason = "GGUF / llama.cpp native JNI backend is not bundled yet. Select a .litertlm model for offline execution."
-            ),
-            RuntimeFormatId.LITERT_TFLITE to PreparedFormatRuntimeStub(
-                formatId = RuntimeFormatId.LITERT_TFLITE,
-                runtimeName = "LiteRT / TFLite",
-                unavailableReason = "Standalone .tflite LLM execution runtime is not bundled yet. Use a .litertlm bundle instead."
-            ),
-            RuntimeFormatId.MEDIAPIPE_TASK to PreparedFormatRuntimeStub(
-                formatId = RuntimeFormatId.MEDIAPIPE_TASK,
-                runtimeName = "MediaPipe LLM Task",
-                unavailableReason = "MediaPipe .task LLM runtime is prepared as an adapter boundary; use .litertlm bundles for active LiteRT-LM execution."
-            )
+            RuntimeFormatId.LITERT_LM to LiteRtLmRuntimeAdapter(liteRtLmAiEngine)
         )
     )
 

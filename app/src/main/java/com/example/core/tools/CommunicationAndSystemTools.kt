@@ -982,7 +982,10 @@ class RunSkillTool(
     override fun validate(args: Map<String, String>): ToolValidationResult {
         val nameArg = args["name"]?.trim().orEmpty()
         if (nameArg.isEmpty()) return ToolValidationResult.Invalid("Parameter 'name' is required.")
-        return ToolValidationResult.Valid(mapOf("name" to nameArg))
+        val normalized = linkedMapOf<String, String>()
+        args.forEach { (k, v) -> normalized[k.trim()] = v.trim() }
+        normalized["name"] = nameArg
+        return ToolValidationResult.Valid(normalized)
     }
 
     override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {

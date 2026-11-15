@@ -131,6 +131,8 @@ class OkHttpCloudAiClient(
                     val outTok = estimateTokens(fullText)
                     emit(AiStreamEvent.Delta(fullText, fullText, outTok))
                 } else {
+                    val toolCallNames = linkedMapOf<Int, String>()
+                    val toolCallArgs = linkedMapOf<Int, StringBuilder>()
                     BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8)).use { reader ->
                         while (true) {
                             if (cancelRequested.get()) break
@@ -141,7 +143,13 @@ class OkHttpCloudAiClient(
                                 if (data == "[DONE]") break
                                 continue
                             }
-                            val delta = extractSseDelta(config.providerKind, data)
+                            accumulateOpenAiStreamingToolCalls(
+                                provider = config.providerKind,
+                                jsonData = data,
+                                namesByIndex = toolCallNames,
+                                argsByIndex = toolCallArgs
+                            )
+                            val delta = extractSseDelta(config.providerKind, data, includeOpenAiToolCalls = false)
                             if (!delta.isNullOrEmpty()) {
                                 if (firstTokenNs == null) {
                                     firstTokenNs = System.nanoTime()
@@ -156,6 +164,28 @@ class OkHttpCloudAiClient(
                                     )
                                 )
                             }
+                        }
+                    }
+                    if (toolCallNames.isNotEmpty() && !accumulated.contains("[TOOL_CALL]")) {
+                        for ((idx, fnName) in toolCallNames) {
+                            if (fnName.isBlank()) continue
+                            val rawArgs = toolCallArgs[idx]?.toString().orEmpty().trim().ifEmpty { "{}" }
+                            val tag = formatCanonicalToolCallTag(fnName, rawArgs)
+                            if (firstTokenNs == null) {
+                                firstTokenNs = System.nanoTime()
+                            }
+                            if (accumulated.isNotEmpty() && !accumulated.endsWith("\n")) {
+                                accumulated.append("\n")
+                            }
+                            accumulated.append(tag)
+                            val currentText = accumulated.toString()
+                            emit(
+                                AiStreamEvent.Delta(
+                                    accumulatedText = currentText,
+                                    deltaText = tag,
+                                    estimatedTokens = estimateTokens(currentText)
+                                )
+                            )
                         }
                     }
                 }
@@ -228,7 +258,7 @@ class OkHttpCloudAiClient(
         )
     }
 
-    private fun buildHttpRequest(
+    internal fun buildHttpRequest(
         config: CloudInferenceConfig,
         systemInstruction: String,
         prompt: String,
@@ -270,6 +300,13 @@ class OkHttpCloudAiClient(
                         )
                     }
                     put("contents", contents)
+                    if (!config.toolsSchemaJson.isNullOrBlank()) {
+                        runCatching { JSONArray(config.toolsSchemaJson) }.getOrNull()?.let { toolsArr ->
+                            if (toolsArr.length() > 0) {
+                                put("tools", toolsArr)
+                            }
+                        }
+                    }
                     put(
                         "generationConfig",
                         JSONObject().apply {
@@ -337,6 +374,14 @@ class OkHttpCloudAiClient(
                     put("stream", true)
                     put("temperature", config.temperature.toDouble())
                     put("max_tokens", config.maxOutputTokens)
+                    if (!config.toolsSchemaJson.isNullOrBlank()) {
+                        runCatching { JSONArray(config.toolsSchemaJson) }.getOrNull()?.let { toolsArr ->
+                            if (toolsArr.length() > 0) {
+                                put("tools", toolsArr)
+                                put("tool_choice", "auto")
+                            }
+                        }
+                    }
                 }
                 Request.Builder()
                     .url(config.endpointUrl)
@@ -348,14 +393,32 @@ class OkHttpCloudAiClient(
         }
     }
 
-    internal fun extractSseDelta(provider: CloudProviderKind, jsonData: String): String? {
+    internal fun extractSseDelta(
+        provider: CloudProviderKind,
+        jsonData: String,
+        includeOpenAiToolCalls: Boolean = true
+    ): String? {
         val obj = runCatching { JSONObject(jsonData) }.getOrNull() ?: return null
         return when (provider) {
             CloudProviderKind.GEMINI_REST -> {
                 val candidates = obj.optJSONArray("candidates") ?: return null
                 val first = candidates.optJSONObject(0) ?: return null
                 val parts = first.optJSONObject("content")?.optJSONArray("parts") ?: return null
-                parts.optJSONObject(0)?.optString("text")?.takeIf { it.isNotEmpty() }
+                val sb = StringBuilder()
+                for (i in 0 until parts.length()) {
+                    val part = parts.optJSONObject(i) ?: continue
+                    val text = part.optString("text")
+                    if (text.isNotEmpty()) sb.append(text)
+                    val fnCall = part.optJSONObject("functionCall")
+                    if (fnCall != null) {
+                        val fnName = fnCall.optString("name").trim()
+                        if (fnName.isNotEmpty()) {
+                            val argsObj = fnCall.optJSONObject("args") ?: JSONObject()
+                            sb.append(formatCanonicalToolCallTag(fnName, argsObj.toString()))
+                        }
+                    }
+                }
+                sb.toString().takeIf { it.isNotEmpty() }
             }
 
             CloudProviderKind.ANTHROPIC -> {
@@ -369,7 +432,62 @@ class OkHttpCloudAiClient(
             else -> {
                 val choices = obj.optJSONArray("choices") ?: return null
                 val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: return null
-                delta.optString("content").takeIf { it.isNotEmpty() }
+                val content = delta.optString("content").takeIf { it.isNotEmpty() && it != "null" }
+                if (!includeOpenAiToolCalls) {
+                    return content
+                }
+                val toolCalls = delta.optJSONArray("tool_calls")
+                val fnTag = if (toolCalls != null && toolCalls.length() > 0) {
+                    val fn = toolCalls.optJSONObject(0)?.optJSONObject("function")
+                    val fnName = fn?.optString("name").orEmpty().trim()
+                    val fnArgs = fn?.optString("arguments").orEmpty().trim()
+                    if (fnName.isNotEmpty() && (fnArgs.isEmpty() || fnArgs.startsWith("{"))) {
+                        formatCanonicalToolCallTag(fnName, fnArgs.ifEmpty { "{}" })
+                    } else null
+                } else null
+                when {
+                    content != null && fnTag != null -> "$content\n$fnTag"
+                    content != null -> content
+                    else -> fnTag
+                }
+            }
+        }
+    }
+
+    private fun accumulateOpenAiStreamingToolCalls(
+        provider: CloudProviderKind,
+        jsonData: String,
+        namesByIndex: MutableMap<Int, String>,
+        argsByIndex: MutableMap<Int, StringBuilder>
+    ) {
+        if (provider == CloudProviderKind.GEMINI_REST || provider == CloudProviderKind.ANTHROPIC) return
+        val obj = runCatching { JSONObject(jsonData) }.getOrNull() ?: return
+        val delta = obj.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta") ?: return
+        val toolCalls = delta.optJSONArray("tool_calls")
+        if (toolCalls != null) {
+            for (i in 0 until toolCalls.length()) {
+                val tc = toolCalls.optJSONObject(i) ?: continue
+                val idx = tc.optInt("index", i)
+                val fn = tc.optJSONObject("function") ?: continue
+                val namePart = fn.optString("name")
+                if (namePart.isNotBlank() && namePart != "null") {
+                    namesByIndex[idx] = (namesByIndex[idx].orEmpty() + namePart).trim()
+                }
+                val argPart = fn.optString("arguments")
+                if (argPart.isNotEmpty() && argPart != "null") {
+                    argsByIndex.getOrPut(idx) { StringBuilder() }.append(argPart)
+                }
+            }
+        }
+        val legacyFn = delta.optJSONObject("function_call")
+        if (legacyFn != null) {
+            val namePart = legacyFn.optString("name")
+            if (namePart.isNotBlank() && namePart != "null") {
+                namesByIndex[0] = (namesByIndex[0].orEmpty() + namePart).trim()
+            }
+            val argPart = legacyFn.optString("arguments")
+            if (argPart.isNotEmpty() && argPart != "null") {
+                argsByIndex.getOrPut(0) { StringBuilder() }.append(argPart)
             }
         }
     }
@@ -378,13 +496,27 @@ class OkHttpCloudAiClient(
         val obj = runCatching { JSONObject(rawJson) }.getOrNull() ?: return rawJson
         return when (provider) {
             CloudProviderKind.GEMINI_REST -> {
-                obj.optJSONArray("candidates")
+                val parts = obj.optJSONArray("candidates")
                     ?.optJSONObject(0)
                     ?.optJSONObject("content")
                     ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text")
-                    .orEmpty()
+                if (parts == null) return rawJson
+                val sb = StringBuilder()
+                for (i in 0 until parts.length()) {
+                    val part = parts.optJSONObject(i) ?: continue
+                    val text = part.optString("text")
+                    if (text.isNotEmpty()) sb.append(text)
+                    val fnCall = part.optJSONObject("functionCall")
+                    if (fnCall != null) {
+                        val fnName = fnCall.optString("name").trim()
+                        if (fnName.isNotEmpty()) {
+                            val argsObj = fnCall.optJSONObject("args") ?: JSONObject()
+                            if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                            sb.append(formatCanonicalToolCallTag(fnName, argsObj.toString()))
+                        }
+                    }
+                }
+                sb.toString()
             }
 
             CloudProviderKind.ANTHROPIC -> {
@@ -395,13 +527,48 @@ class OkHttpCloudAiClient(
             }
 
             else -> {
-                obj.optJSONArray("choices")
+                val msg = obj.optJSONArray("choices")
                     ?.optJSONObject(0)
                     ?.optJSONObject("message")
-                    ?.optString("content")
-                    .orEmpty()
+                    ?: return rawJson
+                val sb = StringBuilder()
+                val content = msg.optString("content")
+                if (content.isNotEmpty() && content != "null") {
+                    sb.append(content)
+                }
+                val toolCalls = msg.optJSONArray("tool_calls")
+                if (toolCalls != null) {
+                    for (i in 0 until toolCalls.length()) {
+                        val fn = toolCalls.optJSONObject(i)?.optJSONObject("function") ?: continue
+                        val fnName = fn.optString("name").trim()
+                        val fnArgs = fn.optString("arguments").trim().ifEmpty { "{}" }
+                        if (fnName.isNotEmpty()) {
+                            if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                            sb.append(formatCanonicalToolCallTag(fnName, fnArgs))
+                        }
+                    }
+                }
+                val legacyFn = msg.optJSONObject("function_call")
+                if (legacyFn != null && toolCalls == null) {
+                    val fnName = legacyFn.optString("name").trim()
+                    val fnArgs = legacyFn.optString("arguments").trim().ifEmpty { "{}" }
+                    if (fnName.isNotEmpty()) {
+                        if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                        sb.append(formatCanonicalToolCallTag(fnName, fnArgs))
+                    }
+                }
+                sb.toString()
             }
         }.ifBlank { rawJson }
+    }
+
+    private fun formatCanonicalToolCallTag(toolName: String, rawArgsJson: String): String {
+        val parsedArgs = runCatching { JSONObject(rawArgsJson) }.getOrDefault(JSONObject())
+        val wrapper = JSONObject().apply {
+            put("tool", toolName.trim().lowercase())
+            put("args", parsedArgs)
+        }
+        return "[TOOL_CALL]${wrapper}[/TOOL_CALL]"
     }
 
     private fun extractApiError(code: Int, statusMessage: String, body: String): String {

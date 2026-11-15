@@ -7,6 +7,7 @@ import com.example.core.ai.EngineLoadState
 import com.example.core.ai.RuntimeEngineCoordinator
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudInferenceConfig
+import com.example.core.cloud.CloudProviderKind
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.cloud.CloudUsageStats
 import com.example.core.cloud.OkHttpCloudAiClient
@@ -424,10 +425,11 @@ class Phase2AgentCore(
                             emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                             continue
                         }
+                        val extractedParams = skillEngine.extractParameters(prompt, skill)
                         val report = skillEngine.executeSkill(
                             context = ctx,
                             skill = skill,
-                            providedParams = emptyMap(),
+                            providedParams = extractedParams,
                             toolRegistry = toolRegistry,
                             settings = settings,
                             userConfirmed = confirmedStepIndex == i
@@ -530,12 +532,11 @@ class Phase2AgentCore(
                             ToolExecutionStatus.SUCCESS -> {
                                 var finalSummary = toolRes.summary
                                 if (preUiSnapshot != null && accessibilityController != null) {
-                                    val postUiSnapshot = accessibilityController.observeCurrentScreen(20)
-                                    val verification = accessibilityController.stateVerifier.verifyTransition(
+                                    val verification = accessibilityController.verifyExternalTransition(
                                         actionName = toolRes.toolName,
                                         dispatched = true,
                                         before = preUiSnapshot,
-                                        after = postUiSnapshot
+                                        maxElements = 20
                                     )
                                     finalSummary = "${toolRes.summary}\nUI Verification: ${verification.evidence}"
                                 }
@@ -587,6 +588,13 @@ class Phase2AgentCore(
                                 val effectiveModel = decision.explicitModelOverride
                                     ?.takeIf { it != "cloud" && it != "local" }
                                     ?: settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+                                val toolsSchema = when (settings.cloudProviderKind) {
+                                    CloudProviderKind.GEMINI_REST -> toolRegistry.buildGeminiToolsJsonString()
+                                    CloudProviderKind.OPENAI_COMPATIBLE,
+                                    CloudProviderKind.OPENROUTER,
+                                    CloudProviderKind.CUSTOM_ENDPOINT -> toolRegistry.buildOpenAiToolsJsonString()
+                                    CloudProviderKind.ANTHROPIC -> null
+                                }
                                 val cloudConfig = CloudInferenceConfig(
                                     providerKind = settings.cloudProviderKind,
                                     endpointUrl = settings.cloudEndpointUrl.ifBlank { settings.cloudProviderKind.defaultEndpoint },
@@ -594,7 +602,8 @@ class Phase2AgentCore(
                                     apiKey = settings.cloudApiKey,
                                     timeoutSeconds = settings.cloudTimeoutSeconds,
                                     maxOutputTokens = settings.maxOutputTokens,
-                                    temperature = settings.samplerTemperature
+                                    temperature = settings.samplerTemperature,
+                                    toolsSchemaJson = toolsSchema
                                 )
                                 val sysPrompt = buildString {
                                     appendLine("You are JARVIS, an accurate autonomous Android assistant. Never fabricate live data or tool results.")

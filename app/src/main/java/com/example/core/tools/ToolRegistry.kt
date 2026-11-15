@@ -333,12 +333,19 @@ class ToolRegistry(
             SHELL_BLOCKLIST_REGEX.containsMatchIn(input)
 
         fun parseModelToolCall(modelOutput: String): ToolCallRequest? {
-            val match = Regex(
+            val tagMatch = Regex(
                 """\[TOOL_CALL]\s*(\{.*?})\s*\[/TOOL_CALL]""",
                 setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-            ).find(modelOutput) ?: return null
+            ).find(modelOutput)
+            if (tagMatch != null) {
+                return parseJsonToolPayload(tagMatch.groupValues[1], source = "AI Model")
+            }
 
-            return parseJsonToolPayload(match.groupValues[1], source = "AI Model")
+            val trimmed = modelOutput.trim()
+            if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                return parseJsonToolPayload(trimmed, source = "AI Model")
+            }
+            return null
         }
 
         fun parseDirectToolCommand(userInput: String): ToolCallRequest? {
@@ -369,17 +376,63 @@ class ToolRegistry(
         private fun parseJsonToolPayload(jsonText: String, source: String): ToolCallRequest? {
             return runCatching {
                 val obj = JSONObject(jsonText)
-                val toolName = obj.optString("tool").trim().lowercase()
-                if (toolName.isEmpty()) return@runCatching null
-                val argsObj = obj.optJSONObject("args") ?: JSONObject()
-                val args = linkedMapOf<String, String>()
-                val keys = argsObj.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    args[key] = argsObj.optString(key, argsObj.opt(key)?.toString().orEmpty())
+                // 1. Canonical {"tool":"name","args":{...}}
+                val directTool = obj.optString("tool").trim().lowercase()
+                if (directTool.isNotEmpty()) {
+                    val argsObj = obj.optJSONObject("args") ?: JSONObject()
+                    return@runCatching ToolCallRequest(
+                        toolName = directTool,
+                        arguments = jsonObjectToStringMap(argsObj),
+                        source = source
+                    )
                 }
-                ToolCallRequest(toolName = toolName, arguments = args, source = source)
+
+                // 2. OpenAI native {"tool_calls":[{"function":{"name":"...","arguments":"{...}"}}]}
+                val toolCalls = obj.optJSONArray("tool_calls")
+                    ?: obj.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optJSONArray("tool_calls")
+                if (toolCalls != null && toolCalls.length() > 0) {
+                    val fn = toolCalls.optJSONObject(0)?.optJSONObject("function")
+                    val fnName = fn?.optString("name").orEmpty().trim().lowercase()
+                    if (fnName.isNotEmpty()) {
+                        val rawArgs = fn?.optString("arguments").orEmpty().trim().ifEmpty { "{}" }
+                        val argsObj = runCatching { JSONObject(rawArgs) }.getOrDefault(JSONObject())
+                        return@runCatching ToolCallRequest(
+                            toolName = fnName,
+                            arguments = jsonObjectToStringMap(argsObj),
+                            source = source
+                        )
+                    }
+                }
+
+                // 3. Gemini native {"functionCall":{"name":"...","args":{...}}}
+                val fnCall = obj.optJSONObject("functionCall")
+                    ?: obj.optJSONArray("candidates")?.optJSONObject(0)
+                        ?.optJSONObject("content")?.optJSONArray("parts")
+                        ?.optJSONObject(0)?.optJSONObject("functionCall")
+                if (fnCall != null) {
+                    val fnName = fnCall.optString("name").trim().lowercase()
+                    if (fnName.isNotEmpty()) {
+                        val argsObj = fnCall.optJSONObject("args") ?: JSONObject()
+                        return@runCatching ToolCallRequest(
+                            toolName = fnName,
+                            arguments = jsonObjectToStringMap(argsObj),
+                            source = source
+                        )
+                    }
+                }
+
+                null
             }.getOrNull()
+        }
+
+        private fun jsonObjectToStringMap(argsObj: JSONObject): Map<String, String> {
+            val args = linkedMapOf<String, String>()
+            val keys = argsObj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                args[key] = argsObj.optString(key, argsObj.opt(key)?.toString().orEmpty())
+            }
+            return args
         }
 
         private fun tokenizeCommand(text: String): List<String> {

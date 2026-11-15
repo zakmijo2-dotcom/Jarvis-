@@ -164,9 +164,8 @@ fun DiscoverSearchHeader(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             val presets = listOf(
-                "litert-lm" to "LiteRT-LM",
+                "litert-lm" to "LiteRT-LM (.litertlm)",
                 null to "All Repos",
-                "gguf" to "GGUF (Preview)",
                 "text-generation" to "Text Gen"
             )
             presets.forEach { (tag, label) ->
@@ -950,7 +949,7 @@ private fun FileCompatibilityRow(
                 }
             }
 
-            if (report.canDownloadToDevice) {
+            if (report.canDownloadToDevice && report.canRunInJarvisNow) {
                 Button(
                     onClick = onDownload,
                     modifier = Modifier
@@ -960,10 +959,7 @@ private fun FileCompatibilityRow(
                 ) {
                     Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (report.canRunInJarvisNow) "Download & Install"
-                        else "Download (${report.formatId.label})"
-                    )
+                    Text("Download & Install (.litertlm)")
                 }
             }
         }

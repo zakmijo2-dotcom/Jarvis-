@@ -176,7 +176,7 @@ class ModelManagerViewModel(
             downloadQueue = hub.queue,
             benchmarks = hub.benchmarks,
             hubNotice = hub.notice,
-            formatAdapters = formatRegistry.adapters
+            formatAdapters = formatRegistry.adapters.filter { it.isExecutionSupported }
         )
     }.stateIn(
         scope = viewModelScope,
@@ -184,7 +184,7 @@ class ModelManagerViewModel(
         initialValue = ModelManagerUiState(
             cloudProviders = cloudProviderRegistry.listProviders(),
             availableStorageBytes = modelArtifactManager.availableStorageBytes(),
-            formatAdapters = formatRegistry.adapters
+            formatAdapters = formatRegistry.adapters.filter { it.isExecutionSupported }
         )
     )
 

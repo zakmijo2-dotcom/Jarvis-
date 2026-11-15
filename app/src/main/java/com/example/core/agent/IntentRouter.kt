@@ -217,7 +217,13 @@ class IntentRouter {
         if (decision.needsWebResearch) {
             val cleanQuery = prompt
                 .replace(Regex("""@(?:cloud|local|[a-zA-Z0-9._-]+)"""), "")
-                .replace(Regex("""^(?:search web for|search the web for|look up|research|google)\s+""", RegexOption.IGNORE_CASE), "")
+                .replace(
+                    Regex(
+                        """^(?:search web for|search the web for|look up|research|google|ابحث في الويب عن|ابحث في الانترنت عن|ابحث في الإنترنت عن|ابحث عن|فتش على|حوس على|cherche sur le web|rechercher sur le web|recherche)\s+""",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
                 .trim()
                 .ifBlank { prompt.trim() }
             steps.add(
@@ -258,6 +264,10 @@ class IntentRouter {
         val shouldObserveContext = lower.contains("screen") ||
             lower.contains("current app") ||
             lower.contains("notification") ||
+            lower.contains("الشاشة") ||
+            lower.contains("الإشعارات") ||
+            lower.contains("الاشعارات") ||
+            lower.contains("écran") ||
             decision.matchedSkillName != null ||
             decision.detectedTools.any {
                 it.toolName in setOf("tap_ui_element", "scroll_screen", "input_ui_text", "inspect_screen_elements")
@@ -279,7 +289,12 @@ class IntentRouter {
             decision.needsWebResearch ||
             prompt.contains("summarize", ignoreCase = true) ||
             prompt.contains("explain", ignoreCase = true) ||
-            prompt.contains("plan", ignoreCase = true)
+            prompt.contains("plan", ignoreCase = true) ||
+            prompt.contains("لخص") ||
+            prompt.contains("اشرح") ||
+            prompt.contains("خطة") ||
+            prompt.contains("résume", ignoreCase = true) ||
+            prompt.contains("explique", ignoreCase = true)
 
         if (shouldRunSynthesis) {
             val engineLabel = if (decision.useCloudModel) "Cloud AI Streaming" else "Local LiteRT-LM"
@@ -315,17 +330,32 @@ class IntentRouter {
 
     internal fun detectWebResearchIntent(lowerPrompt: String): Boolean {
         val webPhrases = listOf(
+            // English
             "search the web", "search web", "look up online", "latest news",
             "current price", "today's weather", "weather in", "who won",
             "release date", "what is the latest", "research online", "live info",
-            "wikipedia"
+            "wikipedia",
+            // Arabic (MSA & Algerian Darija)
+            "ابحث في الويب", "ابحث في الانترنت", "ابحث في الإنترنت", "بحث في الويب",
+            "ابحث عن", "فتش في الانترنت", "حوس في الانترنت", "أخبار اليوم", "اخبار اليوم",
+            "آخر الأخبار", "اخر الاخبار", "سعر اليوم", "حالة الطقس", "الطقس في",
+            "ويكيبيديا", "واش صاري اليوم",
+            // French
+            "cherche sur le web", "rechercher sur le web", "recherche web",
+            "dernières actualités", "actualités du jour", "météo à", "météo aujourd'hui",
+            "quel est le prix", "wikipédia"
         )
         return webPhrases.any { lowerPrompt.contains(it) }
     }
 
     internal fun detectNaturalLanguageTools(prompt: String): List<ToolCallRequest> {
         val clauses = prompt
-            .split(Regex("""\s+(?:and then|then|and)\s+""", RegexOption.IGNORE_CASE))
+            .split(
+                Regex(
+                    """\s+(?:and then|then|and|ثم|وبعدين|ومن بعد|و(?=\s*(?:افتح|شغل|اقرأ|اقرا|افحص|ذكرني|فكرني|اتصل|ارفع|اخفض|شوف|حل))|puis|et ensuite|et)\s+""",
+                    RegexOption.IGNORE_CASE
+                )
+            )
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
@@ -333,53 +363,86 @@ class IntentRouter {
         for (clause in clauses) {
             val lower = clause.lowercase(Locale.getDefault())
             when {
-                lower.contains("battery") && (lower.contains("check") || lower.contains("read") || lower.contains("level") || lower.contains("status")) ->
+                // 1. Battery status (EN / AR / DZ / FR)
+                (lower.contains("battery") && (lower.contains("check") || lower.contains("read") || lower.contains("level") || lower.contains("status") || lower.contains("percent"))) ||
+                    lower.contains("البطارية") || lower.contains("حالة البطارية") || lower.contains("مستوى البطارية") ||
+                    lower.contains("نسبة الشحن") || lower.contains("شحال الشارج") || lower.contains("شحال البطارية") ||
+                    lower.contains("état de la batterie") || lower.contains("niveau de batterie") ||
+                    (lower.contains("batterie") && (lower.contains("vérifie") || lower.contains("quel") || lower.contains("combien") || lower.contains("état") || lower.contains("niveau"))) ->
                     detected.add(ToolCallRequest("read_battery_status", source = "Agent Planner"))
 
-                (lower.contains("device info") || lower.contains("ram usage") || lower.contains("system specs")) &&
-                    (lower.contains("check") || lower.contains("read") || lower.contains("show")) ->
+                // 2. Device info & RAM specs (EN / AR / DZ / FR)
+                ((lower.contains("device info") || lower.contains("ram usage") || lower.contains("system specs")) &&
+                    (lower.contains("check") || lower.contains("read") || lower.contains("show"))) ||
+                    lower.contains("معلومات الجهاز") || lower.contains("مواصفات الجهاز") || lower.contains("حالة الجهاز") ||
+                    lower.contains("حالة الرام") || lower.contains("الذاكرة العشوائية") || lower.contains("معلومات الهاتف") ||
+                    lower.contains("infos de l'appareil") || lower.contains("informations de l'appareil") || lower.contains("état de la ram") ->
                     detected.add(ToolCallRequest("read_device_info", source = "Agent Planner"))
 
-                lower.contains("wifi settings") || lower.contains("wi-fi settings") ->
+                // 3. Wi-Fi settings (EN / AR / DZ / FR)
+                lower.contains("wifi settings") || lower.contains("wi-fi settings") ||
+                    lower.contains("إعدادات الواي فاي") || lower.contains("اعدادات الواي فاي") ||
+                    lower.contains("إعدادات الشبكة") || lower.contains("اعدادات الويفي") ||
+                    lower.contains("paramètres wifi") || lower.contains("paramètres wi-fi") ->
                     detected.add(ToolCallRequest("open_android_settings", mapOf("page" to "wifi"), "Agent Planner"))
 
-                lower.contains("bluetooth settings") ->
+                // 4. Bluetooth settings (EN / AR / DZ / FR)
+                lower.contains("bluetooth settings") ||
+                    lower.contains("إعدادات البلوتوث") || lower.contains("اعدادات البلوتوث") ||
+                    lower.contains("paramètres bluetooth") ->
                     detected.add(ToolCallRequest("open_android_settings", mapOf("page" to "bluetooth"), "Agent Planner"))
 
-                lower.contains("go home") || lower.contains("home screen") ->
+                // 5. Home screen (EN / AR / DZ / FR)
+                lower.contains("go home") || lower.contains("home screen") ||
+                    lower.contains("الشاشة الرئيسية") || lower.contains("ارجع للرئيسية") || lower.contains("اذهب للشاشة الرئيسية") ||
+                    lower.contains("écran d'accueil") || lower.contains("retour à l'accueil") ->
                     detected.add(ToolCallRequest("go_home_screen", source = "Agent Planner"))
 
-                lower.contains("read notifications") || lower.contains("check notifications") ->
+                // 6. Read notifications (EN / AR / DZ / FR)
+                lower.contains("read notifications") || lower.contains("check notifications") ||
+                    lower.contains("اقرأ الإشعارات") || lower.contains("اقرا الاشعارات") ||
+                    lower.contains("فحص الإشعارات") || lower.contains("اعرض الإشعارات") || lower.contains("شوف الاشعارات") ||
+                    lower.contains("lire les notifications") || lower.contains("vérifier les notifications") || lower.contains("afficher les notifications") ->
                     detected.add(ToolCallRequest("read_notifications", mapOf("limit" to "5"), "Agent Planner"))
 
-                lower.contains("volume up") || lower.contains("increase volume") ->
+                // 7. Volume Up / Down (EN / AR / DZ / FR)
+                lower.contains("volume up") || lower.contains("increase volume") ||
+                    lower.contains("ارفع الصوت") || lower.contains("زيد للصوت") || lower.contains("علي الصوت") ||
+                    lower.contains("monte le son") || lower.contains("augmenter le volume") ->
                     detected.add(ToolCallRequest("adjust_media_volume", mapOf("action" to "up"), "Agent Planner"))
 
-                lower.contains("volume down") || lower.contains("decrease volume") ->
+                lower.contains("volume down") || lower.contains("decrease volume") ||
+                    lower.contains("اخفض الصوت") || lower.contains("نقص الصوت") || lower.contains("وطي الصوت") ||
+                    lower.contains("baisse le son") || lower.contains("diminuer le volume") ->
                     detected.add(ToolCallRequest("adjust_media_volume", mapOf("action" to "down"), "Agent Planner"))
 
-                lower.contains("pause music") || lower.contains("play music") || lower.contains("play/pause") ->
+                // 8. Media playback (EN / AR / DZ / FR)
+                lower.contains("pause music") || lower.contains("play music") || lower.contains("play/pause") ||
+                    lower.contains("أوقف الموسيقى") || lower.contains("شغل الموسيقى") || lower.contains("حبس الموسيقى") ||
+                    lower.contains("pause musique") || lower.contains("jouer la musique") ->
                     detected.add(ToolCallRequest("control_media_playback", mapOf("command" to "play_pause"), "Agent Planner"))
 
-                lower.contains("remind me") || lower.contains("set a timer") || lower.contains("set timer") || lower.contains("create reminder") -> {
-                    val minutes = Regex("""(\d{1,4})\s*(?:min|minute|minutes)""")
-                        .find(lower)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?: "15"
-                    val label = clause
-                        .replace(Regex("""^(?:please\s+)?(?:remind me to|remind me|set a timer for|set timer for|create reminder for)\s*""", RegexOption.IGNORE_CASE), "")
-                        .replace(Regex("""\s+in\s+\d+\s*(?:min|minute|minutes).*$""", RegexOption.IGNORE_CASE), "")
-                        .trim()
-                        .ifBlank { "JARVIS Reminder" }
-                        .take(80)
+                // 9. Reminders & timers (EN / AR / DZ / FR)
+                lower.contains("remind me") || lower.contains("set a timer") || lower.contains("set timer") || lower.contains("create reminder") ||
+                    lower.contains("ذكرني") || lower.contains("فكرني") || lower.contains("اضبط مؤقت") || lower.contains("انشئ تذكير") || lower.contains("أنشئ تذكير") || lower.contains("ديرلي تذكير") ||
+                    lower.contains("rappelle-moi") || lower.contains("rappelle moi") || lower.contains("créer un rappel") || lower.contains("mets un minuteur") -> {
+                    val minutes = extractReminderMinutes(lower)
+                    val label = extractReminderLabel(clause)
                     detected.add(ToolCallRequest("create_reminder", mapOf("label" to label, "minutes" to minutes), "Agent Planner"))
                 }
 
-                lower.startsWith("launch ") || lower.startsWith("open app ") -> {
+                // 10. Launch app by name (EN / AR / DZ / FR)
+                lower.startsWith("launch ") || lower.startsWith("open app ") ||
+                    lower.startsWith("افتح تطبيق ") || lower.startsWith("شغل تطبيق ") || lower.startsWith("حل تطبيق ") || lower.startsWith("افتح برنامج ") ||
+                    lower.startsWith("ouvre l'application ") || lower.startsWith("lance l'application ") || lower.startsWith("ouvrir l'application ") -> {
                     val target = clause
-                        .removePrefix("launch ").removePrefix("Launch ")
-                        .removePrefix("open app ").removePrefix("Open app ")
+                        .replace(
+                            Regex(
+                                """^(?:launch|open app|افتح تطبيق|شغل تطبيق|حل تطبيق|افتح برنامج|ouvre l'application|lance l'application|ouvrir l'application)\s+""",
+                                RegexOption.IGNORE_CASE
+                            ),
+                            ""
+                        )
                         .trim()
                     if (target.length >= 2) {
                         detected.add(ToolCallRequest("launch_installed_app", mapOf("app_query" to target), "Agent Planner"))
@@ -388,6 +451,64 @@ class IntentRouter {
             }
         }
         return detected.distinctBy { "${it.toolName}:${it.arguments}" }
+    }
+
+    private fun extractReminderMinutes(lowerClause: String): String {
+        val normalizedDigits = normalizeArabicDigits(lowerClause)
+        val explicitMin = Regex("""(\d{1,4})\s*(?:min|minute|minutes|دقيقة|دقائق|دقايق)""")
+            .find(normalizedDigits)
+            ?.groupValues
+            ?.getOrNull(1)
+        if (explicitMin != null) return explicitMin
+
+        val explicitHours = Regex("""(\d{1,2})\s*(?:hour|hours|hr|ساعة|ساعات|heure|heures)""")
+            .find(normalizedDigits)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        if (explicitHours != null) return (explicitHours * 60).coerceIn(1, 1440).toString()
+
+        return when {
+            normalizedDigits.contains("نصف ساعة") || normalizedDigits.contains("نص ساعة") || normalizedDigits.contains("demi-heure") -> "30"
+            normalizedDigits.contains("ربع ساعة") -> "15"
+            normalizedDigits.contains("ساعتين") -> "120"
+            normalizedDigits.contains("ساعة") -> "60"
+            normalizedDigits.contains("عشر دقائق") || normalizedDigits.contains("عشرة دقايق") -> "10"
+            normalizedDigits.contains("خمس دقائق") || normalizedDigits.contains("خمسة دقايق") -> "5"
+            else -> "15"
+        }
+    }
+
+    private fun extractReminderLabel(rawClause: String): String {
+        val cleaned = normalizeArabicDigits(rawClause)
+            .replace(
+                Regex(
+                    """^(?:please\s+|من فضلك\s+|لو سمحت\s+|svp\s+)?(?:remind me to|remind me|set a timer for|set timer for|create reminder for|ذكرني\s+بـ|ذكرني\s+أن|ذكرني\s+ان|ذكرني|فكرني\s+بـ|فكرني|اضبط مؤقت\s+لـ|اضبط مؤقت|أنشئ تذكير\s+لـ|انشئ تذكير|ديرلي تذكير|rappelle-moi de|rappelle moi de|rappelle-moi|rappelle moi|créer un rappel pour|mets un minuteur pour)\s+""",
+                    RegexOption.IGNORE_CASE
+                ),
+                ""
+            )
+            .replace(
+                Regex(
+                    """\s+(?:in|بعد|خلال|dans)\s+(?:\d+\s*(?:min|minute|minutes|hour|hours|دقيقة|دقائق|دقايق|ساعة|ساعات|heure|heures)|نصف ساعة|نص ساعة|ربع ساعة|ساعتين|ساعة|عشر دقائق|خمس دقائق).*$""",
+                    RegexOption.IGNORE_CASE
+                ),
+                ""
+            )
+            .trim()
+        return cleaned.ifBlank { "JARVIS Reminder" }.take(80)
+    }
+
+    private fun normalizeArabicDigits(input: String): String {
+        val out = StringBuilder(input.length)
+        for (ch in input) {
+            when (ch) {
+                in '٠'..'٩' -> out.append(('0'.code + (ch.code - '٠'.code)).toChar())
+                in '۰'..'۹' -> out.append(('0'.code + (ch.code - '۰'.code)).toChar())
+                else -> out.append(ch)
+            }
+        }
+        return out.toString()
     }
 
     internal fun computeComplexityScore(rawPrompt: String, lowerPrompt: String): Int {
@@ -399,7 +520,9 @@ class IntentRouter {
         val complexKeywords = listOf(
             "architect", "compare", "tradeoff", "analyze", "algorithm",
             "optimize", "debug", "refactor", "research", "comprehensive",
-            "step-by-step", "detailed", "strategy", "benchmark", "math", "prove"
+            "step-by-step", "detailed", "strategy", "benchmark", "math", "prove",
+            "قارن", "حلل", "خوارزمية", "معمارية", "بالتفصيل", "خطوة بخطوة", "استراتيجية",
+            "comparer", "analyser", "algorithme", "architecture", "détaillé", "stratégie"
         )
         val keywordHits = complexKeywords.count { lowerPrompt.contains(it) }
         score += (keywordHits * 2).coerceAtMost(5)

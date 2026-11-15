@@ -53,7 +53,11 @@ data class ActionVerificationResult(
  * AccessibilityController -> UiObservationEngine -> ElementIdentificationEngine -> ActionExecutor -> StateVerificationEngine
  */
 class AccessibilityController(
-    private val context: Context
+    private val context: Context,
+    private val stabilizationDelayMs: Long = DEFAULT_STABILIZATION_DELAY_MS,
+    private val maxVerificationPolls: Int = DEFAULT_MAX_VERIFICATION_POLLS,
+    private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
+    private val sleepFn: (Long) -> Unit = { ms -> if (ms > 0L) Thread.sleep(ms) }
 ) {
     val observationEngine = UiObservationEngine(context)
     val elementIdentifier = ElementIdentificationEngine()
@@ -73,7 +77,7 @@ class AccessibilityController(
     fun executeTapWithVerification(targetQuery: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.tap(targetQuery)
-        val after = observeCurrentScreen(25)
+        val after = captureSettledAfterSnapshot(before, ok, 25)
         return stateVerifier.verifyTransition(
             actionName = "tap_ui_element($targetQuery)",
             dispatched = ok,
@@ -85,7 +89,7 @@ class AccessibilityController(
     fun executeScrollWithVerification(direction: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.scroll(direction)
-        val after = observeCurrentScreen(25)
+        val after = captureSettledAfterSnapshot(before, ok, 25)
         return stateVerifier.verifyTransition(
             actionName = "scroll_screen($direction)",
             dispatched = ok,
@@ -97,7 +101,7 @@ class AccessibilityController(
     fun executeTextInputWithVerification(targetQuery: String?, text: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.inputText(targetQuery, text)
-        val after = observeCurrentScreen(25)
+        val after = captureSettledAfterSnapshot(before, ok, 25)
         return stateVerifier.verifyTransition(
             actionName = "input_ui_text(${targetQuery ?: "focused"})",
             dispatched = ok,
@@ -109,13 +113,60 @@ class AccessibilityController(
     fun executeGlobalActionWithVerification(action: AuthorizedAccessibilityAction): ActionVerificationResult {
         val before = observeCurrentScreen(20)
         val ok = actionExecutor.globalAction(action)
-        val after = observeCurrentScreen(20)
+        val after = captureSettledAfterSnapshot(before, ok, 20)
         return stateVerifier.verifyTransition(
             actionName = "global_action(${action.actionKey})",
             dispatched = ok,
             before = before,
             after = after
         )
+    }
+
+    fun verifyExternalTransition(
+        actionName: String,
+        dispatched: Boolean,
+        before: UiObservationSnapshot,
+        maxElements: Int = 20
+    ): ActionVerificationResult {
+        val after = captureSettledAfterSnapshot(before, dispatched, maxElements)
+        return stateVerifier.verifyTransition(
+            actionName = actionName,
+            dispatched = dispatched,
+            before = before,
+            after = after
+        )
+    }
+
+    private fun captureSettledAfterSnapshot(
+        before: UiObservationSnapshot,
+        dispatched: Boolean,
+        maxElements: Int
+    ): UiObservationSnapshot {
+        if (!dispatched) {
+            return observeCurrentScreen(maxElements)
+        }
+        if (stabilizationDelayMs > 0L) {
+            sleepFn(stabilizationDelayMs)
+        }
+        var after = observeCurrentScreen(maxElements)
+        var poll = 0
+        while (poll < maxVerificationPolls &&
+            before.windowSignatureHash == after.windowSignatureHash &&
+            before.activePackageName == after.activePackageName
+        ) {
+            poll++
+            if (pollIntervalMs > 0L) {
+                sleepFn(pollIntervalMs)
+            }
+            after = observeCurrentScreen(maxElements)
+        }
+        return after
+    }
+
+    companion object {
+        const val DEFAULT_STABILIZATION_DELAY_MS = 180L
+        const val DEFAULT_MAX_VERIFICATION_POLLS = 3
+        const val DEFAULT_POLL_INTERVAL_MS = 120L
     }
 }
 

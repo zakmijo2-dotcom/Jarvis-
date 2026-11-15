@@ -2595,6 +2595,214 @@ class JarvisFoundationTest {
         val execReminder = reminderTool.execute(context, validArgs)
         assertEquals(ToolExecutionStatus.SUCCESS, execReminder.status)
     }
+
+    @Test
+    fun `remediation audit verifies multilingual intent routing skill param extraction ui stabilization polling and cloud native tool calls`() = runBlocking {
+        // 1. Verify production RuntimeEngineCoordinator only registers LiteRT-LM (.litertlm)
+        val prodCoordinator = RuntimeEngineCoordinator(context, LiteRtLmAiEngine(context))
+        val prodSnapshots = prodCoordinator.reportAllRuntimes()
+        assertEquals(1, prodSnapshots.size)
+        assertEquals(RuntimeFormatId.LITERT_LM, prodSnapshots.first().formatId)
+        assertTrue(prodSnapshots.first().isExecutionSupported)
+
+        // 2. Verify multilingual (Arabic MSA, Algerian Darija, French) IntentRouter + Arabic-Indic digits
+        val router = IntentRouter()
+        val arabicPrompt = "افحص حالة البطارية ثم افتح إعدادات الواي فاي"
+        val arabicDecision = router.routePrompt(
+            prompt = arabicPrompt,
+            settings = JarvisSettings(),
+            isLocalModelReady = true,
+            isNetworkConnected = false
+        )
+        val arabicCompound = router.decomposeTasks(arabicPrompt, arabicDecision)
+        assertTrue(arabicCompound.count { it.type == PlanStepType.ANDROID_TOOL } == 2)
+        val arabicTools = router.detectNaturalLanguageTools(arabicPrompt)
+        assertTrue(arabicTools.any { it.toolName == "read_battery_status" })
+        assertTrue(arabicTools.any { it.toolName == "open_android_settings" && it.arguments["page"] == "wifi" })
+
+        val arabicReminder = router.detectNaturalLanguageTools("ذكرني بموعد الاجتماع بعد ٢٠ دقيقة")
+        assertTrue(arabicReminder.any {
+            it.toolName == "create_reminder" &&
+                it.arguments["minutes"] == "20" &&
+                it.arguments["label"] == "بموعد الاجتماع"
+        })
+
+        val darijaTools = router.detectNaturalLanguageTools("شحال الشارج و شوف الاشعارات")
+        assertTrue(darijaTools.any { it.toolName == "read_battery_status" })
+        assertTrue(darijaTools.any { it.toolName == "read_notifications" })
+
+        val frenchTools = router.detectNaturalLanguageTools("Rappelle-moi de vérifier le serveur dans 15 minutes")
+        assertTrue(frenchTools.any {
+            it.toolName == "create_reminder" &&
+                it.arguments["minutes"] == "15" &&
+                it.arguments["label"] == "vérifier le serveur"
+        })
+        assertTrue(router.detectWebResearchIntent("Cherche sur le web les dernières actualités"))
+        assertTrue(router.detectWebResearchIntent("ابحث في الانترنت عن سعر الدولار اليوم"))
+
+        // 3. Verify SkillEngine parameter extraction ({{param}} template, explicit key=value, and execution)
+        val skillEngine = RoomSkillEngine(db.skillDao())
+        skillEngine.saveSkill(
+            AgentSkill(
+                id = "skill_quick_settings",
+                name = "quick_settings_opener",
+                description = "Opens requested settings page via parameter extraction",
+                triggerPattern = "افتح إعدادات {{page}} بسرعة",
+                parameters = listOf("page"),
+                steps = listOf(
+                    SkillStepSpec(
+                        toolName = "open_android_settings",
+                        arguments = mapOf("page" to "{{page}}")
+                    )
+                )
+            )
+        ).getOrThrow()
+
+        val matchedSkill = skillEngine.findMatchingSkill("افتح إعدادات الواي فاي بسرعة")
+        assertNotNull(matchedSkill)
+        val extractedParams = skillEngine.extractParameters("افتح إعدادات الواي فاي بسرعة", matchedSkill!!)
+        assertEquals("الواي فاي", extractedParams["page"])
+
+        val explicitParams = skillEngine.extractParameters("شغل مهارة quick_settings_opener page=bluetooth", matchedSkill)
+        assertEquals("bluetooth", explicitParams["page"])
+
+        // 4. Verify AccessibilityController stabilization delay & verification polling when UI updates asynchronously
+        var pollReadCount = 0
+        var actionFired = false
+        AccessibilityBridge.setTestElementsOverride {
+            if (!actionFired) {
+                listOf(
+                    ScreenElementSummary("Wi-Fi", "switch_wifi", "Switch", isClickable = true, isEditable = false, isScrollable = false, bounds = "[0,0][200,80]")
+                )
+            } else {
+                pollReadCount++
+                // First immediate read after stabilization delay still returns old view; second poll returns settled Wi-Fi Settings view
+                if (pollReadCount < 2) {
+                    listOf(
+                        ScreenElementSummary("Wi-Fi", "switch_wifi", "Switch", isClickable = true, isEditable = false, isScrollable = false, bounds = "[0,0][200,80]")
+                    )
+                } else {
+                    listOf(
+                        ScreenElementSummary("ConnectedNetwork", "tv_ssid", "TextView", isClickable = false, isEditable = false, isScrollable = false, bounds = "[0,0][300,80]")
+                    )
+                }
+            }
+        }
+        AccessibilityBridge.setTestTapOverride { target ->
+            if (target.equals("Wi-Fi", ignoreCase = true)) {
+                actionFired = true
+                true
+            } else {
+                false
+            }
+        }
+        val sleepDurations = mutableListOf<Long>()
+        try {
+            val delayedController = AccessibilityController(
+                context = context,
+                stabilizationDelayMs = 180L,
+                maxVerificationPolls = 3,
+                pollIntervalMs = 120L,
+                sleepFn = { ms -> sleepDurations.add(ms) }
+            )
+            val outcome = delayedController.executeTapWithVerification("Wi-Fi")
+            assertTrue(outcome.actionDispatched)
+            assertTrue(outcome.stateChangedVerified)
+            assertTrue(outcome.beforeHash != outcome.afterHash)
+            assertTrue(sleepDurations.contains(180L))
+            assertTrue(sleepDurations.contains(120L))
+        } finally {
+            AccessibilityBridge.setTestElementsOverride(null)
+            AccessibilityBridge.setTestTapOverride(null)
+        }
+
+        // 5. Verify OkHttpCloudAiClient native OpenAI tool_calls & Gemini functionCall parsing and request schema injection
+        val cloudClient = OkHttpCloudAiClient()
+        val sysTools = AndroidSystemTools(context)
+        val localMemory = RoomLocalMemory(db.memoryDao())
+        val registry = ToolRegistryFactory.createDefault(
+            androidTools = sysTools,
+            localMemoryProvider = { localMemory },
+            skillEngineProvider = { skillEngine }
+        )
+
+        val openAiConfig = CloudInferenceConfig(
+            providerKind = CloudProviderKind.OPENAI_COMPATIBLE,
+            endpointUrl = "https://api.openai.com/v1/chat/completions",
+            modelId = "gpt-4o-mini",
+            apiKey = "sk-test",
+            toolsSchemaJson = registry.buildOpenAiToolsJsonString()
+        )
+        val openAiHttpReq = cloudClient.buildHttpRequest(
+            config = openAiConfig,
+            systemInstruction = "You are JARVIS.",
+            prompt = "Check battery",
+            history = emptyList()
+        )
+        val openAiReqBodyBuffer = okio.Buffer()
+        openAiHttpReq.body!!.writeTo(openAiReqBodyBuffer)
+        val openAiReqBodyStr = openAiReqBodyBuffer.readUtf8()
+        assertTrue(openAiReqBodyStr.contains("\"tools\""))
+        assertTrue(openAiReqBodyStr.contains("\"read_battery_status\""))
+
+        val openAiNonStreamingJson = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                      {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                          "name": "open_settings",
+                          "arguments": "{\"page\":\"wifi\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedOpenAiToolText = cloudClient.parseNonStreamingJson(CloudProviderKind.OPENAI_COMPATIBLE, openAiNonStreamingJson)
+        assertTrue(parsedOpenAiToolText.contains("[TOOL_CALL]"))
+        val parsedOpenAiCall = ToolRegistry.parseModelToolCall(parsedOpenAiToolText)
+        assertNotNull(parsedOpenAiCall)
+        assertEquals("open_settings", parsedOpenAiCall?.toolName)
+        assertEquals("wifi", parsedOpenAiCall?.arguments?.get("page"))
+
+        // Verify Gemini native functionCall parsing
+        val geminiNonStreamingJson = """
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "functionCall": {
+                          "name": "create_reminder",
+                          "args": {
+                            "label": "Standup",
+                            "minutes": "15"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedGeminiToolText = cloudClient.parseNonStreamingJson(CloudProviderKind.GEMINI_REST, geminiNonStreamingJson)
+        val parsedGeminiCall = ToolRegistry.parseModelToolCall(parsedGeminiToolText)
+        assertNotNull(parsedGeminiCall)
+        assertEquals("create_reminder", parsedGeminiCall?.toolName)
+        assertEquals("Standup", parsedGeminiCall?.arguments?.get("label"))
+        assertEquals("15", parsedGeminiCall?.arguments?.get("minutes"))
+    }
 }
 
 private class FakeTestRuntimeEngine(
