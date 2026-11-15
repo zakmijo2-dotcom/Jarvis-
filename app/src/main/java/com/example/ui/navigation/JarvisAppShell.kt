@@ -31,8 +31,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import com.example.core.voice.VoiceServiceStatus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -171,6 +173,7 @@ fun JarvisAppShell(
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val pendingWakeArm by VoiceServiceStatus.pendingWakeArmFromNotification.collectAsStateWithLifecycle()
 
     fun navigateToDestination(destination: TopDestination) {
         if (settingsState.settings.hapticsEnabled) {
@@ -182,6 +185,12 @@ fun JarvisAppShell(
             }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    LaunchedEffect(pendingWakeArm) {
+        if (pendingWakeArm && currentRoute != TopDestination.VOICE.routeQualifiedName) {
+            navigateToDestination(TopDestination.VOICE)
         }
     }
 
@@ -374,7 +383,16 @@ fun JarvisAppShell(
                                     chatViewModel.sendMessage(transcript)
                                     navigateToDestination(TopDestination.CHAT)
                                 },
-                                onSavePorcupineAccessKey = voiceViewModel::setPorcupineAccessKey
+                                onSavePorcupineAccessKey = voiceViewModel::setPorcupineAccessKey,
+                                onConfirmPendingTool = voiceViewModel::confirmPendingTool,
+                                onCancelPendingTool = voiceViewModel::cancelPendingTool,
+                                onCancelActiveTool = voiceViewModel::cancelActiveTool,
+                                onDismissPermissionPrompt = voiceViewModel::dismissPermissionPrompt,
+                                onRuntimePermissionResult = voiceViewModel::onRuntimePermissionResult,
+                                onOpenDeviceControls = {
+                                    deviceDashboardViewModel.selectTab(DeviceDashboardTab.CONTROLS)
+                                    navigateToDestination(TopDestination.DEVICE)
+                                }
                             )
                         }
                         composable<ModelsRoute> {

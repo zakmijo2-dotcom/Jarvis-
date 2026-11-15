@@ -1665,10 +1665,33 @@ class JarvisFoundationTest {
             try {
                 while (!server.isClosed) {
                     val socket = server.accept()
-                    val reader = socket.getInputStream().bufferedReader()
+                    val input = socket.getInputStream()
+                    val headerLines = mutableListOf<String>()
+                    val lineBuf = StringBuilder()
                     while (true) {
-                        val line = reader.readLine() ?: break
-                        if (line.isEmpty()) break
+                        val b = input.read()
+                        if (b == -1) break
+                        if (b == '\n'.code) {
+                            val line = lineBuf.toString().trimEnd('\r')
+                            lineBuf.clear()
+                            if (line.isEmpty()) break
+                            headerLines.add(line)
+                        } else {
+                            lineBuf.append(b.toChar())
+                        }
+                    }
+                    val contentLength = headerLines
+                        .firstOrNull { it.startsWith("Content-Length:", ignoreCase = true) }
+                        ?.substringAfter(':')
+                        ?.trim()
+                        ?.toIntOrNull()
+                        ?: 0
+                    var remaining = contentLength
+                    val sink = ByteArray(1024)
+                    while (remaining > 0) {
+                        val read = input.read(sink, 0, minOf(sink.size, remaining))
+                        if (read <= 0) break
+                        remaining -= read
                     }
                     val out = socket.getOutputStream()
                     if (serverMode.get() == 0) {
@@ -1681,6 +1704,7 @@ class JarvisFoundationTest {
                         out.write(errJson.toByteArray())
                     }
                     out.flush()
+                    socket.shutdownOutput()
                     socket.close()
                 }
             } catch (_: Exception) {
@@ -1777,12 +1801,16 @@ class JarvisFoundationTest {
                 Thread.sleep(15)
             }
             vm.sendMessage("Hello cloud")
-            repeat(50) {
+            repeat(100) {
                 shadowOf(Looper.getMainLooper()).idle()
                 if (convRepo.getMessagesOnce(convId!!).any { it.content.contains("Cloud SSE Verification OK") }) return@repeat
                 Thread.sleep(15)
             }
-            assertTrue(convRepo.getMessagesOnce(convId!!).any { it.content.contains("Cloud SSE Verification OK") })
+            val cloudMsgs = convRepo.getMessagesOnce(convId!!)
+            assertTrue(
+                "Expected Cloud SSE Verification OK; got=${cloudMsgs.map { "${it.role}:${it.content}" }} cloudErr=${cloudClient.usageStats.value.lastErrorMessage}",
+                cloudMsgs.any { it.content.contains("Cloud SSE Verification OK") }
+            )
             assertEquals(1, cloudClient.usageStats.value.successfulRequests)
 
             // 4. Failed network + Web Research HTTP 503 recovers gracefully onto offline LiteRT-LM in AUTO_HYBRID
@@ -2802,6 +2830,295 @@ class JarvisFoundationTest {
         assertEquals("create_reminder", parsedGeminiCall?.toolName)
         assertEquals("Standup", parsedGeminiCall?.arguments?.get("label"))
         assertEquals("15", parsedGeminiCall?.arguments?.get("minutes"))
+    }
+
+    @Test
+    fun `voice viewmodel routes through hybrid agent without local model handles confirmation and keeps background wake word standby`() = runBlocking {
+        val modelManager = RoomModelManager(db.modelDao()).apply { ensureSeeded() }
+        val convRepo = ConversationRepository(db.conversationDao())
+        val sysTools = AndroidSystemTools(context)
+        val localMemory = RoomLocalMemory(db.memoryDao())
+        val skillEngine = RoomSkillEngine(db.skillDao())
+        val registry = ToolRegistryFactory.createDefault(
+            androidTools = sysTools,
+            localMemoryProvider = { localMemory },
+            skillEngineProvider = { skillEngine }
+        )
+
+        val dataStoreFile = File(tmpFolder.root, "voice_hybrid_settings.preferences_pb")
+        val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val dataStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) { dataStoreFile }
+        val credStore = SecureCredentialStore()
+        val settingsRepo = SettingsRepository(dataStore, credStore)
+
+        val unloadedAiEngine = object : AiEngine {
+            override val loadState = MutableStateFlow<EngineLoadState>(EngineLoadState.Unloaded)
+            override val isGenerating = MutableStateFlow(false)
+            override val lastBenchmark = MutableStateFlow<GenerationBenchmark?>(null)
+            override val nativeMemoryMb = MutableStateFlow(0f)
+            override suspend fun loadModel(slot: ModelSlot, settings: JarvisSettings) =
+                Result.failure<Unit>(IllegalStateException("No local model loaded"))
+            override suspend fun unloadModel() = Unit
+            override suspend fun reloadModel(slot: ModelSlot, settings: JarvisSettings) = Result.success(Unit)
+            override suspend fun cancelGeneration() = Unit
+            override fun refreshMemoryUsage() = Unit
+            override fun release() = Unit
+            override fun streamReply(
+                conversationId: String,
+                prompt: String,
+                history: List<MessageEntity>,
+                settings: JarvisSettings
+            ): Flow<AiStreamEvent> = flow {
+                emit(AiStreamEvent.Error("No local model"))
+            }
+        }
+
+        val fakeCloudClient = object : com.example.core.cloud.CloudAiClient {
+            override val usageStats = MutableStateFlow(com.example.core.cloud.CloudUsageStats())
+            override fun streamChat(
+                config: CloudInferenceConfig,
+                systemInstruction: String,
+                prompt: String,
+                history: List<MessageEntity>
+            ): Flow<AiStreamEvent> = flow {
+                emit(AiStreamEvent.Started("Cloud (OpenAI: gpt-4o-mini)"))
+                val bench = GenerationBenchmark(35L, 50f, 10, 8, "Cloud (OpenAI)", 0f)
+                emit(AiStreamEvent.Completed("Cloud hybrid voice answer ready.", bench))
+            }
+            override fun cancelActiveRequest() = Unit
+            override fun resetUsageStats() = Unit
+        }
+
+        val wakeWord = ModularWakeWordEngine(context = context)
+        val agentCore = Phase2AgentCore(
+            aiEngine = unloadedAiEngine,
+            modelManager = modelManager,
+            androidTools = sysTools,
+            cloudProviderRegistry = Phase1CloudProviderRegistry(),
+            wakeWordEngine = wakeWord,
+            localMemory = localMemory,
+            appContext = context,
+            toolRegistry = registry,
+            intentRouter = IntentRouter(),
+            agentExecutionDao = db.agentExecutionDao(),
+            skillEngine = skillEngine,
+            cloudAiClient = fakeCloudClient
+        )
+
+        val fakeVoice = ControllableTestVoiceEngine()
+        var serviceRunning = false
+        var serviceStopCount = 0
+        val vm = VoiceViewModel(
+            voiceEngine = fakeVoice,
+            wakeWordEngine = wakeWord,
+            settingsRepository = settingsRepo,
+            agentCore = agentCore,
+            aiEngine = unloadedAiEngine,
+            modelManager = modelManager,
+            conversationRepository = convRepo,
+            modelBenchmarkDao = db.modelBenchmarkDao(),
+            serviceStarter = { _, _ -> serviceRunning = true; true },
+            serviceStopper = { serviceRunning = false; serviceStopCount++ },
+            isServiceRunningProvider = { serviceRunning }
+        )
+        val uiSubJob = dataStoreScope.launch(Dispatchers.Unconfined) {
+            vm.uiState.collect {}
+        }
+
+        // 1. Even with NO local model loaded, Voice Console executes on-device tools via IntentRouter and speaks output
+        vm.submitTextFallback("check my battery")
+        repeat(40) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (fakeVoice.spokenUtterances.isNotEmpty() && !vm.uiState.value.isGeneratingReply) return@repeat
+            Thread.sleep(15)
+        }
+        assertTrue(fakeVoice.spokenUtterances.any { it.contains("Battery", ignoreCase = true) || it.contains("%") })
+
+        // 2. Cloud-routed voice prompt succeeds without a local .litertlm model when cloud consent + key exist
+        settingsRepo.setCloudUploadConsentGranted(true)
+        settingsRepo.setCloudApiKey("sk-voice-test-key")
+        settingsRepo.setRoutingMode(AgentRoutingMode.CLOUD_ONLY)
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (vm.uiState.value.settings.routingMode == AgentRoutingMode.CLOUD_ONLY) return@repeat
+            Thread.sleep(10)
+        }
+
+        val spokenBeforeCloud = fakeVoice.spokenUtterances.size
+        vm.submitTextFallback("Explain why hybrid voice routing helps")
+        repeat(40) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (fakeVoice.spokenUtterances.size > spokenBeforeCloud && !vm.uiState.value.isGeneratingReply) return@repeat
+            Thread.sleep(15)
+        }
+        assertTrue(fakeVoice.spokenUtterances.any { it.contains("Cloud hybrid voice answer ready.") })
+
+        // 3. ConfirmationRequired pauses Voice Console cleanly and executes on confirmPendingTool()
+        settingsRepo.setRoutingMode(AgentRoutingMode.AUTO_HYBRID)
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (vm.uiState.value.settings.routingMode == AgentRoutingMode.AUTO_HYBRID) return@repeat
+            Thread.sleep(10)
+        }
+        vm.submitTextFallback("/tool create_reminder label=Hydrate minutes=10")
+        repeat(40) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (vm.uiState.value.pendingToolConfirmation != null) return@repeat
+            Thread.sleep(15)
+        }
+        assertEquals("create_reminder", vm.uiState.value.pendingToolConfirmation?.request?.toolName)
+        vm.cancelPendingTool()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(vm.uiState.value.pendingToolConfirmation)
+
+        // 4. Background wake-word standby persists when pauseMicInBackground = false & arms STT on wake notification resume
+        vm.onMicPermissionChanged(true)
+        vm.setPauseMicInBackground(false)
+        vm.setWakeWordStandbyEnabled(true)
+        vm.setPorcupineAccessKey("pv-test-key")
+        repeat(30) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (wakeWord.state.value == WakeWordState.STANDBY_AUDIO_GATE && serviceRunning) return@repeat
+            Thread.sleep(10)
+        }
+        assertTrue(serviceRunning)
+        assertEquals(WakeWordState.STANDBY_AUDIO_GATE, wakeWord.state.value)
+
+        val stopsBeforeBg = serviceStopCount
+        vm.onAppLifecycleChanged(inForeground = false)
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        assertEquals(stopsBeforeBg, serviceStopCount)
+        assertTrue(serviceRunning)
+        assertEquals(WakeWordState.STANDBY_AUDIO_GATE, wakeWord.state.value)
+
+        // Simulate tapping the high-priority wake notification when returning to foreground
+        val listenBeforeWakeResume = fakeVoice.startListeningCount
+        com.example.core.voice.VoiceServiceStatus.requestWakeArmFromNotification()
+        vm.onAppLifecycleChanged(inForeground = true)
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (fakeVoice.startListeningCount > listenBeforeWakeResume) return@repeat
+            Thread.sleep(10)
+        }
+        assertTrue(fakeVoice.startListeningCount > listenBeforeWakeResume)
+        assertFalse(com.example.core.voice.VoiceServiceStatus.pendingWakeArmFromNotification.value)
+
+        uiSubJob.cancel()
+        dataStoreScope.cancel()
+    }
+
+    @Test
+    fun `chat viewmodel executes closed-loop model tool call strictly once without duplicate post completion dispatch`() = runBlocking {
+        val modelManager = RoomModelManager(db.modelDao()).apply { ensureSeeded() }
+        modelManager.updateArtifactState(
+            id = RoomModelManager.GEMMA_3_1B_ID,
+            localFilePath = File(tmpFolder.root, "gemma3_chat_single.litertlm").apply { writeBytes(ByteArray(256)) }.absolutePath,
+            artifactState = ArtifactState.READY,
+            status = ModelStatus.READY
+        )
+        val convRepo = ConversationRepository(db.conversationDao())
+        val sysTools = AndroidSystemTools(context)
+        val localMemory = RoomLocalMemory(db.memoryDao())
+        val skillEngine = RoomSkillEngine(db.skillDao())
+        val registry = ToolRegistryFactory.createDefault(
+            androidTools = sysTools,
+            localMemoryProvider = { localMemory },
+            skillEngineProvider = { skillEngine }
+        )
+
+        var aiTurn = 0
+        val loopAiEngine = object : AiEngine {
+            override val loadState = MutableStateFlow<EngineLoadState>(
+                EngineLoadState.Ready(RoomModelManager.GEMMA_3_1B_ID, "Gemma 3 1B", "CPU", 10L)
+            )
+            override val isGenerating = MutableStateFlow(false)
+            override val lastBenchmark = MutableStateFlow<GenerationBenchmark?>(null)
+            override val nativeMemoryMb = MutableStateFlow(64f)
+            override suspend fun loadModel(slot: ModelSlot, settings: JarvisSettings) = Result.success(Unit)
+            override suspend fun unloadModel() = Unit
+            override suspend fun reloadModel(slot: ModelSlot, settings: JarvisSettings) = Result.success(Unit)
+            override suspend fun cancelGeneration() = Unit
+            override fun refreshMemoryUsage() = Unit
+            override fun release() = Unit
+            override fun streamReply(
+                conversationId: String,
+                prompt: String,
+                history: List<MessageEntity>,
+                settings: JarvisSettings
+            ): Flow<AiStreamEvent> = flow {
+                aiTurn++
+                emit(AiStreamEvent.Started("CPU"))
+                val reply = if (aiTurn == 1) {
+                    """[TOOL_CALL]{"tool":"read_battery_status","args":{}}[/TOOL_CALL]"""
+                } else {
+                    // Even if the final synthesized reply mentions a tool tag or text, ChatViewModel must not re-run it after Completed
+                    """Battery check done cleanly."""
+                }
+                val bench = GenerationBenchmark(12L, 45f, 6, 4, "CPU", 64f)
+                emit(AiStreamEvent.Completed(reply, bench))
+            }
+        }
+
+        val dataStoreFile = File(tmpFolder.root, "chat_single_tool.preferences_pb")
+        val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val dataStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) { dataStoreFile }
+        val settingsRepo = SettingsRepository(dataStore, SecureCredentialStore())
+        settingsRepo.setRoutingMode(AgentRoutingMode.LOCAL_ONLY)
+
+        val agentCore = Phase2AgentCore(
+            aiEngine = loopAiEngine,
+            modelManager = modelManager,
+            androidTools = sysTools,
+            cloudProviderRegistry = Phase1CloudProviderRegistry(),
+            wakeWordEngine = ModularWakeWordEngine(),
+            localMemory = localMemory,
+            appContext = context,
+            toolRegistry = registry,
+            intentRouter = IntentRouter(),
+            agentExecutionDao = db.agentExecutionDao(),
+            skillEngine = skillEngine
+        )
+
+        val chatVm = ChatViewModel(
+            conversationRepository = convRepo,
+            modelManager = modelManager,
+            agentCore = agentCore,
+            aiEngine = loopAiEngine,
+            settingsRepository = settingsRepo,
+            modelBenchmarkDao = db.modelBenchmarkDao(),
+            localMemory = localMemory,
+            androidTools = sysTools
+        )
+        val sub = dataStoreScope.launch(Dispatchers.Unconfined) { chatVm.uiState.collect {} }
+
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (chatVm.uiState.value.activeConversationId != null &&
+                chatVm.uiState.value.settings.routingMode == AgentRoutingMode.LOCAL_ONLY
+            ) return@repeat
+            Thread.sleep(10)
+        }
+
+        chatVm.sendMessage("Analyze power telemetry cleanly")
+        repeat(50) {
+            shadowOf(Looper.getMainLooper()).idle()
+            val msgs = chatVm.uiState.value.messages
+            if (msgs.any { it.role == MessageRole.ASSISTANT && it.content.contains("Battery check done cleanly") } &&
+                !chatVm.uiState.value.isGenerating
+            ) return@repeat
+            Thread.sleep(15)
+        }
+
+        val toolSnapshots = chatVm.uiState.value.messages.filter {
+            it.role == MessageRole.TOOL_SNAPSHOT && it.modelLabel?.contains("read_battery_status") == true
+        }
+        assertEquals(1, toolSnapshots.size)
+
+        sub.cancel()
+        dataStoreScope.cancel()
     }
 }
 

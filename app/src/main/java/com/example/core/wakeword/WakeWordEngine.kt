@@ -62,7 +62,8 @@ interface WakeWordEngine {
         enabled: Boolean,
         hasMicPermission: Boolean = true,
         isAppInForeground: Boolean = true,
-        porcupineAccessKeyPresent: Boolean = false
+        porcupineAccessKeyPresent: Boolean = false,
+        backgroundFgsActive: Boolean = false
     )
 
     fun processPcm16Frame(samples: ShortArray, sampleCount: Int)
@@ -167,10 +168,12 @@ class ModularWakeWordEngine(
         enabled: Boolean,
         hasMicPermission: Boolean,
         isAppInForeground: Boolean,
-        porcupineAccessKeyPresent: Boolean
+        porcupineAccessKeyPresent: Boolean,
+        backgroundFgsActive: Boolean
     ) {
         val keyAvailable = porcupineAccessKeyPresent || activeAccessKey.isNotBlank()
-        if (enabled && hasMicPermission && isAppInForeground && activeAccessKey.isNotBlank() && nativeSpotter == null) {
+        val canListenInStandby = isAppInForeground || backgroundFgsActive
+        if (enabled && hasMicPermission && canListenInStandby && activeAccessKey.isNotBlank() && nativeSpotter == null) {
             synchronized(lock) {
                 initSpotterIfPossibleLocked(activeAccessKey)
             }
@@ -178,7 +181,7 @@ class ModularWakeWordEngine(
         _state.value = when {
             !enabled -> WakeWordState.DORMANT
             !hasMicPermission -> WakeWordState.PERMISSION_DENIED
-            !isAppInForeground -> WakeWordState.BACKGROUND_RESTRICTED
+            !canListenInStandby -> WakeWordState.BACKGROUND_RESTRICTED
             keyAvailable -> WakeWordState.STANDBY_AUDIO_GATE
             else -> WakeWordState.UNAVAILABLE_PENDING_MODEL_OR_KEY
         }

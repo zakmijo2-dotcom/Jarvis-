@@ -52,6 +52,12 @@ object VoiceServiceStatus {
     private val _userStopRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val userStopRequests: SharedFlow<Unit> = _userStopRequests.asSharedFlow()
 
+    private val _isAppInForeground = MutableStateFlow(true)
+    val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
+
+    private val _pendingWakeArmFromNotification = MutableStateFlow(false)
+    val pendingWakeArmFromNotification: StateFlow<Boolean> = _pendingWakeArmFromNotification.asStateFlow()
+
     internal fun setRunning(running: Boolean, capturing: Boolean) {
         _isRunning.value = running
         _isAudioCaptureActive.value = capturing
@@ -63,6 +69,22 @@ object VoiceServiceStatus {
 
     internal fun emitUserStopRequest() {
         _userStopRequests.tryEmit(Unit)
+    }
+
+    internal fun setAppInForeground(inForeground: Boolean) {
+        _isAppInForeground.value = inForeground
+    }
+
+    fun requestWakeArmFromNotification() {
+        _pendingWakeArmFromNotification.value = true
+    }
+
+    fun consumePendingWakeArm(): Boolean {
+        val current = _pendingWakeArmFromNotification.value
+        if (current) {
+            _pendingWakeArmFromNotification.value = false
+        }
+        return current
     }
 }
 
@@ -78,6 +100,7 @@ class JarvisVoiceService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var captureJob: Job? = null
+    private var wakeTriggerMonitorJob: Job? = null
     private var activeWakeWordEngine: WakeWordEngine? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -159,7 +182,9 @@ class JarvisVoiceService : Service() {
     private fun startPcmAudioGateLoop() {
         if (captureJob?.isActive == true) return
         val app = applicationContext as? com.example.JarvisApplication
-        activeWakeWordEngine = app?.container?.wakeWordEngine
+        val wakeEngine = app?.container?.wakeWordEngine
+        activeWakeWordEngine = wakeEngine
+        startWakeTriggerMonitor(wakeEngine)
 
         captureJob = serviceScope.launch {
             val sampleRate = 16_000
@@ -209,9 +234,23 @@ class JarvisVoiceService : Service() {
         }
     }
 
+    private fun startWakeTriggerMonitor(wakeEngine: WakeWordEngine?) {
+        wakeTriggerMonitorJob?.cancel()
+        if (wakeEngine == null) return
+        wakeTriggerMonitorJob = serviceScope.launch {
+            wakeEngine.triggerEvents.collect {
+                if (!VoiceServiceStatus.isAppInForeground.value) {
+                    postWakeTriggeredNotification()
+                }
+            }
+        }
+    }
+
     private fun stopPcmAudioGateLoop() {
         captureJob?.cancel()
         captureJob = null
+        wakeTriggerMonitorJob?.cancel()
+        wakeTriggerMonitorJob = null
     }
 
     private fun stopCaptureAndSelf() {
@@ -282,16 +321,69 @@ class JarvisVoiceService : Service() {
                 }
                 nm?.createNotificationChannel(channel)
             }
+            if (nm?.getNotificationChannel(WAKE_ALERT_CHANNEL_ID) == null) {
+                val wakeChannel = NotificationChannel(
+                    WAKE_ALERT_CHANNEL_ID,
+                    "JARVIS Wake-Word Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "High-priority alerts when \"Jarvis\" wake word fires in the background"
+                }
+                nm?.createNotificationChannel(wakeChannel)
+            }
         }
+    }
+
+    private fun postWakeTriggeredNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notifGranted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!notifGranted) return
+        }
+        ensureNotificationChannel()
+        VoiceServiceStatus.requestWakeArmFromNotification()
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_ARM_VOICE_FROM_WAKE, true)
+        }
+        val openPending = PendingIntent.getActivity(
+            this,
+            WAKE_ALERT_NOTIFICATION_ID,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, WAKE_ALERT_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("JARVIS Heard Wake Word")
+            .setContentText("Tap to open Voice Console and start listening")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(openPending)
+            .build()
+        val nm = getSystemService(NotificationManager::class.java)
+        nm?.notify(WAKE_ALERT_NOTIFICATION_ID, notification)
     }
 
     companion object {
         const val CHANNEL_ID = "jarvis_voice_microphone_fgs"
+        const val WAKE_ALERT_CHANNEL_ID = "jarvis_wake_alert_channel"
         const val NOTIFICATION_ID = 4101
+        const val WAKE_ALERT_NOTIFICATION_ID = 4102
         const val ACTION_START_MIC = "com.example.core.voice.START_MIC"
         const val ACTION_STOP_MIC = "com.example.core.voice.STOP_MIC"
         const val EXTRA_MODE_LABEL = "extra_mode_label"
         const val EXTRA_CAPTURE_PCM_GATE = "extra_capture_pcm_gate"
+        const val EXTRA_ARM_VOICE_FROM_WAKE = "extra_arm_voice_from_wake"
+
+        fun cancelWakeAlertNotification(context: Context) {
+            runCatching {
+                val nm = context.getSystemService(NotificationManager::class.java)
+                nm?.cancel(WAKE_ALERT_NOTIFICATION_ID)
+            }
+        }
 
         fun startForegroundMic(
             context: Context,

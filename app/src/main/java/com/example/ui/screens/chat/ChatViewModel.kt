@@ -405,15 +405,6 @@ class ChatViewModel(
                                             batteryTempCelsius = telemetry?.batteryTempCelsius ?: event.benchmark.batteryTempCelsius
                                         )
                                     )
-                                    val modelToolCall = agentCore.extractModelToolCall(finalContent)
-                                    if (modelToolCall != null) {
-                                        dispatchStandaloneTool(
-                                            convId = convId,
-                                            request = modelToolCall,
-                                            settings = settings,
-                                            userConfirmed = false
-                                        )
-                                    }
                                 } else {
                                     conversationRepository.appendMessage(
                                         conversationId = convId,

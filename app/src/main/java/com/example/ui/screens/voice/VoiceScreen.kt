@@ -1,10 +1,13 @@
 package com.example.ui.screens.voice
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -85,7 +89,13 @@ fun VoiceScreen(
     onToggleWakeWordStandby: (Boolean) -> Unit,
     onTogglePauseInBackground: (Boolean) -> Unit,
     onLogTranscriptToChat: (String) -> Unit,
-    onSavePorcupineAccessKey: (String) -> Unit = {}
+    onSavePorcupineAccessKey: (String) -> Unit = {},
+    onConfirmPendingTool: () -> Unit = {},
+    onCancelPendingTool: () -> Unit = {},
+    onCancelActiveTool: () -> Unit = {},
+    onDismissPermissionPrompt: () -> Unit = {},
+    onRuntimePermissionResult: (String, Boolean) -> Unit = { _, _ -> },
+    onOpenDeviceControls: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var fallbackInput by remember { mutableStateOf("") }
@@ -140,6 +150,19 @@ fun VoiceScreen(
         } else {
             pendingActionAfterMic = action
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    var activeToolPermissionRequest by remember { mutableStateOf<String?>(null) }
+    val toolPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val perm = activeToolPermissionRequest ?: uiState.pendingRuntimePermission ?: ""
+        activeToolPermissionRequest = null
+        if (perm.isNotBlank()) {
+            onRuntimePermissionResult(perm, granted)
+        } else {
+            onDismissPermissionPrompt()
         }
     }
 
@@ -215,6 +238,190 @@ fun VoiceScreen(
                 onDisableListening = onInterruptAllVoice,
                 onDismissNotice = onDismissError
             )
+
+            AnimatedVisibility(visible = uiState.activePlan != null || uiState.activeToolName != null) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .testTag("voice_active_plan_banner")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val activePlan = uiState.activePlan
+                        val stepInfo = when {
+                            uiState.activeToolName != null -> "Executing tool: ${uiState.activeToolName}…"
+                            activePlan != null -> {
+                                val done = activePlan.steps.count { it.status.name == "COMPLETED" || it.status.name == "RECOVERED" }
+                                "HYBRID AGENT • ${activePlan.routeDecision.route.label} ($done/${activePlan.steps.size})"
+                            }
+                            else -> "Hybrid Agent Active"
+                        }
+                        Text(
+                            text = stepInfo,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = onCancelActiveTool,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("voice_cancel_plan_button")
+                        ) {
+                            Text("Stop")
+                        }
+                    }
+                }
+            }
+
+            val pendingConfirm = uiState.pendingToolConfirmation
+            AnimatedVisibility(visible = pendingConfirm != null) {
+                if (pendingConfirm != null) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 720.dp)
+                            .testTag("voice_confirmation_card")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Security,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    text = "Confirm Action: ${pendingConfirm.request.toolName}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                            Text(
+                                text = pendingConfirm.confirmationMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = pendingConfirm.sensitivityWarning,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onCancelPendingTool,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("voice_cancel_tool_button")
+                                ) {
+                                    Text("Cancel")
+                                }
+                                Button(
+                                    onClick = onConfirmPendingTool,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("voice_confirm_tool_button")
+                                ) {
+                                    Text("Approve & Run")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            val pendingPerm = uiState.pendingRuntimePermission
+            val pendingSpecial = uiState.pendingSpecialAccess
+            AnimatedVisibility(visible = pendingPerm != null || pendingSpecial != null) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .testTag("voice_permission_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (pendingPerm != null) "Permission Required" else "${pendingSpecial?.label} Required",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                        Text(
+                            text = uiState.permissionRationale
+                                ?: "JARVIS requires explicit authorization before accessing this Android capability.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    onDismissPermissionPrompt()
+                                    if (pendingSpecial != null) {
+                                        onOpenDeviceControls()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("voice_dismiss_permission_button")
+                            ) {
+                                Text(if (pendingSpecial != null) "Privacy Controls" else "Dismiss")
+                            }
+                            Button(
+                                onClick = {
+                                    if (pendingPerm != null) {
+                                        activeToolPermissionRequest = pendingPerm
+                                        toolPermissionLauncher.launch(pendingPerm)
+                                    } else if (pendingSpecial != null) {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(pendingSpecial.settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            )
+                                        }
+                                        onDismissPermissionPrompt()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("voice_grant_tool_permission_button")
+                            ) {
+                                Text(if (pendingPerm != null) "Grant Permission" else "Open Settings")
+                            }
+                        }
+                    }
+                }
+            }
 
             JarvisOrb(
                 mode = orbMode,

@@ -5,14 +5,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.agent.AgentCore
+import com.example.core.agent.AgentPlanState
+import com.example.core.agent.AgentPlanStep
+import com.example.core.agent.HybridAgentEvent
 import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
-import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
-import com.example.core.model.RuntimeFormatId
+import com.example.core.model.ModelSlot
 import com.example.core.tools.AndroidTools
-import java.io.File
+import com.example.core.tools.PendingToolConfirmation
+import com.example.core.tools.SpecialAccessType
+import com.example.core.tools.ToolCallRequest
+import com.example.core.tools.ToolExecutionResult
+import com.example.core.tools.ToolExecutionStatus
 import com.example.core.voice.JarvisVoiceService
 import com.example.core.voice.MicStatus
 import com.example.core.voice.TtsVoiceInfo
@@ -29,12 +35,14 @@ import com.example.core.wakeword.WakeWordAudioMetrics
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.wakeword.WakeWordEvaluationReport
 import com.example.core.wakeword.WakeWordState
+import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
 import com.example.data.local.db.ModelBenchmarkDao
 import com.example.data.local.db.ModelBenchmarkEntity
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +51,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 import java.util.UUID
 
@@ -68,7 +77,31 @@ data class VoiceUiState(
     val isGeneratingReply: Boolean = false,
     val streamingReply: String = "",
     val voiceTurns: List<VoiceTurnItem> = emptyList(),
-    val settings: JarvisSettings = JarvisSettings()
+    val settings: JarvisSettings = JarvisSettings(),
+    val activePlan: AgentPlanState? = null,
+    val activeToolName: String? = null,
+    val pendingToolConfirmation: PendingToolConfirmation? = null,
+    val pendingRuntimePermission: String? = null,
+    val pendingSpecialAccess: SpecialAccessType? = null,
+    val permissionRationale: String? = null
+)
+
+private data class VoiceOverlayState(
+    val activePlan: AgentPlanState? = null,
+    val activeToolName: String? = null,
+    val pendingConfirmation: PendingToolConfirmation? = null,
+    val pendingRuntimePermission: String? = null,
+    val pendingSpecialAccess: SpecialAccessType? = null,
+    val permissionRationale: String? = null
+)
+
+private data class VoicePausedPlanContext(
+    val conversationId: String,
+    val prompt: String,
+    val history: List<MessageEntity>,
+    val detectedLanguage: VoiceLanguageOption,
+    val stepIndex: Int,
+    val stepsSnapshot: List<AgentPlanStep>
 )
 
 class VoiceViewModel(
@@ -82,7 +115,8 @@ class VoiceViewModel(
     private val modelBenchmarkDao: ModelBenchmarkDao? = null,
     private val serviceStarter: (modeLabel: String, capturePcmGate: Boolean) -> Boolean = { _, _ -> false },
     private val serviceStopper: () -> Unit = {},
-    private val androidTools: AndroidTools? = null
+    private val androidTools: AndroidTools? = null,
+    private val isServiceRunningProvider: () -> Boolean = { VoiceServiceStatus.isRunning.value }
 ) : ViewModel() {
 
     private val micPermissionGranted = MutableStateFlow(false)
@@ -92,9 +126,14 @@ class VoiceViewModel(
     private val streamingReply = MutableStateFlow("")
     private val voiceTurns = MutableStateFlow<List<VoiceTurnItem>>(emptyList())
     private val localNotice = MutableStateFlow<String?>(null)
+    private val overlayState = MutableStateFlow(VoiceOverlayState())
     private var consecutiveTimeoutCount = 0
     private var generationJob: Job? = null
+    private var toolJob: Job? = null
     private var continuousRearmJob: Job? = null
+    private var pausedPlanContext: VoicePausedPlanContext? = null
+    private var lastPermissionDeniedRequest: Triple<String, ToolCallRequest, VoiceLanguageOption>? = null
+    private var wakeServiceArmedLocally = false
 
     private data class CoreVoiceSnapshot(
         val engineState: VoiceEngineState,
@@ -156,7 +195,8 @@ class VoiceViewModel(
         runtimeFlow,
         streamingReply,
         voiceTurns,
-        localNotice
+        localNotice,
+        overlayState
     ) { values ->
         val core = values[0] as CoreVoiceSnapshot
         val control = values[1] as ControlSnapshot
@@ -165,6 +205,7 @@ class VoiceViewModel(
         @Suppress("UNCHECKED_CAST")
         val turns = values[4] as List<VoiceTurnItem>
         val notice = values[5] as String?
+        val overlay = values[6] as VoiceOverlayState
 
         val selectedLanguage = VoiceLanguageOption.fromTag(control.settings.voiceLanguageTag)
         val convMode = if (control.settings.voiceContinuousMode) {
@@ -173,11 +214,12 @@ class VoiceViewModel(
             VoiceConversationMode.PUSH_TO_TALK
         }
         val sttAvailable = voiceEngine.isSpeechRecognitionAvailable()
+        val fgsActive = runtime.fgsRunning || wakeServiceArmedLocally
         val micStatus = resolveMicStatus(
             micGranted = control.micGranted,
             inForeground = control.inForeground,
             engineState = core.engineState,
-            fgsRunning = runtime.fgsRunning,
+            fgsRunning = fgsActive,
             wakeState = runtime.wakeWordState,
             sttAvailable = sttAvailable
         )
@@ -196,7 +238,7 @@ class VoiceViewModel(
             micPermissionGranted = control.micGranted,
             isAppInForeground = control.inForeground,
             micStatus = micStatus,
-            isForegroundServiceRunning = runtime.fgsRunning,
+            isForegroundServiceRunning = fgsActive,
             serviceRestrictionNotice = notice ?: runtime.fgsNotice,
             wakeWordState = runtime.wakeWordState,
             wakeWordMetrics = runtime.wakeWordMetrics,
@@ -204,7 +246,13 @@ class VoiceViewModel(
             isGeneratingReply = runtime.isGenerating,
             streamingReply = streaming,
             voiceTurns = turns,
-            settings = control.settings
+            settings = control.settings,
+            activePlan = overlay.activePlan,
+            activeToolName = overlay.activeToolName,
+            pendingToolConfirmation = overlay.pendingConfirmation,
+            pendingRuntimePermission = overlay.pendingRuntimePermission,
+            pendingSpecialAccess = overlay.pendingSpecialAccess,
+            permissionRationale = overlay.permissionRationale
         )
     }.stateIn(
         scope = viewModelScope,
@@ -238,7 +286,8 @@ class VoiceViewModel(
                     stateSnapshot.isContinuousSessionActive &&
                     stateSnapshot.micPermissionGranted &&
                     stateSnapshot.isAppInForeground &&
-                    !stateSnapshot.isGeneratingReply
+                    !stateSnapshot.isGeneratingReply &&
+                    stateSnapshot.pendingToolConfirmation == null
                 ) {
                     scheduleContinuousRearm()
                 }
@@ -288,11 +337,15 @@ class VoiceViewModel(
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { s ->
                 wakeWordEngine.updateAccessKey(s.porcupineAccessKey)
+                if (s.wakeWordStandbyEnabled && micPermissionGranted.value && isAppInForeground.value && !isFgsCurrentlyRunning()) {
+                    startWakeWordServiceGate()
+                }
                 syncWakeWordBoundary(
                     enabled = s.wakeWordStandbyEnabled,
                     hasMic = micPermissionGranted.value,
                     inForeground = isAppInForeground.value,
-                    keyPresent = s.porcupineAccessKey.isNotBlank()
+                    keyPresent = s.porcupineAccessKey.isNotBlank(),
+                    pauseMicInBackground = s.pauseMicInBackground
                 )
             }
         }
@@ -305,7 +358,23 @@ class VoiceViewModel(
                     !snap.isGeneratingReply &&
                     snap.engineState !is VoiceEngineState.Listening
                 ) {
+                    VoiceServiceStatus.consumePendingWakeArm()
                     startListeningInternal()
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            VoiceServiceStatus.pendingWakeArmFromNotification.collect { pendingArm ->
+                if (pendingArm &&
+                    isAppInForeground.value &&
+                    micPermissionGranted.value &&
+                    !isGeneratingReply.value &&
+                    voiceEngine.state.value !is VoiceEngineState.Listening
+                ) {
+                    if (VoiceServiceStatus.consumePendingWakeArm()) {
+                        startListeningInternal()
+                    }
                 }
             }
         }
@@ -314,26 +383,36 @@ class VoiceViewModel(
     fun onMicPermissionChanged(granted: Boolean) {
         val prev = micPermissionGranted.value
         micPermissionGranted.value = granted
+        val settings = uiState.value.settings
         if (!granted) {
             isContinuousSessionActive.value = false
             continuousRearmJob?.cancel()
             voiceEngine.cancelListening()
-            serviceStopper()
-            if (prev || uiState.value.settings.wakeWordStandbyEnabled) {
+            stopWakeWordServiceGate()
+            if (prev || settings.wakeWordStandbyEnabled) {
                 localNotice.value = "Microphone permission denied. Voice capture & standby paused; text fallback remains active."
             }
         } else {
             localNotice.value = null
+            if (settings.wakeWordStandbyEnabled && isAppInForeground.value && !isFgsCurrentlyRunning()) {
+                startWakeWordServiceGate()
+            }
+            if (isAppInForeground.value && VoiceServiceStatus.consumePendingWakeArm()) {
+                startListeningInternal()
+            }
         }
         syncWakeWordBoundary(
-            enabled = uiState.value.settings.wakeWordStandbyEnabled,
+            enabled = settings.wakeWordStandbyEnabled,
             hasMic = granted,
-            inForeground = isAppInForeground.value
+            inForeground = isAppInForeground.value,
+            keyPresent = settings.porcupineAccessKey.isNotBlank(),
+            pauseMicInBackground = settings.pauseMicInBackground
         )
     }
 
     fun onAppLifecycleChanged(inForeground: Boolean) {
         isAppInForeground.value = inForeground
+        VoiceServiceStatus.setAppInForeground(inForeground)
         val settings = uiState.value.settings
         if (!inForeground) {
             continuousRearmJob?.cancel()
@@ -342,19 +421,27 @@ class VoiceViewModel(
                 isContinuousSessionActive.value = false
                 localNotice.value = "Continuous voice paused while app moved to background (Android mic restriction)."
             }
-            if (settings.pauseMicInBackground || !settings.wakeWordStandbyEnabled) {
-                serviceStopper()
+            if (settings.pauseMicInBackground || !settings.wakeWordStandbyEnabled || !micPermissionGranted.value) {
+                stopWakeWordServiceGate()
             }
         } else {
-            // Re-enable standby audio gate only when returning to foreground if toggle is on
-            if (settings.wakeWordStandbyEnabled && micPermissionGranted.value) {
+            if (settings.wakeWordStandbyEnabled && micPermissionGranted.value && !isFgsCurrentlyRunning()) {
                 startWakeWordServiceGate()
+            }
+            if (micPermissionGranted.value &&
+                !isGeneratingReply.value &&
+                voiceEngine.state.value !is VoiceEngineState.Listening &&
+                VoiceServiceStatus.consumePendingWakeArm()
+            ) {
+                startListeningInternal()
             }
         }
         syncWakeWordBoundary(
             enabled = settings.wakeWordStandbyEnabled,
             hasMic = micPermissionGranted.value,
-            inForeground = inForeground
+            inForeground = inForeground,
+            keyPresent = settings.porcupineAccessKey.isNotBlank(),
+            pauseMicInBackground = settings.pauseMicInBackground
         )
     }
 
@@ -408,7 +495,7 @@ class VoiceViewModel(
         consecutiveTimeoutCount = 0
         isContinuousSessionActive.value = true
         localNotice.value = null
-        serviceStarter("Continuous voice conversation active", false)
+        wakeServiceArmedLocally = serviceStarter("Continuous voice conversation active", false)
         startListeningInternal()
     }
 
@@ -417,7 +504,7 @@ class VoiceViewModel(
         isContinuousSessionActive.value = false
         voiceEngine.cancelListening()
         if (!uiState.value.settings.wakeWordStandbyEnabled) {
-            serviceStopper()
+            stopWakeWordServiceGate()
         }
         if (reason != null) {
             localNotice.value = reason
@@ -450,6 +537,7 @@ class VoiceViewModel(
                 snap.micPermissionGranted &&
                 snap.isAppInForeground &&
                 !snap.isGeneratingReply &&
+                snap.pendingToolConfirmation == null &&
                 snap.engineState !is VoiceEngineState.Speaking
             ) {
                 voiceEngine.resetError()
@@ -480,8 +568,11 @@ class VoiceViewModel(
 
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            isGeneratingReply.value = true
-            streamingReply.value = ""
+            val convId = conversationRepository.ensureDefaultConversation()
+            val settings = uiState.value.settings
+            val activeModel = modelManager.getActiveModelOnce()
+            val historyBeforeSend = conversationRepository.getMessagesOnce(convId)
+
             appendTurn(
                 VoiceTurnItem(
                     id = UUID.randomUUID().toString(),
@@ -491,168 +582,496 @@ class VoiceViewModel(
                     telemetryNote = "$origin • ${detectedLanguage.shortLabel}"
                 )
             )
+            conversationRepository.appendMessage(
+                conversationId = convId,
+                role = MessageRole.USER,
+                content = prompt,
+                modelLabel = "Operator ($origin)"
+            )
 
-            try {
-                val convId = conversationRepository.ensureDefaultConversation()
-                val settings = uiState.value.settings
-                val activeModel = modelManager.getActiveModelOnce()
-                val historyBeforeSend = conversationRepository.getMessagesOnce(convId)
+            runVoiceHybridExecution(
+                convId = convId,
+                prompt = prompt,
+                history = historyBeforeSend,
+                settings = settings,
+                activeModel = activeModel,
+                detectedLanguage = detectedLanguage,
+                confirmedStepIndex = null,
+                existingSteps = null
+            )
+        }
+    }
 
-                conversationRepository.appendMessage(
-                    conversationId = convId,
-                    role = MessageRole.USER,
-                    content = prompt,
-                    modelLabel = "Operator ($origin)"
-                )
+    private suspend fun runVoiceHybridExecution(
+        convId: String,
+        prompt: String,
+        history: List<MessageEntity>,
+        settings: JarvisSettings,
+        activeModel: ModelSlot?,
+        detectedLanguage: VoiceLanguageOption,
+        confirmedStepIndex: Int?,
+        existingSteps: List<AgentPlanStep>?
+    ) {
+        isGeneratingReply.value = true
+        streamingReply.value = ""
+        var sawAiCompleted = false
+        var lastToolSummary: String? = null
+        var pausedForUserAction = false
 
-                val readyState = aiEngine.loadState.value as? EngineLoadState.Ready
-                if (readyState == null || (activeModel != null && readyState.modelId != activeModel.id)) {
-                    if (activeModel != null && activeModel.runtimeFormat != RuntimeFormatId.LITERT_LM) {
-                        val notice = "${activeModel.displayName} uses ${activeModel.runtimeFormat.label}, which is not yet active for inference. Switch to a LiteRT-LM model in Models."
-                        handleSystemVoiceNotice(convId, notice, detectedLanguage)
-                        return@launch
-                    } else if (activeModel != null && activeModel.artifactState == ArtifactState.READY) {
-                        val loadRes = aiEngine.loadModel(activeModel, settings)
-                        if (loadRes.isFailure) {
-                            val err = loadRes.exceptionOrNull()?.localizedMessage ?: "Failed to load local LiteRT-LM model."
-                            handleSystemVoiceNotice(convId, err, detectedLanguage)
-                            return@launch
-                        }
-                    } else {
-                        val notice = "Local LiteRT-LM model is not installed yet. Download or import a .litertlm model in the Models tab to enable spoken AI replies."
-                        handleSystemVoiceNotice(convId, notice, detectedLanguage)
-                        return@launch
+        try {
+            agentCore.executeHybridTask(
+                conversationId = convId,
+                prompt = prompt,
+                history = history,
+                settings = settings,
+                confirmedStepIndex = confirmedStepIndex,
+                existingSteps = existingSteps
+            ).collect { hybridEvent ->
+                when (hybridEvent) {
+                    is HybridAgentEvent.PlanUpdated -> {
+                        overlayState.value = overlayState.value.copy(activePlan = hybridEvent.plan)
                     }
-                }
 
-                val modelLabel = activeModel?.displayName ?: "LiteRT-LM"
-                agentCore.streamPrompt(
-                    conversationId = convId,
-                    prompt = prompt,
-                    history = historyBeforeSend,
-                    settings = settings
-                ).collect { event ->
-                    when (event) {
-                        is AiStreamEvent.Started -> Unit
-                        is AiStreamEvent.Delta -> {
-                            streamingReply.value = event.accumulatedText
+                    is HybridAgentEvent.ToolSnapshotEmitted -> {
+                        lastToolSummary = hybridEvent.content
+                        conversationRepository.appendMessage(
+                            conversationId = convId,
+                            role = MessageRole.TOOL_SNAPSHOT,
+                            content = hybridEvent.content,
+                            modelLabel = hybridEvent.label
+                        )
+                    }
+
+                    is HybridAgentEvent.Notice -> {
+                        handleSystemVoiceNotice(
+                            convId = convId,
+                            notice = hybridEvent.message,
+                            language = detectedLanguage,
+                            label = hybridEvent.label
+                        )
+                    }
+
+                    is HybridAgentEvent.ConfirmationRequired -> {
+                        pausedForUserAction = true
+                        val currentSteps = overlayState.value.activePlan?.steps.orEmpty()
+                        pausedPlanContext = VoicePausedPlanContext(
+                            conversationId = convId,
+                            prompt = prompt,
+                            history = history,
+                            detectedLanguage = detectedLanguage,
+                            stepIndex = hybridEvent.stepIndex,
+                            stepsSnapshot = currentSteps
+                        )
+                        val pending = agentCore.describeConfirmation(hybridEvent.request)
+                        overlayState.value = overlayState.value.copy(pendingConfirmation = pending)
+                        if (uiState.value.settings.ttsAutoSpeak) {
+                            val toolTitle = pending?.request?.toolName ?: hybridEvent.request.toolName
+                            speakLocalizedSystemPrompt(
+                                english = "Confirmation required before $toolTitle. Tap Approve or Cancel on screen.",
+                                french = "Confirmation requise avant $toolTitle. Appuyez sur Approuver ou Annuler.",
+                                arabic = "مطلوب تأكيد قبل تنفيذ $toolTitle. اختر موافقة أو إلغاء على الشاشة.",
+                                language = detectedLanguage
+                            )
                         }
-                        is AiStreamEvent.Completed -> {
-                            streamingReply.value = ""
-                            val reply = event.fullText.trim()
-                            if (reply.isNotEmpty()) {
-                                val replyLang = VoiceLanguageDetector.detectLanguage(
-                                    text = reply,
-                                    preferred = uiState.value.selectedLanguage,
-                                    systemLocale = detectedLanguage.toLocale()
-                                )
-                                conversationRepository.appendMessage(
-                                    conversationId = convId,
-                                    role = MessageRole.ASSISTANT,
-                                    content = reply,
-                                    modelLabel = modelLabel,
-                                    ttftMs = event.benchmark.ttftMs,
-                                    tokensPerSecond = event.benchmark.tokensPerSecond,
-                                    outputTokens = event.benchmark.outputTokens,
-                                    backendUsed = event.benchmark.backendUsed
-                                )
-                                val telemetry = androidTools?.let { tools ->
-                                    runCatching { tools.readDeviceTelemetry() }.getOrNull()
-                                }
-                                val resolvedModelSize = event.benchmark.modelSizeBytes.takeIf { it > 0L }
-                                    ?: activeModel?.localFilePath?.let { path ->
-                                        runCatching { File(path).length() }.getOrNull()?.takeIf { it > 0L }
-                                    }
-                                    ?: activeModel?.expectedSizeBytes
-                                    ?: 0L
-                                val resolvedInitTime = event.benchmark.initTimeMs.takeIf { it > 0L }
-                                    ?: (aiEngine.loadState.value as? EngineLoadState.Ready)?.loadTimeMs
-                                    ?: 0L
-                                val resolvedThermal = telemetry?.thermalStatusLabel?.takeIf { it != "Unavailable" }
-                                    ?: event.benchmark.thermalStatus
-                                modelBenchmarkDao?.insertBenchmark(
-                                    ModelBenchmarkEntity(
-                                        id = UUID.randomUUID().toString(),
-                                        modelId = activeModel?.id ?: "unknown",
-                                        modelName = modelLabel,
-                                        backendUsed = event.benchmark.backendUsed,
+                    }
+
+                    is HybridAgentEvent.PermissionRequired -> {
+                        pausedForUserAction = true
+                        lastPermissionDeniedRequest = Triple(convId, hybridEvent.request, detectedLanguage)
+                        overlayState.value = overlayState.value.copy(
+                            pendingRuntimePermission = hybridEvent.missingRuntimePermission,
+                            pendingSpecialAccess = hybridEvent.missingSpecialAccess,
+                            permissionRationale = hybridEvent.rationale
+                        )
+                        if (uiState.value.settings.ttsAutoSpeak) {
+                            speakLocalizedSystemPrompt(
+                                english = hybridEvent.rationale,
+                                french = hybridEvent.rationale,
+                                arabic = hybridEvent.rationale,
+                                language = detectedLanguage
+                            )
+                        }
+                    }
+
+                    is HybridAgentEvent.AiStream -> {
+                        val event = hybridEvent.event
+                        val modelLabel = if (hybridEvent.usedCloud) {
+                            val chosenModel = settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+                            "Cloud // $chosenModel"
+                        } else {
+                            "${activeModel?.displayName ?: "LiteRT-LM"} (Local)"
+                        }
+
+                        when (event) {
+                            is AiStreamEvent.Started -> {
+                                streamingReply.value = ""
+                            }
+
+                            is AiStreamEvent.Delta -> {
+                                streamingReply.value = event.accumulatedText
+                            }
+
+                            is AiStreamEvent.Completed -> {
+                                sawAiCompleted = true
+                                streamingReply.value = ""
+                                val reply = event.fullText.trim()
+                                if (reply.isNotEmpty()) {
+                                    val replyLang = VoiceLanguageDetector.detectLanguage(
+                                        text = reply,
+                                        preferred = uiState.value.selectedLanguage,
+                                        systemLocale = detectedLanguage.toLocale()
+                                    )
+                                    conversationRepository.appendMessage(
+                                        conversationId = convId,
+                                        role = MessageRole.ASSISTANT,
+                                        content = reply,
+                                        modelLabel = modelLabel,
                                         ttftMs = event.benchmark.ttftMs,
                                         tokensPerSecond = event.benchmark.tokensPerSecond,
                                         outputTokens = event.benchmark.outputTokens,
-                                        prefillTokens = event.benchmark.prefillTokens,
-                                        nativeHeapMb = event.benchmark.nativeHeapMb,
-                                        timestamp = System.currentTimeMillis(),
-                                        initTimeMs = resolvedInitTime,
-                                        peakMemoryMb = maxOf(event.benchmark.peakMemoryMb, event.benchmark.nativeHeapMb),
-                                        modelSizeBytes = resolvedModelSize,
-                                        thermalStatus = resolvedThermal,
-                                        batteryPercent = telemetry?.batteryPercent ?: event.benchmark.batteryPercent,
-                                        batteryTempCelsius = telemetry?.batteryTempCelsius ?: event.benchmark.batteryTempCelsius
+                                        backendUsed = event.benchmark.backendUsed
                                     )
-                                )
-                                appendTurn(
-                                    VoiceTurnItem(
-                                        id = UUID.randomUUID().toString(),
-                                        isUser = false,
-                                        text = reply,
-                                        detectedLanguage = replyLang,
-                                        telemetryNote = String.format(
-                                            Locale.US,
-                                            "%s • %d ms TTFT • %.1f tok/s",
-                                            event.benchmark.backendUsed,
-                                            event.benchmark.ttftMs,
-                                            event.benchmark.tokensPerSecond
+                                    val telemetry = androidTools?.let { tools ->
+                                        runCatching { tools.readDeviceTelemetry() }.getOrNull()
+                                    }
+                                    val resolvedModelSize = event.benchmark.modelSizeBytes.takeIf { it > 0L }
+                                        ?: activeModel?.localFilePath?.let { path ->
+                                            runCatching { File(path).length() }.getOrNull()?.takeIf { it > 0L }
+                                        }
+                                        ?: activeModel?.expectedSizeBytes
+                                        ?: 0L
+                                    val resolvedInitTime = event.benchmark.initTimeMs.takeIf { it > 0L }
+                                        ?: (aiEngine.loadState.value as? EngineLoadState.Ready)?.loadTimeMs
+                                        ?: 0L
+                                    val resolvedThermal = telemetry?.thermalStatusLabel?.takeIf { it != "Unavailable" }
+                                        ?: event.benchmark.thermalStatus
+                                    modelBenchmarkDao?.insertBenchmark(
+                                        ModelBenchmarkEntity(
+                                            id = UUID.randomUUID().toString(),
+                                            modelId = if (hybridEvent.usedCloud) settings.cloudProviderKind.id else (activeModel?.id ?: "unknown"),
+                                            modelName = modelLabel,
+                                            backendUsed = event.benchmark.backendUsed,
+                                            ttftMs = event.benchmark.ttftMs,
+                                            tokensPerSecond = event.benchmark.tokensPerSecond,
+                                            outputTokens = event.benchmark.outputTokens,
+                                            prefillTokens = event.benchmark.prefillTokens,
+                                            nativeHeapMb = event.benchmark.nativeHeapMb,
+                                            timestamp = System.currentTimeMillis(),
+                                            initTimeMs = resolvedInitTime,
+                                            peakMemoryMb = maxOf(event.benchmark.peakMemoryMb, event.benchmark.nativeHeapMb),
+                                            modelSizeBytes = resolvedModelSize,
+                                            thermalStatus = resolvedThermal,
+                                            batteryPercent = telemetry?.batteryPercent ?: event.benchmark.batteryPercent,
+                                            batteryTempCelsius = telemetry?.batteryTempCelsius ?: event.benchmark.batteryTempCelsius
                                         )
                                     )
-                                )
-                                if (uiState.value.settings.ttsAutoSpeak) {
-                                    voiceEngine.speak(
-                                        text = reply,
-                                        speechRate = uiState.value.settings.ttsSpeechRate,
-                                        languageOption = replyLang,
-                                        preferredVoiceName = uiState.value.settings.selectedTtsVoiceName
+                                    appendTurn(
+                                        VoiceTurnItem(
+                                            id = UUID.randomUUID().toString(),
+                                            isUser = false,
+                                            text = reply,
+                                            detectedLanguage = replyLang,
+                                            telemetryNote = String.format(
+                                                Locale.US,
+                                                "%s • %d ms TTFT • %.1f tok/s",
+                                                event.benchmark.backendUsed,
+                                                event.benchmark.ttftMs,
+                                                event.benchmark.tokensPerSecond
+                                            )
+                                        )
+                                    )
+                                    if (uiState.value.settings.ttsAutoSpeak) {
+                                        voiceEngine.speak(
+                                            text = reply,
+                                            speechRate = uiState.value.settings.ttsSpeechRate,
+                                            languageOption = replyLang,
+                                            preferredVoiceName = uiState.value.settings.selectedTtsVoiceName
+                                        )
+                                    }
+                                }
+                            }
+
+                            is AiStreamEvent.Cancelled -> {
+                                streamingReply.value = ""
+                                val partial = event.partialText.trim()
+                                if (partial.isNotEmpty()) {
+                                    appendTurn(
+                                        VoiceTurnItem(
+                                            id = UUID.randomUUID().toString(),
+                                            isUser = false,
+                                            text = partial,
+                                            detectedLanguage = detectedLanguage,
+                                            telemetryNote = "Interrupted"
+                                        )
                                     )
                                 }
                             }
-                        }
-                        is AiStreamEvent.Cancelled -> {
-                            streamingReply.value = ""
-                            val partial = event.partialText.trim()
-                            if (partial.isNotEmpty()) {
-                                appendTurn(
-                                    VoiceTurnItem(
-                                        id = UUID.randomUUID().toString(),
-                                        isUser = false,
-                                        text = partial,
-                                        detectedLanguage = detectedLanguage,
-                                        telemetryNote = "Interrupted"
-                                    )
+
+                            is AiStreamEvent.Error -> {
+                                streamingReply.value = ""
+                                handleSystemVoiceNotice(
+                                    convId = convId,
+                                    notice = event.message,
+                                    language = detectedLanguage
                                 )
                             }
                         }
-                        is AiStreamEvent.Error -> {
-                            streamingReply.value = ""
-                            handleSystemVoiceNotice(convId, event.message, detectedLanguage)
-                        }
                     }
                 }
-            } finally {
-                streamingReply.value = ""
-                isGeneratingReply.value = false
+            }
+
+            // Pure on-device tool or skill turn without an LLM synthesis step: present & speak tool summary
+            val toolText = lastToolSummary?.let(::cleanToolSummaryForSpeech)
+            if (!sawAiCompleted && !pausedForUserAction && !toolText.isNullOrBlank()) {
+                val replyLang = VoiceLanguageDetector.detectLanguage(
+                    text = toolText,
+                    preferred = uiState.value.selectedLanguage,
+                    systemLocale = detectedLanguage.toLocale()
+                )
+                appendTurn(
+                    VoiceTurnItem(
+                        id = UUID.randomUUID().toString(),
+                        isUser = false,
+                        text = toolText,
+                        detectedLanguage = replyLang,
+                        telemetryNote = "On-Device Tool Execution"
+                    )
+                )
+                if (uiState.value.settings.ttsAutoSpeak) {
+                    voiceEngine.speak(
+                        text = toolText,
+                        speechRate = uiState.value.settings.ttsSpeechRate,
+                        languageOption = replyLang,
+                        preferredVoiceName = uiState.value.settings.selectedTtsVoiceName
+                    )
+                }
+            }
+        } finally {
+            streamingReply.value = ""
+            isGeneratingReply.value = false
+            if (pausedPlanContext == null &&
+                overlayState.value.pendingConfirmation == null &&
+                overlayState.value.pendingRuntimePermission == null &&
+                overlayState.value.pendingSpecialAccess == null
+            ) {
+                overlayState.value = overlayState.value.copy(activePlan = null)
             }
         }
+    }
+
+    fun confirmPendingTool() {
+        val pending = overlayState.value.pendingConfirmation ?: return
+        val paused = pausedPlanContext
+        overlayState.value = overlayState.value.copy(pendingConfirmation = null)
+        pausedPlanContext = null
+        val settings = uiState.value.settings
+
+        toolJob = viewModelScope.launch {
+            if (paused != null) {
+                runVoiceHybridExecution(
+                    convId = paused.conversationId,
+                    prompt = paused.prompt,
+                    history = paused.history,
+                    settings = settings,
+                    activeModel = modelManager.getActiveModelOnce(),
+                    detectedLanguage = paused.detectedLanguage,
+                    confirmedStepIndex = paused.stepIndex,
+                    existingSteps = paused.stepsSnapshot
+                )
+            } else {
+                val convId = conversationRepository.ensureDefaultConversation()
+                dispatchStandaloneVoiceTool(
+                    convId = convId,
+                    request = pending.request,
+                    settings = settings,
+                    language = uiState.value.detectedLanguage,
+                    userConfirmed = true
+                )
+            }
+        }
+    }
+
+    fun cancelPendingTool() {
+        val pending = overlayState.value.pendingConfirmation ?: return
+        val convId = pausedPlanContext?.conversationId
+        val lang = pausedPlanContext?.detectedLanguage ?: uiState.value.detectedLanguage
+        pausedPlanContext = null
+        overlayState.value = overlayState.value.copy(pendingConfirmation = null, activePlan = null)
+        viewModelScope.launch {
+            val resolvedConv = convId ?: conversationRepository.ensureDefaultConversation()
+            val msg = "Action '${pending.request.toolName}' cancelled by user before execution."
+            conversationRepository.appendMessage(
+                conversationId = resolvedConv,
+                role = MessageRole.TOOL_SNAPSHOT,
+                content = msg,
+                modelLabel = "Tool // Cancelled"
+            )
+            appendTurn(
+                VoiceTurnItem(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    text = msg,
+                    detectedLanguage = lang,
+                    telemetryNote = "Tool Cancelled"
+                )
+            )
+        }
+    }
+
+    fun cancelActiveTool() {
+        agentCore.cancelAutonomousTask()
+        toolJob?.cancel()
+        generationJob?.cancel()
+        pausedPlanContext = null
+        overlayState.value = overlayState.value.copy(
+            activeToolName = null,
+            activePlan = null,
+            pendingConfirmation = null
+        )
+    }
+
+    fun dismissPermissionPrompt() {
+        lastPermissionDeniedRequest = null
+        overlayState.value = overlayState.value.copy(
+            pendingRuntimePermission = null,
+            pendingSpecialAccess = null,
+            permissionRationale = null
+        )
+    }
+
+    fun onRuntimePermissionResult(permission: String, granted: Boolean) {
+        val deferred = lastPermissionDeniedRequest
+        lastPermissionDeniedRequest = null
+        overlayState.value = overlayState.value.copy(
+            pendingRuntimePermission = null,
+            pendingSpecialAccess = null,
+            permissionRationale = null
+        )
+        if (deferred != null) {
+            val (convId, req, lang) = deferred
+            viewModelScope.launch {
+                if (granted) {
+                    dispatchStandaloneVoiceTool(convId, req, uiState.value.settings, lang, userConfirmed = false)
+                } else {
+                    handleSystemVoiceNotice(
+                        convId = convId,
+                        notice = "Permission $permission was denied; tool '${req.toolName}' did not run.",
+                        language = lang,
+                        label = "Permission Validator"
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun dispatchStandaloneVoiceTool(
+        convId: String,
+        request: ToolCallRequest,
+        settings: JarvisSettings,
+        language: VoiceLanguageOption,
+        userConfirmed: Boolean
+    ) {
+        overlayState.value = overlayState.value.copy(activeToolName = request.toolName)
+        val result: ToolExecutionResult = try {
+            agentCore.executeTool(
+                request = request,
+                settings = settings,
+                userConfirmed = userConfirmed
+            )
+        } catch (_: CancellationException) {
+            ToolExecutionResult(
+                toolName = request.toolName,
+                status = ToolExecutionStatus.CANCELLED,
+                summary = "Tool execution '${request.toolName}' was cancelled."
+            )
+        } finally {
+            overlayState.value = overlayState.value.copy(activeToolName = null)
+        }
+
+        when (result.status) {
+            ToolExecutionStatus.CONFIRMATION_REQUIRED -> {
+                val pending = agentCore.describeConfirmation(request)
+                overlayState.value = overlayState.value.copy(pendingConfirmation = pending)
+            }
+
+            ToolExecutionStatus.PERMISSION_DENIED -> {
+                if (result.missingRuntimePermission != null || result.missingSpecialAccess != null) {
+                    lastPermissionDeniedRequest = Triple(convId, request, language)
+                    overlayState.value = overlayState.value.copy(
+                        pendingRuntimePermission = result.missingRuntimePermission,
+                        pendingSpecialAccess = result.missingSpecialAccess,
+                        permissionRationale = result.summary
+                    )
+                }
+                handleSystemVoiceNotice(convId, result.summary, language, "Permission Validator // ${result.toolName}")
+            }
+
+            else -> {
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    role = MessageRole.TOOL_SNAPSHOT,
+                    content = result.summary,
+                    modelLabel = "Tool // ${result.toolName} (${result.status.name})"
+                )
+                appendTurn(
+                    VoiceTurnItem(
+                        id = UUID.randomUUID().toString(),
+                        isUser = false,
+                        text = result.summary,
+                        detectedLanguage = language,
+                        telemetryNote = "Tool • ${result.toolName}"
+                    )
+                )
+                if (uiState.value.settings.ttsAutoSpeak && result.summary.isNotBlank()) {
+                    voiceEngine.speak(
+                        text = result.summary,
+                        speechRate = uiState.value.settings.ttsSpeechRate,
+                        languageOption = language,
+                        preferredVoiceName = uiState.value.settings.selectedTtsVoiceName
+                    )
+                }
+            }
+        }
+    }
+
+    private fun cleanToolSummaryForSpeech(rawSnapshot: String): String {
+        val lines = rawSnapshot.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("STATUS:", ignoreCase = true) }
+        return lines.joinToString(". ").ifBlank { rawSnapshot.trim() }.take(320)
+    }
+
+    private fun speakLocalizedSystemPrompt(
+        english: String,
+        french: String,
+        arabic: String,
+        language: VoiceLanguageOption
+    ) {
+        val text = when (language) {
+            VoiceLanguageOption.ARABIC,
+            VoiceLanguageOption.ARABIC_ALGERIAN -> arabic
+            VoiceLanguageOption.FRENCH -> french
+            else -> english
+        }
+        voiceEngine.speak(
+            text = text,
+            speechRate = uiState.value.settings.ttsSpeechRate,
+            languageOption = language,
+            preferredVoiceName = uiState.value.settings.selectedTtsVoiceName
+        )
     }
 
     private suspend fun handleSystemVoiceNotice(
         convId: String,
         notice: String,
-        language: VoiceLanguageOption
+        language: VoiceLanguageOption,
+        label: String = "Voice // Engine Notice"
     ) {
         conversationRepository.appendMessage(
             conversationId = convId,
             role = MessageRole.SYSTEM_NOTICE,
             content = notice,
-            modelLabel = "Voice // Engine Notice"
+            modelLabel = label
         )
         appendTurn(
             VoiceTurnItem(
@@ -660,7 +1079,7 @@ class VoiceViewModel(
                 isUser = false,
                 text = notice,
                 detectedLanguage = language,
-                telemetryNote = "System Notice"
+                telemetryNote = label
             )
         )
         if (uiState.value.settings.ttsAutoSpeak) {
@@ -720,12 +1139,13 @@ class VoiceViewModel(
             cancelAiReply()
         }
         if (!uiState.value.settings.wakeWordStandbyEnabled) {
-            serviceStopper()
+            stopWakeWordServiceGate()
         }
     }
 
     private fun cancelAiReply() {
         viewModelScope.launch {
+            agentCore.cancelAutonomousTask()
             aiEngine.cancelGeneration()
         }
     }
@@ -767,6 +1187,17 @@ class VoiceViewModel(
     fun setPauseMicInBackground(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setPauseMicInBackground(enabled)
+            val snap = uiState.value
+            if (!enabled && snap.settings.wakeWordStandbyEnabled && micPermissionGranted.value && isAppInForeground.value) {
+                startWakeWordServiceGate()
+            }
+            syncWakeWordBoundary(
+                enabled = snap.settings.wakeWordStandbyEnabled,
+                hasMic = micPermissionGranted.value,
+                inForeground = isAppInForeground.value,
+                keyPresent = snap.settings.porcupineAccessKey.isNotBlank(),
+                pauseMicInBackground = enabled
+            )
         }
     }
 
@@ -779,13 +1210,15 @@ class VoiceViewModel(
                 }
             } else {
                 if (!isContinuousSessionActive.value) {
-                    serviceStopper()
+                    stopWakeWordServiceGate()
                 }
             }
             syncWakeWordBoundary(
                 enabled = enabled,
                 hasMic = micPermissionGranted.value,
-                inForeground = isAppInForeground.value
+                inForeground = isAppInForeground.value,
+                keyPresent = uiState.value.settings.porcupineAccessKey.isNotBlank(),
+                pauseMicInBackground = uiState.value.settings.pauseMicInBackground
             )
         }
     }
@@ -799,26 +1232,43 @@ class VoiceViewModel(
                 enabled = uiState.value.settings.wakeWordStandbyEnabled,
                 hasMic = micPermissionGranted.value,
                 inForeground = isAppInForeground.value,
-                keyPresent = trimmed.isNotBlank()
+                keyPresent = trimmed.isNotBlank(),
+                pauseMicInBackground = uiState.value.settings.pauseMicInBackground
             )
         }
     }
 
     private fun startWakeWordServiceGate() {
-        serviceStarter("Wake-word audio gate standby (\"${wakeWordEngine.keyword}\")", true)
+        val started = serviceStarter("Wake-word audio gate standby (\"${wakeWordEngine.keyword}\")", true)
+        wakeServiceArmedLocally = started
     }
+
+    private fun stopWakeWordServiceGate() {
+        wakeServiceArmedLocally = false
+        serviceStopper()
+    }
+
+    private fun isFgsCurrentlyRunning(): Boolean =
+        wakeServiceArmedLocally || isServiceRunningProvider()
 
     private fun syncWakeWordBoundary(
         enabled: Boolean,
         hasMic: Boolean,
         inForeground: Boolean,
-        keyPresent: Boolean = uiState.value.settings.porcupineAccessKey.isNotBlank()
+        keyPresent: Boolean = uiState.value.settings.porcupineAccessKey.isNotBlank(),
+        pauseMicInBackground: Boolean = uiState.value.settings.pauseMicInBackground
     ) {
+        val bgFgsActive = !inForeground &&
+            enabled &&
+            hasMic &&
+            !pauseMicInBackground &&
+            isFgsCurrentlyRunning()
         wakeWordEngine.syncStandbyPreference(
             enabled = enabled,
             hasMicPermission = hasMic,
             isAppInForeground = inForeground,
-            porcupineAccessKeyPresent = keyPresent
+            porcupineAccessKeyPresent = keyPresent,
+            backgroundFgsActive = bgFgsActive
         )
     }
 
@@ -847,7 +1297,7 @@ class VoiceViewModel(
         continuousRearmJob?.cancel()
         voiceEngine.cancelListening()
         voiceEngine.stopSpeaking()
-        serviceStopper()
+        stopWakeWordServiceGate()
         super.onCleared()
     }
 
