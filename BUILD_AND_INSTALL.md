@@ -8,7 +8,29 @@
 
 ---
 
-## 1. Local Debug Build & Automated Test Suite
+## 1. One-Click Fast APK Build (Recommended)
+To build a signed, ready-to-install APK (`JARVIS-v1.0.0.apk`) in the project root with zero manual setup:
+
+```bash
+# Linux / macOS / WSL (auto-creates local signing keystore if missing)
+bash build-apk.sh
+
+# Windows (Command Prompt / PowerShell)
+build-apk.bat
+
+# Fastest incremental Debug APK (copies directly to ./JARVIS-v1.0.0.apk)
+gradle :app:fastApk --parallel --build-cache -x lint -x test
+```
+
+- **Default Output:** `./JARVIS-v1.0.0.apk` (signed and ready to install on any Android 7.0+ device).
+- **Modes supported by `build-apk.sh` / `build-apk.bat`:**
+  - *(no arguments)*: Fast signed Release APK (`-PfastApk=true`, skips slow R8 pass for rapid output).
+  - `--debug`: Instant incremental signed Debug APK via `:app:fastApk`.
+  - `--optimize`: Full R8-minified and resource-shrunk production Release APK.
+
+---
+
+## 2. Standard Gradle Build & Automated Test Suite
 ```bash
 # Run full JVM + Robolectric unit/UI suite (44 tests)
 gradle :app:testDebugUnitTest --no-daemon
@@ -21,22 +43,8 @@ gradle :app:assembleDebug --no-daemon
 # Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
----
-
-## 2. Production Release APK / App Bundle (R8 Minified)
-Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true` using `app/proguard-rules.pro`.
-
-### Step A: Generate an Upload Keystore (First Time Only)
-```bash
-keytool -genkeypair -v \
-  -keystore my-upload-key.jks \
-  -alias upload \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 10000
-```
-
-### Step B: Build Signed Release APK & AAB
+### Full Production R8 Release APK & App Bundle (Manual)
+When `-PfastApk=true` is omitted, `release` builds run full R8 code shrinking (`isMinifyEnabled = true`) and resource shrinking (`isShrinkResources = true`):
 ```bash
 export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
 export STORE_PASSWORD="your-keystore-password"
@@ -44,18 +52,13 @@ export KEY_PASSWORD="your-key-password"
 
 gradle :app:assembleRelease :app:bundleRelease --no-daemon
 ```
-Outputs:
-- Signed APK: `app/build/outputs/apk/release/app-release.apk`
-- Signed App Bundle: `app/build/outputs/bundle/release/app-release.aab`
-- R8 Mapping File: `app/build/outputs/mapping/release/mapping.txt`
 
 ---
 
-## 3. GitHub Actions CI/CD Secrets
-The workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) automatically runs `:app:testDebugUnitTest` and `:app:lintDebug` on every PR/push, and builds signed Release artifacts when these repository secrets are configured:
-- `ANDROID_KEYSTORE_BASE64` (`base64 -w0 my-upload-key.jks`, alias must be `upload`)
-- `ANDROID_STORE_PASSWORD`
-- `ANDROID_KEY_PASSWORD`
+## 3. Fast GitHub Actions APK Pipeline
+The unified single-job workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) builds a signed `JARVIS-v1.0.0.apk` automatically on every push to `main`/`master`, every `v*` tag, or manual **Run workflow** dispatch:
+- **Zero-Config Signing:** Uses `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` secrets when configured, or automatically generates a valid signing key so APK builds never fail.
+- **Fast Mode by Default:** Skips redundant multi-job setup, slow R8 minification, and `.aab` bundling by default so your APK is ready in minutes (with optional workflow dispatch toggles for full R8, unit tests/lint, and `.aab`).
 
 ---
 

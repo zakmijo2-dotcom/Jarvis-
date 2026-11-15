@@ -43,15 +43,17 @@ android {
 
   buildTypes {
     release {
+      val isFastApk = providers.gradleProperty("fastApk").orNull == "true"
       isCrunchPngs = false
-      isMinifyEnabled = true
-      isShrinkResources = true
+      isMinifyEnabled = !isFastApk
+      isShrinkResources = !isFastApk
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
+      isCrunchPngs = false
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
@@ -70,6 +72,34 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+}
+
+abstract class ExportFastApkTask : DefaultTask() {
+  @get:Internal
+  abstract val apkDir: DirectoryProperty
+
+  @get:OutputFile
+  abstract val destinationApk: RegularFileProperty
+
+  @TaskAction
+  fun exportApk() {
+    val sourceApk =
+      apkDir.get().asFile.walkTopDown().firstOrNull { it.isFile && it.extension == "apk" }
+        ?: throw GradleException("No APK found in ${apkDir.get().asFile}")
+    sourceApk.copyTo(destinationApk.get().asFile, overwrite = true)
+    logger.lifecycle(
+      "Ready-to-Install Signed APK: ${destinationApk.get().asFile.absolutePath} (${sourceApk.length() / (1024 * 1024)} MB)"
+    )
+  }
+}
+
+tasks.register<ExportFastApkTask>("fastApk") {
+  group = "build"
+  description =
+    "Builds a signed, ready-to-install APK at maximum speed and outputs JARVIS-v1.0.0.apk in the project root."
+  dependsOn("assembleDebug")
+  apkDir.set(layout.buildDirectory.dir("outputs/apk/debug"))
+  destinationApk.set(rootProject.layout.projectDirectory.file("JARVIS-v1.0.0.apk"))
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

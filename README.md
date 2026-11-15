@@ -115,7 +115,19 @@ git clone https://github.com/zakmijo2-dotcom/Jarvis-.git
 cd Jarvis-
 ```
 
-### Run Tests, Lint & Debug APK
+### One-Click Fast Signed APK Build (Recommended)
+```bash
+# Linux / macOS / WSL — auto-generates keystore if missing & outputs ./JARVIS-v1.0.0.apk
+bash build-apk.sh
+
+# Windows — outputs .\JARVIS-v1.0.0.apk
+build-apk.bat
+
+# Fastest incremental signed Debug APK -> ./JARVIS-v1.0.0.apk
+gradle :app:fastApk --parallel --build-cache -x lint -x test
+```
+
+### Run Tests, Lint & Standard Gradle Builds
 ```bash
 # Run full JVM + Robolectric test suite (44 tests)
 gradle :app:testDebugUnitTest --no-daemon
@@ -127,41 +139,30 @@ gradle :app:lintDebug --no-daemon
 gradle :app:assembleDebug --no-daemon
 ```
 
-### Build Signed Release APK & App Bundle (R8 Minified)
+### Full R8-Minified Production Release APK & App Bundle
 ```bash
-# 1. Create an upload keystore (first time only; alias must be 'upload')
-keytool -genkeypair -v \
-  -keystore my-upload-key.jks \
-  -alias upload \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 10000
+# Using the one-click script with full R8 optimization:
+bash build-apk.sh --optimize
 
-# 2. Export signing credentials and build Release APK + AAB
+# Or manually with Gradle:
 export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
 export STORE_PASSWORD="your-keystore-password"
 export KEY_PASSWORD="your-key-password"
-
 gradle :app:assembleRelease :app:bundleRelease --no-daemon
 ```
-
-Outputs:
-- `app/build/outputs/apk/release/app-release.apk`
-- `app/build/outputs/bundle/release/app-release.aab`
-- `app/build/outputs/mapping/release/mapping.txt`
 
 ---
 
 ## GitHub Actions CI/CD Release
 
-The workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) installs **JDK 21** and **Gradle 9.3.1**, runs all 44 unit/Robolectric tests and Android Lint, builds R8-minified Release `APK` + `AAB` artifacts with `SHA256SUMS.txt`, and publishes to **GitHub Releases** on `v*` tags or manual `workflow_dispatch`.
+The unified single-job workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) installs **JDK 21** and **Gradle 9.3.1** (with Gradle Build Cache), builds a signed `JARVIS-v1.0.0.apk` + `SHA256SUMS.txt` in fast mode by default, uploads it to **Actions Artifacts**, and publishes directly to **GitHub Releases** on `v*` tags or manual `workflow_dispatch`.
 
-Configure these **GitHub Repository Secrets** for permanent Play Store signing:
+Optional **GitHub Repository Secrets** for permanent custom signing:
 - `ANDROID_KEYSTORE_BASE64` — output of `base64 -w0 my-upload-key.jks` (keystore alias must be `upload`)
 - `ANDROID_STORE_PASSWORD`
 - `ANDROID_KEY_PASSWORD`
 
-If signing secrets are not yet set, the workflow generates an ephemeral CI keystore so test builds still succeed (marked as pre-release).
+If signing secrets are not set, the workflow automatically generates a valid signing keystore so APK builds and GitHub Releases succeed out of the box.
 
 ---
 
