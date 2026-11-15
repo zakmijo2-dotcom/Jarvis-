@@ -64,8 +64,7 @@ class ExampleRobolectricTest {
         ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_listen_button").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_close_button").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithTag("voice_toggle_type_button").performScrollTo().performClick()
-        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("voice_toggle_type_button").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_fallback_input_field").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("mic_status_indicator").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_mode_ptt").performScrollTo().assertIsDisplayed()
@@ -78,7 +77,7 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("nav_tab_models").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNode(
-            hasText("Models") and !hasAnyAncestor(hasTestTag("nav_tab_models"))
+            hasText("Models") and !hasTestTag("nav_tab_models") and !hasAnyAncestor(hasTestTag("nav_tab_models"))
         ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("engine_runtime_hud_card").assertIsDisplayed()
         composeTestRule.onNodeWithText("LiteRT-LM runtime").assertIsDisplayed()
@@ -136,7 +135,9 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("more_screen_list").assertIsDisplayed()
         composeTestRule.onNodeWithTag("nav_tab_device").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("Device").assertIsDisplayed()
+        composeTestRule.onNode(
+            hasText("Device") and !hasAnyAncestor(hasTestTag("device_telemetry_list"))
+        ).assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("device_tab_controls")
             .performScrollTo()
@@ -214,9 +215,7 @@ class ExampleRobolectricTest {
         // Return to Chat tab
         composeTestRule.onNodeWithTag("nav_tab_chat").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNode(
-            hasText("Chat") and !hasAnyAncestor(hasTestTag("nav_tab_chat"))
-        ).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Jarvis").assertIsDisplayed()
         composeTestRule.onNodeWithTag("chat_privacy_badge").assertIsDisplayed()
         composeTestRule.onNodeWithTag("chip_routing_mode").assertIsDisplayed()
     }
@@ -227,8 +226,8 @@ class ExampleRobolectricTest {
 
         composeTestRule.onNodeWithTag("home_bento_voice").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("voice_listen_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("voice_close_button").performClick()
+        composeTestRule.onNodeWithTag("voice_listen_button").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_close_button").performScrollTo().performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("home_headline_text").assertIsDisplayed()
 

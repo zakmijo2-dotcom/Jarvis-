@@ -149,8 +149,8 @@ fun ChatScreen(
     val streamingText = uiState.streamingReply
     val totalItemCount = uiState.messages.size + if (streamingText != null) 1 else 0
 
-    LaunchedEffect(totalItemCount, streamingText?.length) {
-        if (totalItemCount > 3 || streamingText != null) {
+    LaunchedEffect(totalItemCount) {
+        if (totalItemCount > 3) {
             listState.animateScrollToItem((totalItemCount - 1).coerceAtLeast(0))
         }
     }
@@ -657,7 +657,7 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 840.dp)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 shape = RoundedCornerShape(24.dp),
                 color = palette.surface,
                 border = BorderStroke(hairlineDp(), palette.hairline)
@@ -665,7 +665,7 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

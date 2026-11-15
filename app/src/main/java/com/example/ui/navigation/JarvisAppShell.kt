@@ -207,6 +207,18 @@ fun JarvisAppShell(
         if (settingsState.settings.hapticsEnabled) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
+        if (destination == TopDestination.MORE) {
+            val popped = navController.popBackStack(MoreRoute, inclusive = false)
+            if (!popped) {
+                navController.navigate(MoreRoute) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                }
+            }
+            return
+        }
         navController.navigate(destination.route) {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true

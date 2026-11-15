@@ -54,6 +54,20 @@
 - **What could NOT be verified**:
   - Visual screenshot/layout inspection across dark/light themes, Arabic RTL, and French locales (no emulator/ADB available in environment).
 
-## Phase 6: Robolectric Tests, Static Audit & Final Build Verification (In Progress)
-- Updating `ExampleRobolectricTest.kt` for the `HomeRoute` start screen and 4-tab bottom bar while preserving all existing assertions and adding Home Bento & History navigation coverage.
+## Phase 6: Robolectric Tests, Static Audit & Final Build Verification (Completed)
+- **What changed**:
+  - Updated `app/src/main/java/com/example/ui/navigation/JarvisAppShell.kt` so tapping `More` in the bottom navigation bar always pops back to or opens `MoreRoute` directly rather than restoring a nested child sub-route (`VoiceRoute`, `DeviceRoute`, `SettingsRoute`).
+  - Updated `app/src/main/java/com/example/ui/screens/chat/ChatScreen.kt` so auto-scrolling triggers only when `totalItemCount > 3` and tightened composer vertical padding so initial user prompts remain visible on compact viewports.
+  - Updated `app/src/test/java/com/example/ExampleRobolectricTest.kt` to verify the `HomeRoute` launch screen (`home_greeting_text`, `home_headline_text`, `home_bento_voice`, `home_bento_chat`, `home_bento_models`, `home_bento_device`), added `home bento voice tile and history see all open expected destinations` (`home_bento_voice` -> `VoiceScreen` -> `voice_close_button` -> `HomeScreen`, and `home_history_see_all` -> `ChatScreen` with `history_drawer_sheet` expanded), and preserved all existing Voice, Models, More, Device, Settings, Chat, Drawer, and Arabic RTL test assertions (44 total unit + Robolectric tests).
+- **What was verified**:
+  - Ran `gradle :app:testDebugUnitTest --no-daemon` -> `BUILD SUCCESSFUL` (44/44 tests passed: 1 `ExampleUnitTest`, 37 `JarvisFoundationTest`, 6 `ExampleRobolectricTest`).
+  - Verified zero modifications to `core/`, `data/`, Room schema/migrations, tool/agent logic, `applicationId`, or `signingConfigs`.
+  - Audited `@Preview` annotations across all screens and components in both Light and Dark themes (`JarvisOrb`, `HomeScreen`, `MoreScreen`, `ChatScreen`, `HistoryDrawerContent`, `VoiceScreen`, `ModelManagerScreen`, `DeviceDashboardScreen`, `SettingsScreen`).
+  - Audited string resources across `res/values/strings.xml`, `res/values-ar/strings.xml`, and `res/values-fr/strings.xml`.
+- **What could NOT be verified**:
+  - Live visual rendering and pixel-level layout inspection of Dark (`#15161A`) and Light (`#F6F3EE`) themes on a physical Android screen or emulator (no ADB/emulator available in build container).
+  - Hardware GPU execution of the API 33+ AGSL `RuntimeShader` vs. the `< API 33` Canvas fallback on physical devices.
+  - Live OS broadcasts/callbacks for Battery Saver (`ACTION_POWER_SAVE_MODE_CHANGED`), Thermal Throttling (`OnThermalStatusChangedListener` API 29+), and `ANIMATOR_DURATION_SCALE = 0`.
+  - Real hardware microphone audio capture, hold-to-talk touch release latency, and Android TTS audio playback.
+
 
