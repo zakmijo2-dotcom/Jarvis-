@@ -1,4 +1,4 @@
-# J.A.R.V.I.S UI Restyle Progress Log
+# J.A.R.V.I.S Engineering & UI Restyle Progress Log — v1.0.0 (`GPL-3.0`)
 
 ## Phase 1: Theme Tokens, Typography, Shapes & Localized Strings (Completed)
 - **What changed**:
@@ -70,4 +70,9 @@
   - Live OS broadcasts/callbacks for Battery Saver (`ACTION_POWER_SAVE_MODE_CHANGED`), Thermal Throttling (`OnThermalStatusChangedListener` API 29+), and `ANIMATOR_DURATION_SCALE = 0`.
   - Real hardware microphone audio capture, hold-to-talk touch release latency, and Android TTS audio playback.
 
-
+## Phase 7: Repository Hygiene, `GPL-3.0` Licensing & `v1.0.0` Documentation Standardization (Completed)
+- **What changed**:
+  - Added `/LICENSE` containing the complete official **GNU General Public License v3.0 (`GPL-3.0`)** text.
+  - Cleaned `/.gitignore` to ignore `/app/build`, `.build-outputs/`, `.aistudio/`, `*.jks`, and `*.keystore`.
+  - Removed outdated scratch file `/IMPLEMENTATION_PLAN.md`.
+  - Standardized all 7 root documentation files (`README.md`, `ARCHITECTURE.md`, `BUILD_AND_INSTALL.md`, `CHANGELOG.md`, `RELEASE_NOTES.md`, `TEST_PLAN.md`, `OPEN_SOURCE_CREDITS.md`, `PROGRESS.md`) on **`v1.0.0` (`versionCode = 1`, `versionName = "1.0.0"`)** and **`GPL-3.0`**, removing all outdated claims (`2.0.0`, `1.1.0`, `Room v5`/`v6`, `17 tools`, `42 tests`, `Obsidian Slate #090D14 / #22D3EE`).
