@@ -73,6 +73,7 @@ import com.example.core.agent.AgentRoutingMode
 import com.example.core.cloud.CloudProviderKind
 import com.example.core.memory.MemoryKind
 import com.example.core.web.WebSearchProviderKind
+import com.example.data.repository.AppThemeMode
 import com.example.data.repository.InferenceBackendPreference
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBackground
@@ -126,6 +127,10 @@ fun SettingsScreen(
     onEditMemory: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onDeleteMemory: (String) -> Unit = {},
     onDeleteSkill: (String) -> Unit = {},
+    onSetThemeMode: (AppThemeMode) -> Unit = {},
+    onOpenBridgeSetup: () -> Unit = {},
+    onOpenPermissionsSecurity: () -> Unit = {},
+    onOpenActivityHistory: () -> Unit = {},
     onNavigateBack: () -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
@@ -519,12 +524,38 @@ fun SettingsScreen(
             item {
                 CollapsibleSettingsSection(
                     title = "Appearance and telemetry",
-                    summary = "Polling ${settings.telemetryPollingSeconds}s",
+                    summary = "${settings.themeMode.label} · ${settings.telemetryPollingSeconds}s",
                     icon = Icons.Filled.Tune,
                     expanded = appearanceExpanded,
                     onToggle = { appearanceExpanded = !appearanceExpanded },
                     headerTestTag = "settings_section_appearance"
                 ) {
+                    Text(
+                        text = "Interface theme",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val themePalette = JarvisThemeTokens.palette
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppThemeMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = settings.themeMode == mode,
+                                onClick = { onSetThemeMode(mode) },
+                                label = { Text(mode.label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = themePalette.skyContainer,
+                                    selectedLabelColor = themePalette.onHue
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("theme_chip_${mode.name.lowercase()}")
+                            )
+                        }
+                    }
+                    EditorialHairlineDivider()
                     SettingsSwitchRow(
                         label = "Animate voice sphere",
                         description = "Slow breathing, listening reactivity, and gentle rotation (paused off-screen)",
@@ -621,6 +652,53 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.settings_clear_history))
+                    }
+                }
+            }
+
+            // 10. System hubs & diagnostics
+            item {
+                HudPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                ) {
+                    Text(
+                        text = "System hubs",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenBridgeSetup,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("btn_settings_bridge_setup")
+                        ) {
+                            Text("Shizuku & Wireless ADB")
+                        }
+                        OutlinedButton(
+                            onClick = onOpenPermissionsSecurity,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("btn_settings_security")
+                        ) {
+                            Text("Permissions & Security")
+                        }
+                        OutlinedButton(
+                            onClick = onOpenActivityHistory,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("btn_settings_activity")
+                        ) {
+                            Text("Activity & Benchmarks")
+                        }
                     }
                 }
             }

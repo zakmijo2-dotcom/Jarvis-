@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.core.ai.EngineLoadState
+import com.example.core.ai.ModelRecommendationBadge
 import com.example.core.hf.HfRepoDetail
 import com.example.core.hf.HfRepoFile
 import com.example.core.model.ArtifactState
@@ -319,6 +320,85 @@ fun ModelManagerScreen(
                                 onLoad = { onLoadModel(active) },
                                 onUnload = onUnloadModel
                             )
+                        }
+                    }
+
+                    item {
+                        val recPalette = JarvisThemeTokens.palette
+                        HudPanel(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 840.dp)
+                                .testTag("model_storage_and_fit_card")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Storage & hardware fit",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = recPalette.text
+                                )
+                                Text(
+                                    text = "${String.format(Locale.US, "%.2f", uiState.installedStorageBytes / (1024.0 * 1024.0 * 1024.0))} GB installed",
+                                    style = JarvisMonoTelemetryStyle,
+                                    color = recPalette.skyAccent
+                                )
+                            }
+                            if (uiState.hardwareRecommendations.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                val topRecs = uiState.hardwareRecommendations.values
+                                    .filter { it.badge != com.example.core.ai.ModelRecommendationBadge.UNSUPPORTED }
+                                    .sortedByDescending { it.score }
+                                    .take(2)
+                                if (topRecs.isEmpty()) {
+                                    Text(
+                                        text = "No supported LiteRT-LM models match current constraints yet.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = recPalette.textSecondary
+                                    )
+                                } else {
+                                    topRecs.forEachIndexed { idx, rec ->
+                                        if (idx > 0) EditorialHairlineDivider(modifier = Modifier.padding(vertical = 6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(end = 8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = rec.displayName,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = recPalette.text
+                                                )
+                                                Text(
+                                                    text = rec.rationale,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = recPalette.textSecondary
+                                                )
+                                            }
+                                            HudBadge(
+                                                text = rec.badge.label,
+                                                color = recPalette.onHue,
+                                                containerColor = when (rec.badge) {
+                                                    ModelRecommendationBadge.RECOMMENDED,
+                                                    ModelRecommendationBadge.SUITABLE -> recPalette.sageContainer
+                                                    ModelRecommendationBadge.TIGHT_RAM,
+                                                    ModelRecommendationBadge.THERMAL_THROTTLED -> recPalette.sandContainer
+                                                    else -> recPalette.surfaceHigh
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

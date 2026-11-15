@@ -3,14 +3,18 @@ package com.example.core.agent
 import android.content.Context
 import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
+import com.example.core.ai.BatteryThermalSnapshot
 import com.example.core.ai.EngineLoadState
+import com.example.core.ai.ModelRouter
 import com.example.core.ai.RuntimeEngineCoordinator
+import com.example.core.ai.ThermalAndMemoryPolicy
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudInferenceConfig
 import com.example.core.cloud.CloudProviderKind
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.cloud.CloudUsageStats
 import com.example.core.cloud.OkHttpCloudAiClient
+import com.example.core.device.DeviceCommandRouter
 import com.example.core.memory.LocalMemory
 import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
@@ -23,6 +27,7 @@ import com.example.core.tools.AndroidTools
 import com.example.core.tools.ComposeMessageTool
 import com.example.core.tools.ControlMediaPlaybackTool
 import com.example.core.tools.CreateReminderTool
+import com.example.core.tools.ForceStopAppTool
 import com.example.core.tools.GoHomeScreenTool
 import com.example.core.tools.InitiatePhoneCallTool
 import com.example.core.tools.InputUiTextTool
@@ -33,6 +38,7 @@ import com.example.core.tools.NotificationBridge
 import com.example.core.tools.OpenAndroidSettingsTool
 import com.example.core.tools.OpenAppScreenTool
 import com.example.core.tools.PendingToolConfirmation
+import com.example.core.tools.PrivilegedBridgeDiagnosticTool
 import com.example.core.tools.ReadBatteryStatusTool
 import com.example.core.tools.ReadDeviceInfoTool
 import com.example.core.tools.ReadNotificationsTool
@@ -47,6 +53,7 @@ import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
 import com.example.core.tools.ToolRegistry
+import com.example.core.tools.TrimAppCachesTool
 import com.example.core.tools.UiObservationSnapshot
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.web.OkHttpWebResearchService
@@ -55,7 +62,9 @@ import com.example.core.web.WebResearchService
 import com.example.data.local.db.AgentExecutionDao
 import com.example.data.local.db.AgentExecutionEntity
 import com.example.data.local.db.MessageEntity
+import com.example.data.local.db.ModelBenchmarkDao
 import com.example.data.repository.JarvisSettings
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,19 +87,23 @@ object ToolRegistryFactory {
     fun createDefault(
         androidTools: AndroidTools,
         localMemoryProvider: () -> LocalMemory? = { null },
-        skillEngineProvider: () -> SkillEngine? = { null }
+        skillEngineProvider: () -> SkillEngine? = { null },
+        deviceCommandRouterProvider: () -> DeviceCommandRouter? = { null }
     ): ToolRegistry {
         var registryRef: ToolRegistry? = null
         val registry = ToolRegistry(
             tools = listOf(
                 LaunchInstalledAppTool(),
                 OpenAppScreenTool(),
-                GoHomeScreenTool(),
+                GoHomeScreenTool(routerProvider = deviceCommandRouterProvider),
                 OpenAndroidSettingsTool(),
                 ReadBatteryStatusTool(androidTools),
                 ReadDeviceInfoTool(androidTools),
                 AdjustMediaVolumeTool(),
                 ControlMediaPlaybackTool(),
+                PrivilegedBridgeDiagnosticTool(deviceCommandRouterProvider),
+                ForceStopAppTool(deviceCommandRouterProvider),
+                TrimAppCachesTool(deviceCommandRouterProvider),
                 SearchContactsTool(),
                 InitiatePhoneCallTool(),
                 ComposeMessageTool(),
@@ -167,7 +180,10 @@ class Phase2AgentCore(
     private val intentRouter: IntentRouter = IntentRouter(),
     private val agentExecutionDao: AgentExecutionDao? = null,
     private val skillEngine: SkillEngine? = null,
-    private val accessibilityController: AccessibilityController? = appContext?.let { AccessibilityController(it) }
+    private val accessibilityController: AccessibilityController? = appContext?.let { AccessibilityController(it) },
+    private val deviceCommandRouter: DeviceCommandRouter? = null,
+    private val modelRouter: ModelRouter = ModelRouter(intentRouter = intentRouter),
+    private val modelBenchmarkDao: ModelBenchmarkDao? = null
 ) : AgentCore {
 
     private val cancelPlanFlag = AtomicBoolean(false)
@@ -226,19 +242,50 @@ class Phase2AgentCore(
         val isLocalReady = (aiEngine.loadState.value is EngineLoadState.Ready) ||
             (activeModel?.runtimeFormat == RuntimeFormatId.LITERT_LM &&
                 activeModel.artifactState == ArtifactState.READY)
-        val isConnected = runCatching { androidTools.readDeviceTelemetry().isNetworkConnected }.getOrDefault(true)
-        val activeCapabilities = (aiEngine as? RuntimeEngineCoordinator)?.activeCapabilities(settings)
+        val telemetry = runCatching { androidTools.readDeviceTelemetry() }.getOrNull()
+        val isConnected = telemetry?.isNetworkConnected ?: true
         val matchedSkill = if (ToolRegistry.parseDirectToolCommand(prompt) == null) {
             runCatching { skillEngine?.findMatchingSkill(prompt) }.getOrNull()
         } else null
 
-        val decision = intentRouter.routePrompt(
-            prompt = prompt,
-            settings = settings,
-            isLocalModelReady = isLocalReady,
-            isNetworkConnected = isConnected,
-            activeCapabilities = activeCapabilities,
-            matchedSkillName = matchedSkill?.name
+        val allSlots = runCatching { modelManager.observeModels().first() }.getOrDefault(listOfNotNull(activeModel))
+        val batterySnap = appContext?.let { ThermalAndMemoryPolicy.readBatterySnapshot(it) } ?: BatteryThermalSnapshot()
+        val recentBenchmarks = runCatching { modelBenchmarkDao?.observeBenchmarks()?.first() }.getOrNull().orEmpty()
+
+        val routePlan = if (telemetry != null) {
+            modelRouter.routeTask(
+                prompt = prompt,
+                historyChars = history.sumOf { it.content.length },
+                settings = settings,
+                models = allSlots,
+                loadState = aiEngine.loadState.value,
+                telemetry = telemetry,
+                batterySnapshot = batterySnap,
+                benchmarks = recentBenchmarks,
+                matchedSkillName = matchedSkill?.name
+            )
+        } else {
+            val activeCapabilities = (aiEngine as? RuntimeEngineCoordinator)?.activeCapabilities(settings)
+            val fallbackDecision = intentRouter.routePrompt(
+                prompt = prompt,
+                settings = settings,
+                isLocalModelReady = isLocalReady,
+                isNetworkConnected = isConnected,
+                activeCapabilities = activeCapabilities,
+                matchedSkillName = matchedSkill?.name
+            )
+            com.example.core.ai.ModelRoutePlan(
+                decision = fallbackDecision,
+                preferredSlot = activeModel,
+                recommendedContextTokens = settings.contextLengthTokens,
+                memoryBudgetWarning = null,
+                thermalBatteryNote = null,
+                recommendations = emptyList()
+            )
+        }
+        val decision = routePlan.decision
+        val effectiveSettings = settings.copy(
+            contextLengthTokens = routePlan.recommendedContextTokens.coerceIn(1024, 8192)
         )
 
         // Strict privacy / consent block for Cloud-Only or explicit cloud requests without consent/key
@@ -324,6 +371,9 @@ class Phase2AgentCore(
                     message = decision.privacyBlockedReason
                 )
             )
+        }
+        routePlan.thermalBatteryNote?.let { note ->
+            emit(HybridAgentEvent.Notice(label = "Thermal & Battery Adaptation", message = note))
         }
 
         val memorySnippets = mutableListOf<String>()
@@ -611,14 +661,14 @@ class Phase2AgentCore(
                                 }
                                 cloudAiClient.streamChat(cloudConfig, sysPrompt, augmentedPrompt, history)
                             } else {
-                                val readyErr = ensureLocalModelLoaded(settings)
+                                val readyErr = ensureLocalModelLoaded(effectiveSettings)
                                 if (readyErr != null) {
                                     steps[i] = steps[i].copy(status = PlanStepStatus.FAILED, resultSummary = readyErr)
                                     overallStatus = "LOCAL_UNLOADED"
                                     emit(HybridAgentEvent.Notice("Engine Unloaded", readyErr))
                                     break
                                 }
-                                aiEngine.streamReply(conversationId, augmentedPrompt, history, settings)
+                                aiEngine.streamReply(conversationId, augmentedPrompt, history, effectiveSettings)
                             }
 
                             streamSource.collect { ev ->
@@ -655,9 +705,9 @@ class Phase2AgentCore(
                             if (synthesisFailed && usedCloud && settings.routingMode == AgentRoutingMode.AUTO_HYBRID && isLocalReady && !cancelPlanFlag.get()) {
                                 usedCloud = false
                                 synthesisFailed = false
-                                val readyErr = ensureLocalModelLoaded(settings)
+                                val readyErr = ensureLocalModelLoaded(effectiveSettings)
                                 if (readyErr == null) {
-                                    runLocalModelStream(conversationId, augmentedPrompt, history, settings) { ev ->
+                                    runLocalModelStream(conversationId, augmentedPrompt, history, effectiveSettings) { ev ->
                                         when (ev) {
                                             is AiStreamEvent.Completed -> {
                                                 iterationText = ev.fullText
@@ -880,7 +930,7 @@ class Phase2AgentCore(
         val activeModel = modelManager.getActiveModelOnce()
             ?: return "No model selected. Open Models to install a .litertlm model artifact."
         if (activeModel.runtimeFormat != RuntimeFormatId.LITERT_LM) {
-            return "\"${activeModel.displayName}\" uses ${activeModel.runtimeFormat.label}, whose runtime adapter is prepared for future support. Select a LiteRT-LM (.litertlm) model in Models."
+            return "\"${activeModel.displayName}\" uses ${activeModel.runtimeFormat.label}, which is unsupported in this APK build (no native runtime bundled). Select a LiteRT-LM (.litertlm) model in Models."
         }
         if (activeModel.artifactState != ArtifactState.READY) {
             return "Local model \"${activeModel.displayName}\" is not installed yet. Open Models to download or import a .litertlm artifact."
@@ -1027,16 +1077,20 @@ class Phase2AgentCore(
         val usage = cloudUsageStats.value
         val skillsCount = runCatching { skillEngine?.listSkillsOnce()?.size ?: 0 }.getOrDefault(0)
         val a11yStatus = if (accessibilityController?.isAuthorized() == true) "Authorized" else "Inactive"
+        val caps = deviceCommandRouter?.capabilityManager?.capabilities?.value
         val summary = buildString {
             appendLine("JARVIS SYSTEM READINESS")
             appendLine("• Local AI Engine: $engineStatus")
             appendLine("• Active Model Slot: ${activeModel?.displayName ?: "None"} (${activeModel?.artifactState?.label ?: "Unset"})")
             appendLine("• Native Heap Allocated: ${String.format(Locale.US, "%.1f", aiEngine.nativeMemoryMb.value)} MB")
+            appendLine("• Privileged Bridge: ${caps?.privilegedBridgeSummary ?: "Native Android APIs"}")
+            appendLine("• Shizuku Status: ${caps?.shizuku?.availability?.label ?: "Unavailable"}")
+            appendLine("• Wireless ADB Status: ${caps?.wirelessAdb?.connectionState?.label ?: "Unconfigured"}")
             appendLine("• Wake Word Interface: ${wakeWordEngine.state.value.label} (\"${wakeWordEngine.keyword}\", verified=${wakeWordEngine.isPhraseDetectionVerified})")
             appendLine("• Android Tool Registry: ${toolRegistry.listTools().size} verified tools online")
             appendLine("• Cloud Providers: ${providers.joinToString { it.name }} (reqs=${usage.totalRequests})")
             appendLine("• Local Memory Store: Room v7 Persistence Active (WAL) • Skills=$skillsCount")
-            appendLine("• Accessibility Stack: 5-Layer Controller ($a11yStatus)")
+            appendLine("• Accessibility Stack: Limited UI Fallback ($a11yStatus)")
         }.trim()
         return AgentDispatchResult.ToolSnapshot(
             label = "AgentCore // Readiness Audit",

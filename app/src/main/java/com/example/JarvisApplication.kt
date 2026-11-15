@@ -10,19 +10,43 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class JarvisApplication : Application(), ComponentCallbacks2 {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val processStartedAtMs: Long = System.currentTimeMillis()
+    @Volatile
+    var firstFrameDrawnAtMs: Long = 0L
+        private set
 
     val container: JarvisContainer by lazy { JarvisContainer(this) }
 
+    fun markFirstFrameDrawn() {
+        if (firstFrameDrawnAtMs == 0L) {
+            firstFrameDrawnAtMs = System.currentTimeMillis()
+        }
+    }
+
+    fun measuredStartupDurationMs(): Long? {
+        val drawn = firstFrameDrawnAtMs
+        return if (drawn >= processStartedAtMs && drawn > 0L) (drawn - processStartedAtMs) else null
+    }
+
     override fun onCreate() {
         super.onCreate()
+        container.shizukuController.startLifecycleTracking()
         applicationScope.launch {
             runCatching {
+                container.settingsRepository.migrateLegacyTokensIfNeeded()
+                val initial = container.settingsRepository.settingsFlow.first()
+                container.wirelessAdbController.restoreSavedEndpoint(
+                    host = initial.wirelessAdbHost,
+                    connectPort = initial.wirelessAdbConnectPort.takeIf { it > 0 },
+                    paired = initial.wirelessAdbPaired
+                )
                 container.modelManager.ensureSeeded()
                 container.conversationRepository.ensureDefaultConversation()
                 container.settingsRepository.settingsFlow
@@ -62,6 +86,9 @@ class JarvisApplication : Application(), ComponentCallbacks2 {
 
     override fun onTerminate() {
         applicationScope.cancel()
+        container.shizukuController.stopLifecycleTracking()
+        container.wirelessAdbController.release()
+        container.deviceCapabilityManager.release()
         container.aiEngine.release()
         container.voiceEngine.release()
         super.onTerminate()

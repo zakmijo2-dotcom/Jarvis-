@@ -13,11 +13,21 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+data class KeystoreHealthReport(
+    val keystoreAvailable: Boolean,
+    val keyProvisioned: Boolean,
+    val lastError: String?
+)
+
 class SecureCredentialStore {
 
-    fun encrypt(plaintext: String): String {
+    @Volatile
+    var lastKeystoreError: String? = null
+        private set
+
+    fun encryptResult(plaintext: String): Result<String> {
         val trimmed = plaintext.trim()
-        if (trimmed.isEmpty()) return ""
+        if (trimmed.isEmpty()) return Result.success("")
         return try {
             val secretKey = getOrCreateKeystoreKey()
             val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
@@ -29,7 +39,8 @@ class SecureCredentialStore {
                 .put(iv)
                 .put(ciphertext)
                 .array()
-            PREFIX_KEYSTORE_V1 + Base64.encodeToString(combined, Base64.NO_WRAP)
+            lastKeystoreError = null
+            Result.success(PREFIX_KEYSTORE_V1 + Base64.encodeToString(combined, Base64.NO_WRAP))
         } catch (e: Exception) {
             if (!isAndroidKeyStoreAvailable()) {
                 // Strictly restricted to headless JVM/Robolectric unit test environments without AndroidKeyStore provider
@@ -43,11 +54,36 @@ class SecureCredentialStore {
                     .put(iv)
                     .put(ciphertext)
                     .array()
-                PREFIX_FALLBACK_V1 + Base64.encodeToString(combined, Base64.NO_WRAP)
+                lastKeystoreError = null
+                Result.success(PREFIX_FALLBACK_V1 + Base64.encodeToString(combined, Base64.NO_WRAP))
             } else {
-                ""
+                val safeMsg = SecurityLogRedactor.redact(e.localizedMessage ?: e.javaClass.simpleName)
+                lastKeystoreError = "AndroidKeyStore encryption failed: $safeMsg"
+                Result.failure(IllegalStateException(lastKeystoreError, e))
             }
         }
+    }
+
+    fun encrypt(plaintext: String): String =
+        encryptResult(plaintext).getOrDefault("")
+
+    fun verifyKeystoreHealth(): KeystoreHealthReport {
+        val available = isAndroidKeyStoreAvailable()
+        val provisioned = if (available) {
+            runCatching {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                keyStore.containsAlias(KEY_ALIAS) || getOrCreateKeystoreKey() != null
+            }.onFailure { err ->
+                lastKeystoreError = SecurityLogRedactor.redact(err.localizedMessage ?: err.javaClass.simpleName)
+            }.getOrDefault(false)
+        } else {
+            false
+        }
+        return KeystoreHealthReport(
+            keystoreAvailable = available,
+            keyProvisioned = provisioned,
+            lastError = lastKeystoreError
+        )
     }
 
     private fun isAndroidKeyStoreAvailable(): Boolean = runCatching {
@@ -69,6 +105,8 @@ class SecureCredentialStore {
                     val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
                     cipher.init(Cipher.DECRYPT_MODE, getOrCreateKeystoreKey(), GCMParameterSpec(128, iv))
                     String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+                }.onFailure { err ->
+                    lastKeystoreError = "Decryption failed: ${SecurityLogRedactor.redact(err.localizedMessage ?: err.javaClass.simpleName)}"
                 }.getOrDefault("")
             }
             storedValue.startsWith(PREFIX_FALLBACK_V1) -> {
@@ -81,6 +119,8 @@ class SecureCredentialStore {
                     val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
                     cipher.init(Cipher.DECRYPT_MODE, deriveHostFallbackKey(), GCMParameterSpec(128, iv))
                     String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+                }.onFailure { err ->
+                    lastKeystoreError = "Fallback decryption failed: ${SecurityLogRedactor.redact(err.localizedMessage ?: err.javaClass.simpleName)}"
                 }.getOrDefault("")
             }
             else -> ""

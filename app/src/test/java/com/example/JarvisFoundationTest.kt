@@ -374,12 +374,12 @@ class JarvisFoundationTest {
         assertTrue(litertReport.canDownloadToDevice)
         assertTrue(litertReport.canRunInJarvisNow)
 
-        // 2. Prepared GGUF adapter
+        // 2. Unbundled GGUF format marked strictly unsupported and non-downloadable
         val ggufFile = HfRepoFile("qwen2.5-0.5b-instruct-q4_k_m.gguf", 400_000_000L, null, "https://huggingface.co/file.gguf")
         val ggufReport = engine.inspect(repo, ggufFile, telemetry, 20L * 1024L * 1024L * 1024L, hasUserToken = false)
         assertEquals(RuntimeFormatId.GGUF_LLAMA_CPP, ggufReport.formatId)
-        assertEquals(CompatibilityVerdict.PREPARED_RUNTIME_ONLY, ggufReport.verdict)
-        assertTrue(ggufReport.canDownloadToDevice)
+        assertEquals(CompatibilityVerdict.UNSUPPORTED_FORMAT, ggufReport.verdict)
+        assertFalse(ggufReport.canDownloadToDevice)
         assertFalse(ggufReport.canRunInJarvisNow)
 
         // 3. Raw .safetensors strictly blocked
@@ -1074,7 +1074,10 @@ class JarvisFoundationTest {
     fun `phase 5 tool registry validates safety permissions and executes all device application and communication tools`() = runBlocking {
         val sysTools = AndroidSystemTools(context)
         val defaultRegistry = ToolRegistryFactory.createDefault(sysTools)
-        assertEquals(22, defaultRegistry.listTools().size)
+        assertEquals(25, defaultRegistry.listTools().size)
+        assertNotNull(defaultRegistry.getTool("check_device_bridge"))
+        assertNotNull(defaultRegistry.getTool("force_stop_app"))
+        assertNotNull(defaultRegistry.getTool("trim_app_caches"))
         assertNotNull(defaultRegistry.getTool("create_reminder"))
         assertNotNull(defaultRegistry.getTool("retrieve_memory"))
         assertNotNull(defaultRegistry.getTool("save_memory"))
@@ -2468,7 +2471,7 @@ class JarvisFoundationTest {
     }
 
     @Test
-    fun `evolution accessibility 5-layer controller classifies password nodes and verifies UI state transition`() {
+    fun `evolution accessibility 5-layer controller classifies password nodes and verifies UI state transition`() = runBlocking {
         var screenPhase = 0
         AccessibilityBridge.setTestElementsOverride {
             if (screenPhase == 0) {

@@ -33,6 +33,15 @@ data object MoreRoute
 data object DeviceRoute
 
 @Serializable
+data object DeviceBridgeSetupRoute
+
+@Serializable
+data object PermissionsSecurityRoute
+
+@Serializable
+data object ActivityHistoryRoute
+
+@Serializable
 data object SettingsRoute
 
 enum class TopDestination(

@@ -16,8 +16,15 @@ enum class CheckStatus {
 enum class CompatibilityVerdict(val label: String) {
     READY_TO_INSTALL("Compatible (LiteRT-LM)"),
     INSTALLABLE_WITH_WARNING("Compatible with Warnings"),
-    PREPARED_RUNTIME_ONLY("Runtime Adapter Pending"),
+    UNSUPPORTED_FORMAT("Unsupported Format"),
     BLOCKED("Incompatible / Blocked")
+}
+
+enum class HardwareFitTier(val label: String) {
+    OPTIMAL("Optimal Fit"),
+    TIGHT("Tight RAM Fit"),
+    INSUFFICIENT_RAM("Insufficient RAM"),
+    UNSUPPORTED_FORMAT("Unsupported Format")
 }
 
 data class CompatibilityCheckItem(
@@ -40,7 +47,9 @@ data class CompatibilityReport(
     val canDownloadToDevice: Boolean,
     val canRunInJarvisNow: Boolean,
     val summaryReason: String,
-    val checks: List<CompatibilityCheckItem>
+    val checks: List<CompatibilityCheckItem>,
+    val hardwareFit: HardwareFitTier = HardwareFitTier.OPTIMAL,
+    val estimatedContextTokens: Int = 4096
 )
 
 class ModelCompatibilityEngine(
@@ -51,7 +60,8 @@ class ModelCompatibilityEngine(
         file: HfRepoFile,
         telemetry: DeviceTelemetry,
         availableStorageBytes: Long,
-        hasUserToken: Boolean
+        hasUserToken: Boolean,
+        contextLengthTokens: Int = repoDetail.contextLengthHint ?: 4096
     ): CompatibilityReport {
         val checks = mutableListOf<CompatibilityCheckItem>()
 
@@ -75,7 +85,9 @@ class ModelCompatibilityEngine(
                 canDownloadToDevice = false,
                 canRunInJarvisNow = false,
                 summaryReason = "Executable scripts and native libraries from repositories are strictly blocked.",
-                checks = checks
+                checks = checks,
+                hardwareFit = HardwareFitTier.UNSUPPORTED_FORMAT,
+                estimatedContextTokens = contextLengthTokens
             )
         }
 
@@ -115,9 +127,9 @@ class ModelCompatibilityEngine(
             }
             else -> {
                 checks += CompatibilityCheckItem(
-                    category = "Runtime Adapter",
+                    category = "Format & Runtime",
                     detail = adapter.runtimeNotes,
-                    status = CheckStatus.WARN
+                    status = CheckStatus.BLOCK
                 )
             }
         }
@@ -131,14 +143,17 @@ class ModelCompatibilityEngine(
         )
 
         // 3. Memory Estimation Check
-        val estMemBytes = adapter?.estimateMemoryBytes(file.sizeBytes) ?: file.sizeBytes
+        val resolvedContext = contextLengthTokens.coerceIn(512, 32768)
+        val estMemBytes = adapter?.estimateMemoryBytes(file.sizeBytes, resolvedContext) ?: file.sizeBytes
         val totalRam = telemetry.totalRamBytes
         val availRam = telemetry.availRamBytes
         val estMemGb = estMemBytes / (1024f * 1024f * 1024f)
         val totalRamGb = totalRam / (1024f * 1024f * 1024f)
+        var ramFit = if (adapter?.isExecutionSupported == true) HardwareFitTier.OPTIMAL else HardwareFitTier.UNSUPPORTED_FORMAT
         if (estMemBytes > 0L && totalRam > 0L) {
             when {
                 estMemBytes > (totalRam * 0.85).toLong() -> {
+                    ramFit = HardwareFitTier.INSUFFICIENT_RAM
                     checks += CompatibilityCheckItem(
                         category = "Memory",
                         detail = String.format(
@@ -151,6 +166,9 @@ class ModelCompatibilityEngine(
                     )
                 }
                 availRam > 0L && estMemBytes > availRam -> {
+                    if (ramFit != HardwareFitTier.UNSUPPORTED_FORMAT) {
+                        ramFit = HardwareFitTier.TIGHT
+                    }
                     checks += CompatibilityCheckItem(
                         category = "Memory",
                         detail = String.format(
@@ -243,11 +261,13 @@ class ModelCompatibilityEngine(
 
         val hasHardBlock = checks.any { it.status == CheckStatus.BLOCK }
         val hasWarn = checks.any { it.status == CheckStatus.WARN }
+        val isUnsupportedFormat = adapter == null || !adapter.isExecutionSupported
         val canRunNow = adapter?.isExecutionSupported == true && !hasHardBlock
 
         val verdict = when {
+            isUnsupportedFormat && formatId != RuntimeFormatId.SAFETENSORS_RAW && adapter != null ->
+                CompatibilityVerdict.UNSUPPORTED_FORMAT
             hasHardBlock -> CompatibilityVerdict.BLOCKED
-            adapter != null && !adapter.isExecutionSupported -> CompatibilityVerdict.PREPARED_RUNTIME_ONLY
             hasWarn -> CompatibilityVerdict.INSTALLABLE_WITH_WARNING
             else -> CompatibilityVerdict.READY_TO_INSTALL
         }
@@ -258,11 +278,17 @@ class ModelCompatibilityEngine(
             CompatibilityVerdict.INSTALLABLE_WITH_WARNING ->
                 checks.firstOrNull { it.status == CheckStatus.WARN }?.detail
                     ?: "Compatible with device warnings."
-            CompatibilityVerdict.PREPARED_RUNTIME_ONLY ->
-                adapter?.runtimeNotes ?: "Runtime adapter prepared for future execution."
+            CompatibilityVerdict.UNSUPPORTED_FORMAT ->
+                adapter?.runtimeNotes ?: "Unsupported model format for this APK build."
             CompatibilityVerdict.BLOCKED ->
                 checks.firstOrNull { it.status == CheckStatus.BLOCK }?.detail
                     ?: "File cannot be installed on this device."
+        }
+
+        val finalHardwareFit = if (isUnsupportedFormat) {
+            HardwareFitTier.UNSUPPORTED_FORMAT
+        } else {
+            ramFit
         }
 
         return CompatibilityReport(
@@ -276,10 +302,12 @@ class ModelCompatibilityEngine(
             requiredStorageBytes = requiredStorage,
             license = repoDetail.license,
             verdict = verdict,
-            canDownloadToDevice = !hasHardBlock && adapter != null,
+            canDownloadToDevice = canRunNow,
             canRunInJarvisNow = canRunNow,
             summaryReason = summaryReason,
-            checks = checks
+            checks = checks,
+            hardwareFit = finalHardwareFit,
+            estimatedContextTokens = resolvedContext
         )
     }
 

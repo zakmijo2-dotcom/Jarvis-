@@ -9,6 +9,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.agent.AgentCore
+import com.example.core.device.DeviceCapabilityManager
+import com.example.core.device.DeviceCapabilitySnapshot
 import com.example.core.tools.AccessibilityBridge
 import com.example.core.tools.AndroidTools
 import com.example.core.tools.CapturedNotificationItem
@@ -21,6 +23,7 @@ import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -68,7 +71,8 @@ data class DeviceControlsState(
     val pendingSpecialAccess: SpecialAccessType? = null,
     val permissionRationale: String? = null,
     val lastResult: ToolExecutionResult? = null,
-    val executionLog: List<ToolExecutionResult> = emptyList()
+    val executionLog: List<ToolExecutionResult> = emptyList(),
+    val capabilitySnapshot: DeviceCapabilitySnapshot = DeviceCapabilitySnapshot()
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -76,7 +80,8 @@ class DeviceDashboardViewModel(
     private val androidTools: AndroidTools,
     private val settingsRepository: SettingsRepository,
     private val appContext: Context? = null,
-    private val agentCore: AgentCore? = null
+    private val agentCore: AgentCore? = null,
+    private val deviceCapabilityManager: DeviceCapabilityManager? = null
 ) : ViewModel() {
 
     private val autoPollingEnabled = MutableStateFlow(true)
@@ -176,6 +181,8 @@ class DeviceDashboardViewModel(
         )
     }
 
+    private val capabilityFlow = deviceCapabilityManager?.capabilities ?: flowOf(DeviceCapabilitySnapshot())
+
     val controlsState: StateFlow<DeviceControlsState> = combine(
         controlsBaseFlow,
         activeToolName,
@@ -184,11 +191,13 @@ class DeviceDashboardViewModel(
         pendingSpecialAccess,
         permissionRationale,
         lastResult,
-        executionLog
+        executionLog,
+        capabilityFlow
     ) { values ->
         val base = values[0] as DeviceControlsState
         @Suppress("UNCHECKED_CAST")
         val log = values[7] as List<ToolExecutionResult>
+        val capSnapshot = values[8] as DeviceCapabilitySnapshot
         base.copy(
             activeToolName = values[1] as String?,
             pendingConfirmation = values[2] as PendingToolConfirmation?,
@@ -196,7 +205,8 @@ class DeviceDashboardViewModel(
             pendingSpecialAccess = values[4] as SpecialAccessType?,
             permissionRationale = values[5] as String?,
             lastResult = values[6] as ToolExecutionResult?,
-            executionLog = log
+            executionLog = log,
+            capabilitySnapshot = capSnapshot
         )
     }.stateIn(
         scope = viewModelScope,
@@ -208,11 +218,13 @@ class DeviceDashboardViewModel(
         viewModelScope.launch {
             manualRefreshTick.value += 1
             authRefreshTick.value += 1
+            deviceCapabilityManager?.refreshAll()
         }
     }
 
     fun refreshAuthorizationStatus() {
         authRefreshTick.value += 1
+        deviceCapabilityManager?.refreshAll()
     }
 
     fun toggleAutoPolling() {
@@ -381,7 +393,8 @@ class DeviceDashboardViewModel(
             androidTools: AndroidTools,
             settingsRepository: SettingsRepository,
             context: Context? = null,
-            agentCore: AgentCore? = null
+            agentCore: AgentCore? = null,
+            deviceCapabilityManager: DeviceCapabilityManager? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -389,7 +402,8 @@ class DeviceDashboardViewModel(
                     androidTools = androidTools,
                     settingsRepository = settingsRepository,
                     appContext = context?.applicationContext,
-                    agentCore = agentCore
+                    agentCore = agentCore,
+                    deviceCapabilityManager = deviceCapabilityManager
                 ) as T
             }
         }

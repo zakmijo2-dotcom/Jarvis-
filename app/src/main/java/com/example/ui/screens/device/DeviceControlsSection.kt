@@ -87,7 +87,8 @@ fun DeviceControlsConsole(
     onSetNotificationReaderEnabled: (Boolean) -> Unit,
     onSetNotificationPrivacyMaskEnabled: (Boolean) -> Unit,
     onClearNotificationBuffer: () -> Unit,
-    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit
+    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit,
+    onOpenBridgeSetup: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val palette = JarvisThemeTokens.palette
@@ -135,6 +136,67 @@ fun DeviceControlsConsole(
         controlsState.lastResult?.let { latest ->
             item {
                 ToolResultCard(result = latest, isPrimary = true)
+            }
+        }
+
+        // 0. Capability-Ordered Privileged Bridge (Shizuku -> Wireless ADB -> Native -> Accessibility)
+        item {
+            val caps = controlsState.capabilitySnapshot
+            val shizukuReady = caps.shizuku.isBinderAlive && caps.shizuku.hasPermission
+            ControlsSectionPanel(
+                title = "Capability router",
+                icon = Icons.Filled.VerifiedUser,
+                badgeText = caps.privilegedBridgeSummary,
+                badgeHighlighted = shizukuReady,
+                panelTestTag = "device_capability_router_card"
+            ) {
+                Text(
+                    text = "Priority order: 1. Shizuku (${caps.shizuku.availability.label}) -> 2. Wireless ADB (${caps.wirelessAdb.connectionState.label}) -> 3. Native Android APIs -> 4. Accessibility Fallback.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onOpenBridgeSetup,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = palette.skyContainer,
+                            contentColor = palette.onHue
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_open_bridge_setup")
+                    ) {
+                        Text("Shizuku & Wireless ADB")
+                    }
+                    OutlinedButton(
+                        onClick = { onRunTool("privileged_ping_runtime", emptyMap()) },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_privileged_ping")
+                    ) {
+                        Text("Verify Bridge")
+                    }
+                    OutlinedButton(
+                        onClick = { onRunTool("privileged_read_system_properties", emptyMap()) },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_privileged_sysprops")
+                    ) {
+                        Text("System Props")
+                    }
+                    OutlinedButton(
+                        onClick = { onRunTool("privileged_trim_caches", mapOf("target_mb" to "512")) },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_privileged_trim_caches")
+                    ) {
+                        Text("Trim Caches (confirm)")
+                    }
+                }
             }
         }
 

@@ -8,9 +8,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.example.R
 
-val InterFontFamily = FontFamily(
-    Font(R.font.inter, FontWeight.Normal),
-    Font(R.font.inter, FontWeight.Medium)
+val SpaceGroteskFontFamily = FontFamily(
+    Font(R.font.space_grotesk, FontWeight.Normal),
+    Font(R.font.space_grotesk, FontWeight.Medium),
+    Font(R.font.space_grotesk, FontWeight.SemiBold),
+    Font(R.font.space_grotesk, FontWeight.Bold)
+)
+
+val PlusJakartaSansFontFamily = FontFamily(
+    Font(R.font.plus_jakarta_sans, FontWeight.Normal),
+    Font(R.font.plus_jakarta_sans, FontWeight.Medium),
+    Font(R.font.plus_jakarta_sans, FontWeight.SemiBold)
 )
 
 val JetBrainsMonoFamily = FontFamily(
@@ -18,68 +26,70 @@ val JetBrainsMonoFamily = FontFamily(
     Font(R.font.jetbrains_mono, FontWeight.Medium)
 )
 
-// Inter exclusively for UI typography; JetBrains Mono strictly for code and telemetry.
+// Backwards-compatible alias
+val InterFontFamily: FontFamily = PlusJakartaSansFontFamily
+
 private val SizeGreeting = TextStyle(
-    fontFamily = InterFontFamily,
-    fontWeight = FontWeight.Medium,
-    fontSize = 32.sp,
-    lineHeight = 40.sp,
-    letterSpacing = (-0.4).sp
+    fontFamily = SpaceGroteskFontFamily,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 30.sp,
+    lineHeight = 38.sp,
+    letterSpacing = (-0.5).sp
 )
 
 private val SizeScreenHeader = TextStyle(
-    fontFamily = InterFontFamily,
-    fontWeight = FontWeight.Medium,
+    fontFamily = SpaceGroteskFontFamily,
+    fontWeight = FontWeight.SemiBold,
     fontSize = 22.sp,
     lineHeight = 28.sp,
-    letterSpacing = (-0.2).sp
+    letterSpacing = (-0.3).sp
 )
 
 private val SizeTitleLead = TextStyle(
-    fontFamily = InterFontFamily,
+    fontFamily = SpaceGroteskFontFamily,
     fontWeight = FontWeight.Medium,
     fontSize = 16.sp,
+    lineHeight = 22.sp,
+    letterSpacing = (-0.1).sp
+)
+
+private val SizeBodyLarge = TextStyle(
+    fontFamily = PlusJakartaSansFontFamily,
+    fontWeight = FontWeight.Normal,
+    fontSize = 15.sp,
     lineHeight = 22.sp,
     letterSpacing = 0.sp
 )
 
-private val SizeBodyLarge = TextStyle(
-    fontFamily = InterFontFamily,
-    fontWeight = FontWeight.Normal,
-    fontSize = 16.sp,
-    lineHeight = 22.sp, // ~1.4 line height
-    letterSpacing = 0.sp
-)
-
 private val SizeTitleSmall = TextStyle(
-    fontFamily = InterFontFamily,
-    fontWeight = FontWeight.Medium,
+    fontFamily = PlusJakartaSansFontFamily,
+    fontWeight = FontWeight.SemiBold,
     fontSize = 14.sp,
     lineHeight = 20.sp,
     letterSpacing = 0.sp
 )
 
 private val SizeBodyMedium = TextStyle(
-    fontFamily = InterFontFamily,
+    fontFamily = PlusJakartaSansFontFamily,
     fontWeight = FontWeight.Normal,
-    fontSize = 15.sp,
-    lineHeight = 21.sp, // exact 1.4 line height
+    fontSize = 14.sp,
+    lineHeight = 20.sp,
     letterSpacing = 0.sp
 )
 
 private val SizeCaptionMedium = TextStyle(
-    fontFamily = InterFontFamily,
+    fontFamily = PlusJakartaSansFontFamily,
     fontWeight = FontWeight.Medium,
     fontSize = 12.sp,
-    lineHeight = 17.sp,
-    letterSpacing = 0.sp
+    lineHeight = 16.sp,
+    letterSpacing = 0.1.sp
 )
 
 private val SizeCaptionRegular = TextStyle(
-    fontFamily = InterFontFamily,
+    fontFamily = PlusJakartaSansFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
-    lineHeight = 17.sp,
+    lineHeight = 16.sp,
     letterSpacing = 0.sp
 )
 

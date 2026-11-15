@@ -6,8 +6,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.core.voice.JarvisVoiceService
 import com.example.core.voice.VoiceServiceStatus
+import com.example.data.repository.AppThemeMode
+import com.example.data.repository.JarvisSettings
 import com.example.ui.navigation.JarvisAppShell
 import com.example.ui.theme.JarvisTheme
 
@@ -15,20 +22,42 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleWakeIntent(intent)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            ),
-            navigationBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            )
-        )
-        val container = (application as JarvisApplication).container
+        val app = application as JarvisApplication
+        val container = app.container
         setContent {
-            JarvisTheme {
-                JarvisAppShell(container = container)
+            val settings by container.settingsRepository.settingsFlow
+                .collectAsStateWithLifecycle(initialValue = JarvisSettings())
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (settings.themeMode) {
+                AppThemeMode.DARK -> true
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.SYSTEM -> systemDark
+            }
+
+            SideEffect {
+                val barStyle = if (darkTheme) {
+                    SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT
+                    )
+                }
+                enableEdgeToEdge(
+                    statusBarStyle = barStyle,
+                    navigationBarStyle = barStyle
+                )
+            }
+
+            LaunchedEffect(Unit) {
+                app.markFirstFrameDrawn()
+            }
+
+            JarvisTheme(darkTheme = darkTheme) {
+                JarvisAppShell(
+                    container = container,
+                    app = app
+                )
             }
         }
     }

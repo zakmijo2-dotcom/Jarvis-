@@ -7,16 +7,17 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.graphics.Color
 
 private val JarvisDarkColorScheme = darkColorScheme(
     primary = HueSky,
     onPrimary = OnMutedHueInk,
-    primaryContainer = DarkSurfaceHigh,
-    onPrimaryContainer = HueSky,
+    primaryContainer = BadgeCyanDark,
+    onPrimaryContainer = HueSkyDarkTint,
     secondary = HueSage,
     onSecondary = OnMutedHueInk,
-    secondaryContainer = DarkSurfaceHigh,
-    onSecondaryContainer = DarkText,
+    secondaryContainer = BadgeTealDark,
+    onSecondaryContainer = HueSageDarkTint,
     tertiary = HuePeach,
     onTertiary = OnMutedHueInk,
     tertiaryContainer = DarkSurfaceHigh,
@@ -36,21 +37,21 @@ private val JarvisDarkColorScheme = darkColorScheme(
     outlineVariant = DarkHairline,
     error = HueCoral,
     onError = OnMutedHueInk,
-    errorContainer = DarkSurfaceHigh,
-    onErrorContainer = HueCoral
+    errorContainer = BadgeCrimsonDark,
+    onErrorContainer = HueCoralDarkTint
 )
 
 private val JarvisLightColorScheme = lightColorScheme(
-    primary = HueSky,
-    onPrimary = OnMutedHueInk,
+    primary = HueSkyOnLight,
+    onPrimary = Color.White,
     primaryContainer = HueSkyLightTint,
     onPrimaryContainer = OnMutedHueInk,
-    secondary = HueSage,
-    onSecondary = OnMutedHueInk,
+    secondary = HueSageOnLight,
+    onSecondary = Color.White,
     secondaryContainer = HueSageLightTint,
     onSecondaryContainer = OnMutedHueInk,
-    tertiary = HuePeach,
-    onTertiary = OnMutedHueInk,
+    tertiary = HuePeachOnLight,
+    onTertiary = Color.White,
     tertiaryContainer = HuePeachLightTint,
     onTertiaryContainer = OnMutedHueInk,
     background = LightBackground,
@@ -66,8 +67,8 @@ private val JarvisLightColorScheme = lightColorScheme(
     surfaceContainerHighest = LightSurfaceHighest,
     outline = LightHairline,
     outlineVariant = LightHairline,
-    error = HueCoral,
-    onError = OnMutedHueInk,
+    error = HueCoralOnLight,
+    onError = Color.White,
     errorContainer = HueCoralLightTint,
     onErrorContainer = OnMutedHueInk
 )

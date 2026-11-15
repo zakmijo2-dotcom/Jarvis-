@@ -506,6 +506,65 @@ fun ChatScreen(
                 }
             }
 
+            if (uiState.engineLoadState is EngineLoadState.Error) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("chat_error_recovery_banner"),
+                    shape = MaterialTheme.shapes.small,
+                    color = palette.crimsonBadgeBg,
+                    border = BorderStroke(hairlineDp(), palette.errorAccent.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "Local engine error",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = palette.errorAccent
+                            )
+                            Text(
+                                text = uiState.engineLoadState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = palette.textSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(
+                                onClick = onLoadActiveModel,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("chat_retry_load_button")
+                            ) {
+                                Text("Retry", color = palette.skyAccent)
+                            }
+                            TextButton(
+                                onClick = onNavigateToModels,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("chat_switch_model_button")
+                            ) {
+                                Text("Models", color = palette.text)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Quick Actions Row
             LazyRow(
                 modifier = Modifier

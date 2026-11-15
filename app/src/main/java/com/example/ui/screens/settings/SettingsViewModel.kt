@@ -16,6 +16,7 @@ import com.example.core.skills.SkillEngine
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.wakeword.WakeWordState
 import com.example.core.web.WebSearchProviderKind
+import com.example.data.repository.AppThemeMode
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.InferenceBackendPreference
 import com.example.data.repository.JarvisSettings
@@ -107,6 +108,10 @@ class SettingsViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SettingsUiState()
     )
+
+    fun setThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch { settingsRepository.setThemeMode(mode) }
+    }
 
     fun setOrbAnimationEnabled(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setOrbAnimationEnabled(enabled) }

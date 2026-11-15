@@ -2,6 +2,7 @@ package com.example.core.tools
 
 import android.content.Context
 import com.example.core.security.PromptSecuritySanitizer
+import kotlinx.coroutines.delay
 
 data class UiObservedElement(
     val label: String,
@@ -57,7 +58,7 @@ class AccessibilityController(
     private val stabilizationDelayMs: Long = DEFAULT_STABILIZATION_DELAY_MS,
     private val maxVerificationPolls: Int = DEFAULT_MAX_VERIFICATION_POLLS,
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
-    private val sleepFn: (Long) -> Unit = { ms -> if (ms > 0L) Thread.sleep(ms) }
+    private val sleepFn: suspend (Long) -> Unit = { ms -> if (ms > 0L) delay(ms) }
 ) {
     val observationEngine = UiObservationEngine(context)
     val elementIdentifier = ElementIdentificationEngine()
@@ -74,7 +75,7 @@ class AccessibilityController(
         return elementIdentifier.matchElement(snapshot.elements, query)
     }
 
-    fun executeTapWithVerification(targetQuery: String): ActionVerificationResult {
+    suspend fun executeTapWithVerification(targetQuery: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.tap(targetQuery)
         val after = captureSettledAfterSnapshot(before, ok, 25)
@@ -86,7 +87,7 @@ class AccessibilityController(
         )
     }
 
-    fun executeScrollWithVerification(direction: String): ActionVerificationResult {
+    suspend fun executeScrollWithVerification(direction: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.scroll(direction)
         val after = captureSettledAfterSnapshot(before, ok, 25)
@@ -98,7 +99,7 @@ class AccessibilityController(
         )
     }
 
-    fun executeTextInputWithVerification(targetQuery: String?, text: String): ActionVerificationResult {
+    suspend fun executeTextInputWithVerification(targetQuery: String?, text: String): ActionVerificationResult {
         val before = observeCurrentScreen(25)
         val ok = actionExecutor.inputText(targetQuery, text)
         val after = captureSettledAfterSnapshot(before, ok, 25)
@@ -110,7 +111,7 @@ class AccessibilityController(
         )
     }
 
-    fun executeGlobalActionWithVerification(action: AuthorizedAccessibilityAction): ActionVerificationResult {
+    suspend fun executeGlobalActionWithVerification(action: AuthorizedAccessibilityAction): ActionVerificationResult {
         val before = observeCurrentScreen(20)
         val ok = actionExecutor.globalAction(action)
         val after = captureSettledAfterSnapshot(before, ok, 20)
@@ -122,7 +123,7 @@ class AccessibilityController(
         )
     }
 
-    fun verifyExternalTransition(
+    suspend fun verifyExternalTransition(
         actionName: String,
         dispatched: Boolean,
         before: UiObservationSnapshot,
@@ -137,7 +138,7 @@ class AccessibilityController(
         )
     }
 
-    private fun captureSettledAfterSnapshot(
+    private suspend fun captureSettledAfterSnapshot(
         before: UiObservationSnapshot,
         dispatched: Boolean,
         maxElements: Int

@@ -12,8 +12,9 @@ enum class ModelProviderType(val label: String) {
 }
 
 enum class ModelStatus(val label: String) {
-    PHASE_2_PENDING("Phase 2 Pending"),
-    PHASE_3_PENDING("Phase 3 Pending"),
+    PHASE_2_PENDING("Unsupported / Legacy"),
+    PHASE_3_PENDING("Unconfigured"),
+    UNSUPPORTED("Unsupported Format"),
     UNCONFIGURED("Unconfigured"),
     READY("Ready")
 }
@@ -47,7 +48,27 @@ data class ModelSlot(
     val quantization: String? = null,
     val parameterCount: String? = null,
     val runtimeFormat: RuntimeFormatId = RuntimeFormatId.LITERT_LM
-)
+) {
+    fun estimatedMemoryBytes(contextTokens: Int = contextWindow): Long {
+        if (providerType == ModelProviderType.CLOUD_API) return 0L
+        val diskBytes = localFilePath?.let { path ->
+            runCatching { java.io.File(path).length() }.getOrDefault(0L)
+        }?.takeIf { it > 0L } ?: expectedSizeBytes
+        if (diskBytes <= 0L) return 0L
+        return ModelFormatRegistry().resolveAdapter("model.${runtimeFormat.defaultExtension()}")
+            ?.estimateMemoryBytes(diskBytes, contextTokens)
+            ?: (diskBytes + 384L * 1024L * 1024L)
+    }
+
+    private fun RuntimeFormatId.defaultExtension(): String = when (this) {
+        RuntimeFormatId.LITERT_LM -> "litertlm"
+        RuntimeFormatId.GGUF_LLAMA_CPP -> "gguf"
+        RuntimeFormatId.LITERT_TFLITE -> "tflite"
+        RuntimeFormatId.MEDIAPIPE_TASK -> "task"
+        RuntimeFormatId.SAFETENSORS_RAW -> "safetensors"
+        RuntimeFormatId.UNKNOWN -> "bin"
+    }
+}
 
 interface ModelManager {
     fun observeModels(): Flow<List<ModelSlot>>
@@ -127,10 +148,10 @@ class RoomModelManager(
                             id = "slot_gemini_cloud",
                             displayName = "Gemini Cloud Core",
                             providerType = ModelProviderType.CLOUD_API.name,
-                            engineFamily = "Firebase AI Logic / Gemini",
+                            engineFamily = "Cloud Provider API",
                             parameterHint = "Cloud Multimodal",
                             contextWindow = 1048576,
-                            status = ModelStatus.PHASE_3_PENDING.name,
+                            status = ModelStatus.UNCONFIGURED.name,
                             isActive = false,
                             isCustom = false
                         ),

@@ -899,13 +899,13 @@ private fun FileCompatibilityRow(
     var expandedChecks by remember { mutableStateOf(false) }
     val verdictColor = when (report.verdict) {
         CompatibilityVerdict.READY_TO_INSTALL -> palette.sageAccent
-        CompatibilityVerdict.INSTALLABLE_WITH_WARNING, CompatibilityVerdict.PREPARED_RUNTIME_ONLY -> palette.sandAccent
-        CompatibilityVerdict.BLOCKED -> palette.errorAccent
+        CompatibilityVerdict.INSTALLABLE_WITH_WARNING -> palette.sandAccent
+        CompatibilityVerdict.UNSUPPORTED_FORMAT, CompatibilityVerdict.BLOCKED -> palette.errorAccent
     }
     val verdictBadgeContainer = when (report.verdict) {
         CompatibilityVerdict.READY_TO_INSTALL -> palette.sageContainer
-        CompatibilityVerdict.INSTALLABLE_WITH_WARNING, CompatibilityVerdict.PREPARED_RUNTIME_ONLY -> palette.sandContainer
-        CompatibilityVerdict.BLOCKED -> palette.coralContainer
+        CompatibilityVerdict.INSTALLABLE_WITH_WARNING -> palette.sandContainer
+        CompatibilityVerdict.UNSUPPORTED_FORMAT, CompatibilityVerdict.BLOCKED -> palette.coralContainer
     }
 
     Column(

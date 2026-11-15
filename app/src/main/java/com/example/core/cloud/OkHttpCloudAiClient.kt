@@ -2,6 +2,9 @@ package com.example.core.cloud
 
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.GenerationBenchmark
+import com.example.core.ai.PromptCompressor
+import com.example.core.security.HttpSecuritySupport
+import com.example.core.security.SecurityLogRedactor
 import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
 import kotlinx.coroutines.CancellationException
@@ -106,8 +109,10 @@ class OkHttpCloudAiClient(
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
-                    val errorBody = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
-                    val cleanErr = extractApiError(response.code, response.message, errorBody)
+                    val errorBody = runCatching {
+                        HttpSecuritySupport.readBoundedUtf8Body(response.body, 256L * 1024L)
+                    }.getOrDefault("")
+                    val cleanErr = SecurityLogRedactor.redact(extractApiError(response.code, response.message, errorBody))
                     val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
                     recordFailure(backendLabel, cleanErr, latencyMs)
                     emit(AiStreamEvent.Error(cleanErr))
@@ -124,7 +129,7 @@ class OkHttpCloudAiClient(
 
                 val contentType = response.header("Content-Type").orEmpty().lowercase()
                 if (contentType.contains("application/json") && !contentType.contains("event-stream")) {
-                    val rawJson = body.string()
+                    val rawJson = HttpSecuritySupport.readBoundedUtf8Body(body)
                     val fullText = parseNonStreamingJson(config.providerKind, rawJson)
                     firstTokenNs = System.nanoTime()
                     accumulated.append(fullText)
@@ -225,7 +230,7 @@ class OkHttpCloudAiClient(
             throw ce
         } catch (te: SocketTimeoutException) {
             val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val msg = "Cloud request timed out after ${timeoutSec}s (${te.localizedMessage ?: "timeout"})."
+            val msg = SecurityLogRedactor.redact("Cloud request timed out after ${timeoutSec}s (${te.localizedMessage ?: "timeout"}).")
             recordFailure(backendLabel, msg, latencyMs)
             emit(AiStreamEvent.Error(msg))
         } catch (io: IOException) {
@@ -233,13 +238,13 @@ class OkHttpCloudAiClient(
             if (cancelRequested.get()) {
                 emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
             } else {
-                val msg = "Cloud network failure: ${io.localizedMessage ?: io.javaClass.simpleName}"
+                val msg = SecurityLogRedactor.redact("Cloud network failure: ${io.localizedMessage ?: io.javaClass.simpleName}")
                 recordFailure(backendLabel, msg, latencyMs)
                 emit(AiStreamEvent.Error(msg))
             }
         } catch (t: Throwable) {
             val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val msg = "Cloud inference error: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            val msg = SecurityLogRedactor.redact("Cloud inference error: ${t.localizedMessage ?: t.javaClass.simpleName}")
             recordFailure(backendLabel, msg, latencyMs)
             emit(AiStreamEvent.Error(msg))
         } finally {
@@ -264,9 +269,10 @@ class OkHttpCloudAiClient(
         prompt: String,
         history: List<MessageEntity>
     ): Request {
-        val recentHistory = history
-            .filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
-            .takeLast(12)
+        val recentHistory = PromptCompressor.compressHistory(
+            history = history,
+            contextBudgetTokens = 3072
+        ).turns
 
         return when (config.providerKind) {
             CloudProviderKind.GEMINI_REST -> {
@@ -278,7 +284,7 @@ class OkHttpCloudAiClient(
                 }
                 val contents = JSONArray()
                 for (msg in recentHistory) {
-                    val role = if (msg.role == MessageRole.USER) "user" else "model"
+                    val role = if (msg.isUser) "user" else "model"
                     contents.put(
                         JSONObject().apply {
                             put("role", role)
@@ -328,7 +334,7 @@ class OkHttpCloudAiClient(
                 for (msg in recentHistory) {
                     messages.put(
                         JSONObject().apply {
-                            put("role", if (msg.role == MessageRole.USER) "user" else "assistant")
+                            put("role", if (msg.isUser) "user" else "assistant")
                             put("content", msg.content)
                         }
                     )
@@ -363,7 +369,7 @@ class OkHttpCloudAiClient(
                 for (msg in recentHistory) {
                     messages.put(
                         JSONObject().apply {
-                            put("role", if (msg.role == MessageRole.USER) "user" else "assistant")
+                            put("role", if (msg.isUser) "user" else "assistant")
                             put("content", msg.content)
                         }
                     )

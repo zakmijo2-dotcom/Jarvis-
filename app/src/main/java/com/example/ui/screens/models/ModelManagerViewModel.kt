@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.ai.AiEngine
+import com.example.core.ai.BatteryThermalSnapshot
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.GenerationBenchmark
+import com.example.core.ai.ModelHardwareRecommendation
+import com.example.core.ai.ModelRouter
 import com.example.core.cloud.CloudProviderDescriptor
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.hf.HuggingFaceApiClient
@@ -82,6 +85,8 @@ data class ModelManagerUiState(
     val lastBenchmark: GenerationBenchmark? = null,
     val nativeMemoryMb: Float = 0f,
     val availableStorageBytes: Long = 0L,
+    val installedStorageBytes: Long = 0L,
+    val hardwareRecommendations: Map<String, ModelHardwareRecommendation> = emptyMap(),
     val settings: JarvisSettings = JarvisSettings(),
     val discover: DiscoverState = DiscoverState(),
     val repoDetail: RepoDetailState? = null,
@@ -102,7 +107,8 @@ class ModelManagerViewModel(
     private val modelBenchmarkDao: ModelBenchmarkDao,
     private val aiEngine: AiEngine,
     private val settingsRepository: SettingsRepository,
-    private val cloudProviderRegistry: CloudProviderRegistry
+    private val cloudProviderRegistry: CloudProviderRegistry,
+    private val modelRouter: ModelRouter = ModelRouter(formatRegistry = formatRegistry)
 ) : ViewModel() {
 
     private val selectedTab = MutableStateFlow(ModelHubTab.INSTALLED)
@@ -159,6 +165,24 @@ class ModelManagerViewModel(
             ModelFilter.LOCAL -> core.allModels.filter { it.providerType == ModelProviderType.LOCAL_ON_DEVICE }
             ModelFilter.CLOUD -> core.allModels.filter { it.providerType == ModelProviderType.CLOUD_API }
         }
+        val telemetry = runCatching { androidTools.readDeviceTelemetry() }.getOrNull()
+        val recs = if (telemetry != null) {
+            modelRouter.evaluateModels(
+                models = core.allModels,
+                settings = core.settings,
+                telemetry = telemetry,
+                batterySnapshot = BatteryThermalSnapshot(
+                    batteryPercent = telemetry.batteryPercent,
+                    batteryTempCelsius = telemetry.batteryTempCelsius,
+                    isPowerSaveMode = false,
+                    thermalStatusCode = telemetry.thermalCode,
+                    thermalStatusLabel = telemetry.thermalStatusLabel
+                ),
+                benchmarks = hub.benchmarks
+            ).associateBy { it.slotId }
+        } else {
+            emptyMap()
+        }
         ModelManagerUiState(
             selectedTab = hub.tab,
             models = filtered,
@@ -170,13 +194,15 @@ class ModelManagerViewModel(
             lastBenchmark = core.benchmark,
             nativeMemoryMb = core.nativeMem,
             availableStorageBytes = modelArtifactManager.availableStorageBytes(),
+            installedStorageBytes = modelArtifactManager.installedStorageFootprintBytes(),
+            hardwareRecommendations = recs,
             settings = core.settings,
             discover = hub.discover,
             repoDetail = hub.repoDetail,
             downloadQueue = hub.queue,
             benchmarks = hub.benchmarks,
             hubNotice = hub.notice,
-            formatAdapters = formatRegistry.adapters.filter { it.isExecutionSupported }
+            formatAdapters = formatRegistry.adapters
         )
     }.stateIn(
         scope = viewModelScope,
@@ -184,7 +210,8 @@ class ModelManagerViewModel(
         initialValue = ModelManagerUiState(
             cloudProviders = cloudProviderRegistry.listProviders(),
             availableStorageBytes = modelArtifactManager.availableStorageBytes(),
-            formatAdapters = formatRegistry.adapters.filter { it.isExecutionSupported }
+            installedStorageBytes = modelArtifactManager.installedStorageFootprintBytes(),
+            formatAdapters = formatRegistry.adapters
         )
     )
 
@@ -437,7 +464,7 @@ class ModelManagerViewModel(
 
     fun loadModel(slot: ModelSlot) {
         if (slot.runtimeFormat != RuntimeFormatId.LITERT_LM) {
-            hubNotice.value = "${slot.runtimeFormat.label} adapter boundary is prepared, but only LiteRT-LM (.litertlm) models execute natively in this phase."
+            hubNotice.value = "${slot.runtimeFormat.label} is unsupported in this APK build (no native runtime bundled)."
             return
         }
         viewModelScope.launch {
@@ -528,7 +555,8 @@ class ModelManagerViewModel(
             modelBenchmarkDao: ModelBenchmarkDao,
             aiEngine: AiEngine,
             settingsRepository: SettingsRepository,
-            cloudProviderRegistry: CloudProviderRegistry
+            cloudProviderRegistry: CloudProviderRegistry,
+            modelRouter: ModelRouter = ModelRouter(formatRegistry = formatRegistry)
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -543,7 +571,8 @@ class ModelManagerViewModel(
                     modelBenchmarkDao = modelBenchmarkDao,
                     aiEngine = aiEngine,
                     settingsRepository = settingsRepository,
-                    cloudProviderRegistry = cloudProviderRegistry
+                    cloudProviderRegistry = cloudProviderRegistry,
+                    modelRouter = modelRouter
                 ) as T
             }
         }

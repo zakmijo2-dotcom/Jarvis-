@@ -7,11 +7,18 @@ import com.example.core.agent.Phase2AgentCore
 import com.example.core.agent.ToolRegistryFactory
 import com.example.core.ai.AiEngine
 import com.example.core.ai.LiteRtLmAiEngine
+import com.example.core.ai.ModelRouter
 import com.example.core.ai.RuntimeEngineCoordinator
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.cloud.OkHttpCloudAiClient
 import com.example.core.cloud.Phase1CloudProviderRegistry
+import com.example.core.device.AndroidNativeController
+import com.example.core.device.DeviceCapabilityManager
+import com.example.core.device.DeviceCommandRouter
+import com.example.core.device.PermissionManager
+import com.example.core.device.ShizukuController
+import com.example.core.device.WirelessAdbController
 import com.example.core.hf.HuggingFaceApiClient
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.RoomLocalMemory
@@ -21,6 +28,7 @@ import com.example.core.model.ModelCompatibilityEngine
 import com.example.core.model.ModelFormatRegistry
 import com.example.core.model.ModelManager
 import com.example.core.model.RoomModelManager
+import com.example.core.security.HttpSecuritySupport
 import com.example.core.security.SecureCredentialStore
 import com.example.core.skills.RoomSkillEngine
 import com.example.core.skills.SkillEngine
@@ -70,10 +78,17 @@ open class JarvisContainer(context: Context) {
     }
 
     open val sharedOkHttpClient: okhttp3.OkHttpClient by lazy {
+        val cacheDir = java.io.File(appContext.cacheDir, "http_api_cache")
         okhttp3.OkHttpClient.Builder()
+            .cache(okhttp3.Cache(cacheDir, 16L * 1024L * 1024L))
             .connectionPool(okhttp3.ConnectionPool(4, 3, java.util.concurrent.TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
+            .addNetworkInterceptor(HttpSecuritySupport.hfRedirectAuthSanitizer)
             .build()
+    }
+
+    open val downloadOkHttpClient: okhttp3.OkHttpClient by lazy {
+        ModelArtifactManager.defaultHttpClient()
     }
 
     open val huggingFaceApiClient: HuggingFaceApiClient by lazy {
@@ -81,14 +96,19 @@ open class JarvisContainer(context: Context) {
     }
 
     open val modelArtifactManager: ModelArtifactManager by lazy {
-        ModelArtifactManager(appContext, modelManager)
+        ModelArtifactManager(
+            context = appContext,
+            modelManager = modelManager,
+            httpClient = downloadOkHttpClient
+        )
     }
 
     open val downloadQueueManager: DownloadQueueManager by lazy {
         DownloadQueueManager(
             context = appContext,
             queueDao = database.downloadQueueDao(),
-            modelManager = modelManager
+            modelManager = modelManager,
+            httpClient = downloadOkHttpClient
         )
     }
 
@@ -127,6 +147,42 @@ open class JarvisContainer(context: Context) {
         AndroidSystemTools(appContext)
     }
 
+    open val shizukuController: ShizukuController by lazy {
+        ShizukuController(appContext)
+    }
+
+    open val wirelessAdbController: WirelessAdbController by lazy {
+        WirelessAdbController(appContext)
+    }
+
+    open val androidNativeController: AndroidNativeController by lazy {
+        AndroidNativeController(appContext, androidTools)
+    }
+
+    open val permissionManager: PermissionManager by lazy {
+        PermissionManager(appContext, shizukuController)
+    }
+
+    open val deviceCapabilityManager: DeviceCapabilityManager by lazy {
+        DeviceCapabilityManager(
+            shizukuController = shizukuController,
+            wirelessAdbController = wirelessAdbController,
+            permissionManager = permissionManager,
+            settingsRepository = settingsRepository
+        )
+    }
+
+    open val deviceCommandRouter: DeviceCommandRouter by lazy {
+        DeviceCommandRouter(
+            shizukuController = shizukuController,
+            wirelessAdbController = wirelessAdbController,
+            nativeController = androidNativeController,
+            capabilityManager = deviceCapabilityManager,
+            permissionManager = permissionManager,
+            settingsRepository = settingsRepository
+        )
+    }
+
     open val localMemory: LocalMemory by lazy {
         RoomLocalMemory(database.memoryDao())
     }
@@ -139,12 +195,17 @@ open class JarvisContainer(context: Context) {
         ToolRegistryFactory.createDefault(
             androidTools = androidTools,
             localMemoryProvider = { localMemory },
-            skillEngineProvider = { skillEngine }
+            skillEngineProvider = { skillEngine },
+            deviceCommandRouterProvider = { deviceCommandRouter }
         )
     }
 
     open val cloudProviderRegistry: CloudProviderRegistry by lazy {
         Phase1CloudProviderRegistry()
+    }
+
+    open val modelRouter: ModelRouter by lazy {
+        ModelRouter(formatRegistry = formatRegistry)
     }
 
     open val agentCore: AgentCore by lazy {
@@ -161,7 +222,10 @@ open class JarvisContainer(context: Context) {
             webResearchService = webResearchService,
             intentRouter = IntentRouter(),
             agentExecutionDao = database.agentExecutionDao(),
-            skillEngine = skillEngine
+            skillEngine = skillEngine,
+            deviceCommandRouter = deviceCommandRouter,
+            modelRouter = modelRouter,
+            modelBenchmarkDao = modelBenchmarkDao
         )
     }
 }

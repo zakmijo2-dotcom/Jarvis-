@@ -10,6 +10,9 @@ import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
+import com.example.core.device.DeviceCommandRequest
+import com.example.core.device.DeviceCommandRouter
+import com.example.core.device.PrivilegedActionId
 import java.util.Locale
 
 data class LaunchableAppEntry(
@@ -191,11 +194,13 @@ class OpenAppScreenTool(
 
 class GoHomeScreenTool(
     private val intentLauncher: (Context, Intent) -> Boolean = ::launchIntentSafely,
-    private val accessibilityRunner: (AuthorizedAccessibilityAction) -> Boolean = AccessibilityBridge::performAuthorizedGlobalAction
+    private val accessibilityRunner: (AuthorizedAccessibilityAction) -> Boolean = AccessibilityBridge::performAuthorizedGlobalAction,
+    private val routerProvider: () -> DeviceCommandRouter? = { null }
 ) : JarvisTool {
     override val name: String = "go_home_screen"
     override val category: ToolCategory = ToolCategory.APPLICATION
-    override val description: String = "Return to the Android home screen using AccessibilityService (if enabled) or Launcher Home intent."
+    override val description: String =
+        "Return to the Android home screen using capability routing (Shizuku -> Wireless ADB -> Home Intent -> Accessibility)."
     override val parameters: List<ToolParameterSpec> = emptyList()
     override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
     override val requiresUserConfirmation: Boolean = false
@@ -204,14 +209,17 @@ class GoHomeScreenTool(
         ToolValidationResult.Valid(emptyMap())
 
     override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
-        if (AccessibilityBridge.isServiceConnected.value) {
-            val performed = accessibilityRunner(AuthorizedAccessibilityAction.HOME)
-            if (performed) {
+        routerProvider()?.let { router ->
+            val routed = router.routeAndExecute(DeviceCommandRequest(PrivilegedActionId.NAV_HOME))
+            if (routed.success) {
                 return ToolExecutionResult(
                     toolName = name,
                     status = ToolExecutionStatus.SUCCESS,
-                    summary = "Returned to home screen via authorized AccessibilityService.",
-                    verifiedFacts = mapOf("method" to "AccessibilityService.GLOBAL_ACTION_HOME")
+                    summary = routed.summary,
+                    verifiedFacts = mapOf(
+                        "method" to routed.backendUsed.label,
+                        "verified" to routed.verified.toString()
+                    )
                 )
             }
         }
@@ -220,20 +228,29 @@ class GoHomeScreenTool(
             addCategory(Intent.CATEGORY_HOME)
         }
         val launched = intentLauncher(context, homeIntent)
-        return if (launched) {
-            ToolExecutionResult(
+        if (launched) {
+            return ToolExecutionResult(
                 toolName = name,
                 status = ToolExecutionStatus.SUCCESS,
                 summary = "Returned to home screen via Android CATEGORY_HOME launcher intent.",
                 verifiedFacts = mapOf("method" to "Intent.CATEGORY_HOME")
             )
-        } else {
-            ToolExecutionResult(
+        }
+
+        if (AccessibilityBridge.isServiceConnected.value && accessibilityRunner(AuthorizedAccessibilityAction.HOME)) {
+            return ToolExecutionResult(
                 toolName = name,
-                status = ToolExecutionStatus.FAILED,
-                summary = "Unable to resolve a Home launcher activity on this environment."
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Returned to home screen via Accessibility fallback.",
+                verifiedFacts = mapOf("method" to "AccessibilityService.GLOBAL_ACTION_HOME")
             )
         }
+
+        return ToolExecutionResult(
+            toolName = name,
+            status = ToolExecutionStatus.FAILED,
+            summary = "Unable to return home on this environment."
+        )
     }
 }
 
@@ -296,6 +313,8 @@ class OpenAndroidSettingsTool(
             "battery" to Intent.ACTION_POWER_USAGE_SUMMARY,
             "notifications" to Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
             "accessibility" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
+            "developer" to Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS,
+            "wireless_debugging" to Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS,
             "apps" to Settings.ACTION_APPLICATION_SETTINGS,
             "main" to Settings.ACTION_SETTINGS
         )

@@ -1,6 +1,7 @@
 package com.example.core.web
 
 import com.example.core.cloud.OkHttpCloudAiClient
+import com.example.core.security.HttpSecuritySupport
 import com.example.core.security.PromptSecuritySanitizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -129,7 +130,7 @@ class OkHttpWebResearchService(
             if (!resp.isSuccessful) {
                 throw IllegalStateException("Wikipedia API HTTP ${resp.code}: ${resp.message}")
             }
-            val body = resp.body?.string().orEmpty()
+            val body = HttpSecuritySupport.readBoundedUtf8Body(resp.body)
             val root = JSONObject(body)
             val hits = root.optJSONObject("query")?.optJSONArray("search") ?: JSONArray()
             val results = buildList {
@@ -172,7 +173,7 @@ class OkHttpWebResearchService(
 
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("Tavily HTTP ${resp.code}: ${resp.message}")
-            val json = JSONObject(resp.body?.string().orEmpty())
+            val json = JSONObject(HttpSecuritySupport.readBoundedUtf8Body(resp.body))
             val arr = json.optJSONArray("results") ?: JSONArray()
             val results = (0 until arr.length()).mapNotNull { idx ->
                 val obj = arr.optJSONObject(idx) ?: return@mapNotNull null
@@ -202,7 +203,7 @@ class OkHttpWebResearchService(
 
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("Serper HTTP ${resp.code}: ${resp.message}")
-            val json = JSONObject(resp.body?.string().orEmpty())
+            val json = JSONObject(HttpSecuritySupport.readBoundedUtf8Body(resp.body))
             val arr = json.optJSONArray("organic") ?: JSONArray()
             val results = (0 until arr.length()).mapNotNull { idx ->
                 val obj = arr.optJSONObject(idx) ?: return@mapNotNull null
@@ -230,7 +231,7 @@ class OkHttpWebResearchService(
         }
         client.newCall(builder.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("Custom Search HTTP ${resp.code}: ${resp.message}")
-            val json = JSONObject(resp.body?.string().orEmpty())
+            val json = JSONObject(HttpSecuritySupport.readBoundedUtf8Body(resp.body))
             val arr = json.optJSONArray("results") ?: JSONArray()
             val results = (0 until arr.length()).mapNotNull { idx ->
                 val obj = arr.optJSONObject(idx) ?: return@mapNotNull null

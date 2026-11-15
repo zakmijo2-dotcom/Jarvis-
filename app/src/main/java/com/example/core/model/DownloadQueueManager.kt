@@ -3,7 +3,9 @@ package com.example.core.model
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.example.core.security.HttpSecuritySupport
 import com.example.core.security.SecureCredentialStore
+import com.example.core.security.SecurityLogRedactor
 import com.example.data.local.db.DownloadQueueDao
 import com.example.data.local.db.DownloadTaskEntity
 import kotlinx.coroutines.CancellationException
@@ -128,6 +130,11 @@ class DownloadQueueManager(
     ): EnqueueResult = enqueueMutex.withLock {
         if (!SecureCredentialStore.isSafeModelFilename(request.fileName)) {
             return@withLock EnqueueResult.Rejected("Security policy blocked unsafe filename '${request.fileName}'.")
+        }
+        if (request.runtimeFormat != RuntimeFormatId.LITERT_LM) {
+            return@withLock EnqueueResult.Rejected(
+                "Format ${request.runtimeFormat.label} is not supported in this APK build. Download blocked to avoid unusable weights."
+            )
         }
         if (!isSafeDownloadUrl(request.downloadUrl)) {
             return@withLock EnqueueResult.Rejected("Security policy blocked insecure or invalid download URL.")
@@ -478,7 +485,7 @@ class DownloadQueueManager(
                     etaSeconds = -1L,
                     status = DownloadQueueStatus.FAILED.name,
                     supportsResume = initialTask.supportsResume,
-                    errorMessage = e.localizedMessage ?: "Network download failed.",
+                    errorMessage = SecurityLogRedactor.redact(e.localizedMessage ?: "Network download failed."),
                     updatedAt = System.currentTimeMillis()
                 )
                 Result.failure(e)
@@ -549,7 +556,7 @@ class DownloadQueueManager(
 
         val finalSize = targetFile.length()
         val isExecutableNow = task.runtimeFormat == RuntimeFormatId.LITERT_LM
-        val slotStatus = if (isExecutableNow) ModelStatus.READY else ModelStatus.PHASE_3_PENDING
+        val slotStatus = if (isExecutableNow) ModelStatus.READY else ModelStatus.UNSUPPORTED
         val existingSlot = modelManager.getModelById(task.modelSlotId)
 
         modelManager.upsertHubModelSlot(
@@ -615,14 +622,7 @@ class DownloadQueueManager(
 
     private fun isTrustedAuthHost(url: String): Boolean {
         val parsed = url.toHttpUrlOrNull() ?: return false
-        val host = parsed.host.lowercase()
-        val isTrustedHttpsHf = parsed.isHttps && (
-            host == "huggingface.co" ||
-                host.endsWith(".huggingface.co") ||
-                host.endsWith(".hf.co")
-            )
-        val isLoopback = host == "localhost" || host == "127.0.0.1"
-        return isTrustedHttpsHf || isLoopback
+        return HttpSecuritySupport.isTrustedHfAuthHost(parsed)
     }
 
     private fun computeSha256(file: File): String {
@@ -679,6 +679,7 @@ class DownloadQueueManager(
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .addNetworkInterceptor(HttpSecuritySupport.hfRedirectAuthSanitizer)
             .build()
 
         fun defaultServiceBridge(appContext: Context): DownloadServiceBridge =

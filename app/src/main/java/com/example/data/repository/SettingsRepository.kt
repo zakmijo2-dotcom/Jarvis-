@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.core.agent.AgentRoutingMode
 import com.example.core.cloud.CloudProviderKind
+import com.example.core.security.KeystoreHealthReport
 import com.example.core.security.SecureCredentialStore
 import com.example.core.web.WebSearchProviderKind
 import kotlinx.coroutines.flow.Flow
@@ -24,7 +25,19 @@ enum class InferenceBackendPreference(val label: String) {
     CPU_ONLY("Force CPU (XNNPACK)")
 }
 
+enum class AppThemeMode(val label: String) {
+    DARK("Dark Graphite"),
+    LIGHT("Light Mode"),
+    SYSTEM("Follow System");
+
+    companion object {
+        fun fromName(raw: String?): AppThemeMode =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: DARK
+    }
+}
+
 data class JarvisSettings(
+    val themeMode: AppThemeMode = AppThemeMode.DARK,
     val orbAnimationEnabled: Boolean = true,
     val orbGlowIntensity: Float = 0.85f,
     val ttsAutoSpeak: Boolean = true,
@@ -58,7 +71,11 @@ data class JarvisSettings(
     val webResearchEnabled: Boolean = false,
     val webSearchProvider: WebSearchProviderKind = WebSearchProviderKind.WIKIPEDIA_OPENSEARCH,
     val webSearchCustomUrl: String = "",
-    val webSearchApiKey: String = ""
+    val webSearchApiKey: String = "",
+    // Wireless ADB saved non-secret endpoint metadata (pairing codes are never stored)
+    val wirelessAdbHost: String = "127.0.0.1",
+    val wirelessAdbConnectPort: Int = 0,
+    val wirelessAdbPaired: Boolean = false
 )
 
 class SettingsRepository(
@@ -104,6 +121,10 @@ class SettingsRepository(
         val WEB_SEARCH_PROVIDER = stringPreferencesKey("web_search_provider")
         val WEB_SEARCH_CUSTOM_URL = stringPreferencesKey("web_search_custom_url")
         val WEB_SEARCH_API_KEY_ENC = stringPreferencesKey("web_search_api_key_encrypted_v1")
+        val THEME_MODE = stringPreferencesKey("app_theme_mode")
+        val WIRELESS_ADB_HOST = stringPreferencesKey("wireless_adb_host")
+        val WIRELESS_ADB_PORT = intPreferencesKey("wireless_adb_port")
+        val WIRELESS_ADB_PAIRED = booleanPreferencesKey("wireless_adb_paired")
     }
 
     val settingsFlow: Flow<JarvisSettings> = dataStore.data.map { prefs ->
@@ -130,6 +151,7 @@ class SettingsRepository(
         val resolvedPorcupineKey = if (porcupineKeyEnc.isNotBlank()) credentialStore.decrypt(porcupineKeyEnc) else ""
 
         JarvisSettings(
+            themeMode = AppThemeMode.fromName(prefs[Keys.THEME_MODE]),
             orbAnimationEnabled = prefs[Keys.ORB_ANIMATION_ENABLED] ?: true,
             orbGlowIntensity = (prefs[Keys.ORB_GLOW_INTENSITY] ?: 0.85f).coerceIn(0.2f, 1.0f),
             ttsAutoSpeak = prefs[Keys.TTS_AUTO_SPEAK] ?: true,
@@ -162,7 +184,10 @@ class SettingsRepository(
             webResearchEnabled = prefs[Keys.WEB_RESEARCH_ENABLED] ?: false,
             webSearchProvider = WebSearchProviderKind.fromName(prefs[Keys.WEB_SEARCH_PROVIDER]),
             webSearchCustomUrl = prefs[Keys.WEB_SEARCH_CUSTOM_URL].orEmpty(),
-            webSearchApiKey = resolvedWebKey
+            webSearchApiKey = resolvedWebKey,
+            wirelessAdbHost = prefs[Keys.WIRELESS_ADB_HOST]?.ifBlank { "127.0.0.1" } ?: "127.0.0.1",
+            wirelessAdbConnectPort = (prefs[Keys.WIRELESS_ADB_PORT] ?: 0).coerceIn(0, 65535),
+            wirelessAdbPaired = prefs[Keys.WIRELESS_ADB_PAIRED] ?: false
         )
     }
 
@@ -202,13 +227,20 @@ class SettingsRepository(
         dataStore.edit { it[Keys.WAKE_WORD_STANDBY] = enabled }
     }
 
+    fun verifyKeystoreHealth(): KeystoreHealthReport = credentialStore.verifyKeystoreHealth()
+
+    fun lastKeystoreError(): String? = credentialStore.lastKeystoreError
+
     suspend fun setPorcupineAccessKey(accessKey: String) {
         val trimmed = accessKey.trim()
         dataStore.edit { prefs ->
             if (trimmed.isEmpty()) {
                 prefs.remove(Keys.PORCUPINE_ACCESS_KEY_ENC)
             } else {
-                prefs[Keys.PORCUPINE_ACCESS_KEY_ENC] = credentialStore.encrypt(trimmed)
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) {
+                    prefs[Keys.PORCUPINE_ACCESS_KEY_ENC] = encrypted
+                }
             }
         }
     }
@@ -264,7 +296,10 @@ class SettingsRepository(
             if (trimmed.isEmpty()) {
                 prefs.remove(Keys.HUGGING_FACE_TOKEN_ENC)
             } else {
-                prefs[Keys.HUGGING_FACE_TOKEN_ENC] = credentialStore.encrypt(trimmed)
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) {
+                    prefs[Keys.HUGGING_FACE_TOKEN_ENC] = encrypted
+                }
             }
         }
     }
@@ -295,7 +330,10 @@ class SettingsRepository(
             if (trimmed.isEmpty()) {
                 prefs.remove(Keys.CLOUD_API_KEY_ENC)
             } else {
-                prefs[Keys.CLOUD_API_KEY_ENC] = credentialStore.encrypt(trimmed)
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) {
+                    prefs[Keys.CLOUD_API_KEY_ENC] = encrypted
+                }
             }
         }
     }
@@ -322,8 +360,36 @@ class SettingsRepository(
             if (trimmed.isEmpty()) {
                 prefs.remove(Keys.WEB_SEARCH_API_KEY_ENC)
             } else {
-                prefs[Keys.WEB_SEARCH_API_KEY_ENC] = credentialStore.encrypt(trimmed)
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) {
+                    prefs[Keys.WEB_SEARCH_API_KEY_ENC] = encrypted
+                }
             }
+        }
+    }
+
+    suspend fun setThemeMode(mode: AppThemeMode) {
+        dataStore.edit { it[Keys.THEME_MODE] = mode.name }
+    }
+
+    suspend fun saveWirelessAdbEndpoint(host: String, port: Int, paired: Boolean) {
+        dataStore.edit {
+            it[Keys.WIRELESS_ADB_HOST] = host.trim().ifBlank { "127.0.0.1" }
+            it[Keys.WIRELESS_ADB_PORT] = port.coerceIn(0, 65535)
+            it[Keys.WIRELESS_ADB_PAIRED] = paired
+        }
+    }
+
+    suspend fun migrateLegacyTokensIfNeeded() {
+        dataStore.edit { prefs ->
+            val legacy = prefs[Keys.HUGGING_FACE_TOKEN_LEGACY].orEmpty().trim()
+            if (legacy.isNotEmpty() && prefs[Keys.HUGGING_FACE_TOKEN_ENC].isNullOrBlank()) {
+                val enc = credentialStore.encrypt(legacy)
+                if (enc.isNotBlank()) {
+                    prefs[Keys.HUGGING_FACE_TOKEN_ENC] = enc
+                }
+            }
+            prefs.remove(Keys.HUGGING_FACE_TOKEN_LEGACY)
         }
     }
 }

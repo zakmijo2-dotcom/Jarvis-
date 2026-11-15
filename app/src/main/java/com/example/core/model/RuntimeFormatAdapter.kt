@@ -33,13 +33,16 @@ interface RuntimeFormatAdapter {
         return candidates.firstOrNull { upper.contains(it) } ?: "Unspecified"
     }
 
-    fun estimateMemoryBytes(fileSizeBytes: Long): Long {
+    fun estimateMemoryBytes(fileSizeBytes: Long, contextTokens: Int = 4096): Long {
         if (fileSizeBytes <= 0L) return 0L
-        return (fileSizeBytes * 1.30).toLong() + KV_CACHE_OVERHEAD_BYTES
+        val clampedCtx = contextTokens.coerceIn(512, 32768)
+        val kvBytes = BASE_KV_OVERHEAD_BYTES + ((clampedCtx / 1024L) * KV_PER_1K_CONTEXT_BYTES)
+        return (fileSizeBytes * 1.25).toLong() + kvBytes
     }
 
     companion object {
-        private const val KV_CACHE_OVERHEAD_BYTES = 384L * 1024L * 1024L
+        private const val BASE_KV_OVERHEAD_BYTES = 160L * 1024L * 1024L
+        private const val KV_PER_1K_CONTEXT_BYTES = 56L * 1024L * 1024L
     }
 }
 
@@ -49,7 +52,7 @@ class LiteRtLmFormatAdapter : RuntimeFormatAdapter {
     override val supportedExtensions = setOf("litertlm")
     override val isExecutionSupported = true
     override val runtimeNotes =
-        "Directly executable offline in JARVIS via LiteRT-LM with GPU (OpenCL) and CPU (XNNPACK) fallback."
+        "Verified local execution via LiteRT-LM with OpenCL GPU and XNNPACK CPU fallback."
 }
 
 class GgufFormatAdapter : RuntimeFormatAdapter {
@@ -58,7 +61,7 @@ class GgufFormatAdapter : RuntimeFormatAdapter {
     override val supportedExtensions = setOf("gguf")
     override val isExecutionSupported = false
     override val runtimeNotes =
-        "Adapter boundary prepared. llama.cpp native runtime integration is scheduled for a future phase; downloading stores the weights but cannot execute them yet."
+        "Unsupported in this APK build: native llama.cpp engine is not bundled. Downloads and execution are disabled."
 }
 
 class LiteRtTfliteFormatAdapter : RuntimeFormatAdapter {
@@ -67,7 +70,7 @@ class LiteRtTfliteFormatAdapter : RuntimeFormatAdapter {
     override val supportedExtensions = setOf("tflite")
     override val isExecutionSupported = false
     override val runtimeNotes =
-        "Adapter boundary prepared for standalone .tflite flatbuffers (requires external tokenizer & session graph metadata)."
+        "Unsupported in this APK build: standalone .tflite flatbuffers lack bundled LLM tokenizer/session runner."
 }
 
 class MediaPipeTaskFormatAdapter : RuntimeFormatAdapter {
@@ -76,7 +79,7 @@ class MediaPipeTaskFormatAdapter : RuntimeFormatAdapter {
     override val supportedExtensions = setOf("task")
     override val isExecutionSupported = false
     override val runtimeNotes =
-        "Adapter boundary prepared for MediaPipe GenAI .task bundles. Use .litertlm bundles for active LiteRT-LM execution."
+        "Unsupported in this APK build: MediaPipe GenAI runtime is not bundled. Use .litertlm bundles instead."
 }
 
 class SafetensorsFormatAdapter : RuntimeFormatAdapter {
@@ -85,9 +88,9 @@ class SafetensorsFormatAdapter : RuntimeFormatAdapter {
     override val supportedExtensions = setOf("safetensors")
     override val isExecutionSupported = false
     override val runtimeNotes =
-        "Raw .safetensors checkpoints are desktop/training weights and are NOT directly executable on Android. Convert to .litertlm or GGUF first."
+        "Unsupported format: raw .safetensors training weights cannot execute on Android."
 
-    override fun estimateMemoryBytes(fileSizeBytes: Long): Long =
+    override fun estimateMemoryBytes(fileSizeBytes: Long, contextTokens: Int): Long =
         (fileSizeBytes * 1.50).toLong() + 512L * 1024L * 1024L
 }
 

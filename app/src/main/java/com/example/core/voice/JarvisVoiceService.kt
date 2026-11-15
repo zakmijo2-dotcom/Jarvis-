@@ -296,7 +296,7 @@ class JarvisVoiceService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_jarvis_notification)
             .setContentTitle("JARVIS Microphone Active")
             .setContentText(modeLabel)
             .setOngoing(true)
@@ -355,7 +355,7 @@ class JarvisVoiceService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, WAKE_ALERT_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_jarvis_notification)
             .setContentTitle("JARVIS Heard Wake Word")
             .setContentText("Tap to open Voice Console and start listening")
             .setPriority(NotificationCompat.PRIORITY_HIGH)

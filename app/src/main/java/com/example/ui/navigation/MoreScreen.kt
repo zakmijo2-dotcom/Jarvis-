@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -22,9 +20,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Cable
 import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,9 +52,15 @@ import com.example.ui.theme.JarvisThemeTokens
 fun MoreScreen(
     activeModelSummary: String,
     routingSummary: String,
+    shizukuSummary: String = "Unavailable",
+    wirelessAdbSummary: String = "Disconnected",
     micSummary: String,
+    startupDurationMs: Long? = null,
     onOpenVoice: () -> Unit,
     onOpenDevice: () -> Unit,
+    onOpenBridgeSetup: () -> Unit = {},
+    onOpenPermissionsSecurity: () -> Unit = {},
+    onOpenActivityHistory: () -> Unit = {},
     onOpenSettings: () -> Unit
 ) {
     val palette = JarvisThemeTokens.palette
@@ -75,7 +82,7 @@ fun MoreScreen(
                     color = palette.text,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 720.dp)
+                        .widthIn(max = 760.dp)
                 )
             }
 
@@ -83,7 +90,7 @@ fun MoreScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 720.dp),
+                        .widthIn(max = 760.dp),
                     shape = MaterialTheme.shapes.medium,
                     color = palette.surface,
                     border = BorderStroke(hairlineDp(), palette.hairline)
@@ -93,7 +100,8 @@ fun MoreScreen(
                             title = stringResource(R.string.nav_voice),
                             subtitle = stringResource(R.string.more_voice_subtitle),
                             icon = Icons.Outlined.GraphicEq,
-                            iconContainerColor = palette.peachContainer,
+                            iconBgColor = palette.cyanBadgeBg,
+                            iconTint = palette.peachAccent,
                             onClick = onOpenVoice,
                             modifier = Modifier.testTag("nav_tab_voice")
                         )
@@ -102,7 +110,8 @@ fun MoreScreen(
                             title = stringResource(R.string.nav_device),
                             subtitle = stringResource(R.string.more_device_subtitle),
                             icon = Icons.Outlined.MonitorHeart,
-                            iconContainerColor = palette.sandContainer,
+                            iconBgColor = palette.amberBadgeBg,
+                            iconTint = palette.sandAccent,
                             onClick = onOpenDevice,
                             modifier = Modifier.testTag("nav_tab_device")
                         )
@@ -111,9 +120,53 @@ fun MoreScreen(
                             title = stringResource(R.string.nav_settings),
                             subtitle = stringResource(R.string.more_settings_subtitle),
                             icon = Icons.Outlined.Settings,
-                            iconContainerColor = palette.lavenderContainer,
+                            iconBgColor = palette.indigoBadgeBg,
+                            iconTint = palette.lavenderAccent,
                             onClick = onOpenSettings,
                             modifier = Modifier.testTag("nav_tab_settings")
+                        )
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 760.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = palette.surface,
+                    border = BorderStroke(hairlineDp(), palette.hairline)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        MoreNavigationRow(
+                            title = stringResource(R.string.nav_device_bridge),
+                            subtitle = stringResource(R.string.more_bridge_subtitle),
+                            icon = Icons.Outlined.Cable,
+                            iconBgColor = palette.cyanBadgeBg,
+                            iconTint = palette.skyAccent,
+                            onClick = onOpenBridgeSetup,
+                            modifier = Modifier.testTag("nav_tab_bridge_setup")
+                        )
+                        EditorialHairlineDivider()
+                        MoreNavigationRow(
+                            title = stringResource(R.string.nav_permissions_security),
+                            subtitle = stringResource(R.string.more_security_subtitle),
+                            icon = Icons.Outlined.Shield,
+                            iconBgColor = palette.tealBadgeBg,
+                            iconTint = palette.sageAccent,
+                            onClick = onOpenPermissionsSecurity,
+                            modifier = Modifier.testTag("nav_tab_permissions_security")
+                        )
+                        EditorialHairlineDivider()
+                        MoreNavigationRow(
+                            title = stringResource(R.string.nav_activity_history),
+                            subtitle = stringResource(R.string.more_history_subtitle),
+                            icon = Icons.Outlined.History,
+                            iconBgColor = palette.indigoBadgeBg,
+                            iconTint = palette.lavenderAccent,
+                            onClick = onOpenActivityHistory,
+                            modifier = Modifier.testTag("nav_tab_activity_history")
                         )
                     }
                 }
@@ -123,7 +176,7 @@ fun MoreScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 720.dp),
+                        .widthIn(max = 760.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
@@ -143,7 +196,15 @@ fun MoreScreen(
                             EditorialHairlineDivider()
                             MoreStatusRow(label = "Routing", value = routingSummary)
                             EditorialHairlineDivider()
+                            MoreStatusRow(label = "Shizuku", value = shizukuSummary)
+                            EditorialHairlineDivider()
+                            MoreStatusRow(label = "Wireless ADB", value = wirelessAdbSummary)
+                            EditorialHairlineDivider()
                             MoreStatusRow(label = "Microphone", value = micSummary)
+                            if (startupDurationMs != null) {
+                                EditorialHairlineDivider()
+                                MoreStatusRow(label = "Startup latency", value = "${startupDurationMs} ms")
+                            }
                         }
                     }
                 }
@@ -157,7 +218,8 @@ private fun MoreNavigationRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    iconContainerColor: Color,
+    iconBgColor: Color,
+    iconTint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -167,22 +229,22 @@ private fun MoreNavigationRow(
             .fillMaxWidth()
             .minimumInteractiveComponentSize()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = iconContainerColor
+            color = iconBgColor
         ) {
             Box(
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(40.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = palette.onHue,
+                    tint = iconTint,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -219,7 +281,7 @@ private fun MoreStatusRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -228,7 +290,6 @@ private fun MoreStatusRow(
             style = MaterialTheme.typography.bodyMedium,
             color = palette.textSecondary
         )
-        Spacer(modifier = Modifier.height(0.dp))
         Text(
             text = value,
             style = JarvisMonoTelemetryStyle,
@@ -245,9 +306,15 @@ private fun MoreScreenPreview() {
         MoreScreen(
             activeModelSummary = "Gemma 3 1B · Unloaded",
             routingSummary = "Auto Hybrid",
+            shizukuSummary = "Shizuku Ready",
+            wirelessAdbSummary = "Not Configured",
             micSummary = "Standby off",
+            startupDurationMs = 310L,
             onOpenVoice = {},
             onOpenDevice = {},
+            onOpenBridgeSetup = {},
+            onOpenPermissionsSecurity = {},
+            onOpenActivityHistory = {},
             onOpenSettings = {}
         )
     }

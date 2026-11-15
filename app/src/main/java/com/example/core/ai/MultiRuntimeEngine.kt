@@ -321,8 +321,20 @@ class RuntimeEngineCoordinator(
             return res
         }
 
-        // Prevent simultaneous heavy-model loads unless RAM headroom cleanly permits concurrency
-        unloadConflictingRuntimesLocked(targetFormat = slot.runtimeFormat, incomingSlot = slot)
+        // Enforce single-heavy-model / verified headroom budget via ModelRouter before JNI load
+        val budget = ModelRouter().evaluateLoadMemoryBudget(
+            context = appContext,
+            incomingSlot = slot,
+            currentlyLoadedSizesBytes = loadedModelSizes,
+            contextTokens = settings.contextLengthTokens
+        )
+        if (!budget.allowedToLoad) {
+            _loadState.value = EngineLoadState.Error(budget.reason)
+            return Result.failure(IllegalStateException(budget.reason))
+        }
+        if (budget.mustUnloadExistingFirst) {
+            unloadOtherRuntimesLocked(targetFormat = slot.runtimeFormat)
+        }
 
         activeFormat = slot.runtimeFormat
         _loadState.value = EngineLoadState.Loading(slot.displayName, settings.inferenceBackend.label)
@@ -345,26 +357,10 @@ class RuntimeEngineCoordinator(
         return result
     }
 
-    private suspend fun unloadConflictingRuntimesLocked(
-        targetFormat: RuntimeFormatId,
-        incomingSlot: ModelSlot
-    ) {
-        val incomingBytes = incomingSlot.localFilePath?.let { java.io.File(it).length() }
-            ?.takeIf { it > 0L } ?: incomingSlot.expectedSizeBytes
-        val headroom = ThermalAndMemoryPolicy.assessMemoryHeadroom(appContext, incomingBytes)
-
+    private suspend fun unloadOtherRuntimesLocked(targetFormat: RuntimeFormatId) {
         for ((otherFormat, otherRuntime) in runtimes) {
             if (otherFormat == targetFormat) continue
-            val isOtherLoaded = otherRuntime.loadState.value is EngineLoadState.Ready
-            if (!isOtherLoaded) continue
-
-            val existingBytes = loadedModelSizes[otherFormat] ?: 0L
-            val combinedNeededBytes = existingBytes + incomingBytes + CONCURRENT_SAFETY_RESERVE_BYTES
-            val allowConcurrent = !headroom.isLowMemory &&
-                headroom.availableRamBytes > 0L &&
-                headroom.availableRamBytes >= combinedNeededBytes
-
-            if (!allowConcurrent) {
+            if (otherRuntime.loadState.value is EngineLoadState.Ready) {
                 otherRuntime.unload()
                 loadedModelSizes.remove(otherFormat)
             }

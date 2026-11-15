@@ -4,53 +4,68 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-// Dark palette (default) — soft charcoal neutrals, never pure black/white
-val DarkBackground = Color(0xFF15161A)
-val DarkSurface = Color(0xFF1E2026)
-val DarkSurfaceHigh = Color(0xFF272A32)
-val DarkSurfaceLowest = Color(0xFF111216)
-val DarkSurfaceLow = Color(0xFF191B20)
-val DarkSurfaceHighest = Color(0xFF2E323C)
-val DarkHairline = Color(0xFF33363F)
-val DarkText = Color(0xFFECEAE4)
-val DarkTextSecondary = Color(0xFFA5A8B0)
+// Dark Graphite Foundation (Default) — restrained aerospace telemetry console
+val DarkBackground = Color(0xFF0E1015)
+val DarkSurface = Color(0xFF151922)
+val DarkSurfaceHigh = Color(0xFF1C222D)
+val DarkSurfaceLowest = Color(0xFF0A0C10)
+val DarkSurfaceLow = Color(0xFF12161E)
+val DarkSurfaceHighest = Color(0xFF252C3A)
+val DarkHairline = Color(0xFF28303E)
+val DarkText = Color(0xFFEDF1F7)
+val DarkTextSecondary = Color(0xFF94A0B4)
 
-// Light palette — warm paper neutrals, never pure white/black
-val LightBackground = Color(0xFFF6F3EE)
-val LightSurface = Color(0xFFFBF9F5)
-val LightSurfaceLow = Color(0xFFF2EFE8)
-val LightSurfaceHigh = Color(0xFFEBE7DF)
-val LightSurfaceHighest = Color(0xFFE2DDD4)
-val LightHairline = Color(0xFFDDD8CE)
-val LightText = Color(0xFF23252B)
-val LightTextSecondary = Color(0xFF5D606A)
+// Light Alabaster Foundation — crisp daytime cockpit with matching contrast
+val LightBackground = Color(0xFFF4F6F9)
+val LightSurface = Color(0xFFFFFFFF)
+val LightSurfaceLow = Color(0xFFEEF2F6)
+val LightSurfaceHigh = Color(0xFFE5EBF2)
+val LightSurfaceHighest = Color(0xFFD9E1EB)
+val LightHairline = Color(0xFFD0D8E4)
+val LightText = Color(0xFF0F172A)
+val LightTextSecondary = Color(0xFF475569)
 
-// Dark text placed directly on any of the five muted hues (contrast >= AA)
-val OnMutedHueInk = Color(0xFF16171A)
+// High-contrast ink drawn directly over tinted action pills/chips
+val OnMutedHueInk = Color(0xFF0B1118)
 
-// Five muted hues (exact dark tokens)
-val HueSky = Color(0xFF8FB8DE)       // Chat & primary action
-val HuePeach = Color(0xFFF0B49A)     // Voice
-val HueSage = Color(0xFFA9CDB0)      // Models & success
-val HueSand = Color(0xFFE3CF9E)      // Device & warning
-val HueLavender = Color(0xFFB8AEE0)  // Settings
-val HueCoral = Color(0xFFE08A7B)     // Error
+// Restrained Cyan-Blue + Slate Telemetry Accent Tokens (kept compatible with JarvisOrb & semantic slots)
+val HueSky = Color(0xFF38BDF8)       // Primary Cyan-Blue accent
+val HuePeach = Color(0xFF60A5FA)     // Steel-Blue Voice accent
+val HueSage = Color(0xFF2DD4BF)      // Cool Teal Success / Models
+val HueSand = Color(0xFFF59E0B)      // Restrained Amber Caution / Device
+val HueLavender = Color(0xFF818CF8)  // Muted Indigo System / Settings
+val HueCoral = Color(0xFFF87171)     // Crimson Error
 
-// Soft light-mode tile tints derived from the five muted hues
-val HueSkyLightTint = Color(0xFFD7E6F4)
-val HuePeachLightTint = Color(0xFFF7DFD4)
-val HueSageLightTint = Color(0xFFDCECE0)
-val HueSandLightTint = Color(0xFFF2E8CC)
-val HueLavenderLightTint = Color(0xFFE4DFF4)
-val HueCoralLightTint = Color(0xFFF5DDD8)
+// High-legibility dark-mode container fills (keeps OnMutedHueInk >= 6:1 contrast)
+val HueSkyDarkTint = Color(0xFF7DD3FC)
+val HuePeachDarkTint = Color(0xFF93C5FD)
+val HueSageDarkTint = Color(0xFF5EEAD4)
+val HueSandDarkTint = Color(0xFFFCD34D)
+val HueLavenderDarkTint = Color(0xFFA5B4FC)
+val HueCoralDarkTint = Color(0xFFFCA5A5)
 
-// WCAG AA ink-safe muted accents when drawn directly as icons/labels on neutral surfaces
-val HueSkyOnLight = Color(0xFF36628C)
-val HuePeachOnLight = Color(0xFF9C5438)
-val HueSageOnLight = Color(0xFF3B6B46)
-val HueSandOnLight = Color(0xFF786028)
-val HueLavenderOnLight = Color(0xFF584C8C)
-val HueCoralOnLight = Color(0xFFA64234)
+// Soft light-mode container fills
+val HueSkyLightTint = Color(0xFFD5EEFC)
+val HuePeachLightTint = Color(0xFFDCEAFE)
+val HueSageLightTint = Color(0xFFCFF5EE)
+val HueSandLightTint = Color(0xFFFEF0C7)
+val HueLavenderLightTint = Color(0xFFE1E5FE)
+val HueCoralLightTint = Color(0xFFFEE2E2)
+
+// WCAG AA ink-safe accents drawn directly on light neutral surfaces
+val HueSkyOnLight = Color(0xFF0284C7)
+val HuePeachOnLight = Color(0xFF2563EB)
+val HueSageOnLight = Color(0xFF0D9488)
+val HueSandOnLight = Color(0xFFB45309)
+val HueLavenderOnLight = Color(0xFF4F46E5)
+val HueCoralOnLight = Color(0xFFDC2626)
+
+// Tonal translucent icon badges for elevated Graphite cards
+val BadgeCyanDark = Color(0xFF132638)
+val BadgeTealDark = Color(0xFF102A29)
+val BadgeAmberDark = Color(0xFF2A2112)
+val BadgeIndigoDark = Color(0xFF1A1E36)
+val BadgeCrimsonDark = Color(0xFF2E171A)
 
 @Immutable
 data class JarvisSemanticPalette(
@@ -62,14 +77,20 @@ data class JarvisSemanticPalette(
     val text: Color,
     val textSecondary: Color,
     val onHue: Color,
-    // Section tile/pill fills (muted pastel hues)
+    // Action / pill container fills paired with onHue ink
     val skyContainer: Color,
     val peachContainer: Color,
     val sageContainer: Color,
     val sandContainer: Color,
     val lavenderContainer: Color,
     val coralContainer: Color,
-    // Section accents/icons safe for neutral surfaces
+    // Subtle tinted surfaces for dashboard icon badges & status banners
+    val cyanBadgeBg: Color,
+    val tealBadgeBg: Color,
+    val amberBadgeBg: Color,
+    val indigoBadgeBg: Color,
+    val crimsonBadgeBg: Color,
+    // Section accents/icons safe on surface/background
     val skyAccent: Color,
     val peachAccent: Color,
     val sageAccent: Color,
@@ -94,23 +115,28 @@ val DarkJarvisSemanticPalette = JarvisSemanticPalette(
     text = DarkText,
     textSecondary = DarkTextSecondary,
     onHue = OnMutedHueInk,
-    skyContainer = HueSky,
-    peachContainer = HuePeach,
-    sageContainer = HueSage,
-    sandContainer = HueSand,
-    lavenderContainer = HueLavender,
-    coralContainer = HueCoral,
+    skyContainer = HueSkyDarkTint,
+    peachContainer = HuePeachDarkTint,
+    sageContainer = HueSageDarkTint,
+    sandContainer = HueSandDarkTint,
+    lavenderContainer = HueLavenderDarkTint,
+    coralContainer = HueCoralDarkTint,
+    cyanBadgeBg = BadgeCyanDark,
+    tealBadgeBg = BadgeTealDark,
+    amberBadgeBg = BadgeAmberDark,
+    indigoBadgeBg = BadgeIndigoDark,
+    crimsonBadgeBg = BadgeCrimsonDark,
     skyAccent = HueSky,
     peachAccent = HuePeach,
     sageAccent = HueSage,
     sandAccent = HueSand,
     lavenderAccent = HueLavender,
     coralAccent = HueCoral,
-    successContainer = HueSage,
+    successContainer = HueSageDarkTint,
     successAccent = HueSage,
-    warningContainer = HueSand,
+    warningContainer = HueSandDarkTint,
     warningAccent = HueSand,
-    errorContainer = HueCoral,
+    errorContainer = HueCoralDarkTint,
     errorAccent = HueCoral
 )
 
@@ -129,6 +155,11 @@ val LightJarvisSemanticPalette = JarvisSemanticPalette(
     sandContainer = HueSandLightTint,
     lavenderContainer = HueLavenderLightTint,
     coralContainer = HueCoralLightTint,
+    cyanBadgeBg = HueSkyLightTint,
+    tealBadgeBg = HueSageLightTint,
+    amberBadgeBg = HueSandLightTint,
+    indigoBadgeBg = HueLavenderLightTint,
+    crimsonBadgeBg = HueCoralLightTint,
     skyAccent = HueSkyOnLight,
     peachAccent = HuePeachOnLight,
     sageAccent = HueSageOnLight,

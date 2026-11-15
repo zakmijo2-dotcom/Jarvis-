@@ -66,8 +66,14 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+    aidl = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -154,6 +160,9 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.litertlm.android)
   implementation(libs.porcupine.android)
+  implementation(libs.shizuku.api)
+  implementation(libs.shizuku.provider)
+  implementation(libs.kadb)
   // implementation(libs.logging.interceptor)
   // implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)

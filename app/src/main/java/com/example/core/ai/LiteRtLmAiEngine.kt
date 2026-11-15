@@ -137,12 +137,15 @@ class LiteRtLmAiEngine(
 
         releaseInternalLocked()
 
-        val (thermalCode, _) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
-        val candidates: List<Pair<Backend, String>> = when (settings.inferenceBackend) {
+        val snapshot = ThermalAndMemoryPolicy.readBatterySnapshot(appContext)
+        val adaptedForLoad = ThermalAndMemoryPolicy.applyRuntimeAdaptation(settings, snapshot).effectiveSettings
+        val candidates: List<Pair<Backend, String>> = when (adaptedForLoad.inferenceBackend) {
             InferenceBackendPreference.AUTO_GPU_FALLBACK -> {
-                if (thermalCode >= android.os.PowerManager.THERMAL_STATUS_CRITICAL) {
+                if (snapshot.thermalStatusCode >= android.os.PowerManager.THERMAL_STATUS_CRITICAL ||
+                    (!snapshot.isCharging && snapshot.batteryPercent in 1..15)
+                ) {
                     listOf(
-                        Backend.CPU() to "CPU (XNNPACK Thermal)",
+                        Backend.CPU() to "CPU (XNNPACK Eco)",
                         Backend.GPU() to "GPU (OpenCL)"
                     )
                 } else {
@@ -244,7 +247,8 @@ class LiteRtLmAiEngine(
                 val buffer = StringBuilder()
                 var chunkCount = 0
                 var peakHeapMb = readNativeHeapMb()
-                val (thermalCode, thermalLabel) = ThermalAndMemoryPolicy.readThermalStatus(appContext)
+                val batteryThermal = ThermalAndMemoryPolicy.readBatterySnapshot(appContext)
+                val thermalLabel = batteryThermal.thermalStatusLabel
 
                 try {
                     val resolvedSystemPrompt = systemInstructionProvider().ifBlank { JARVIS_SYSTEM_INSTRUCTION }
@@ -281,10 +285,9 @@ class LiteRtLmAiEngine(
                         }
                     }
 
-                    val adaptedSettings = ThermalAndMemoryPolicy.applyThermalAdaptation(
+                    val adaptedSettings = ThermalAndMemoryPolicy.applyRuntimeAdaptation(
                         settings = settings,
-                        thermalCode = thermalCode,
-                        thermalLabel = thermalLabel
+                        snapshot = batteryThermal
                     ).effectiveSettings
 
                     var hitTokenCeiling = false
@@ -318,6 +321,7 @@ class LiteRtLmAiEngine(
 
                     val endNs = System.nanoTime()
                     peakHeapMb = maxOf(peakHeapMb, readNativeHeapMb())
+                    val postSnapshot = ThermalAndMemoryPolicy.readBatterySnapshot(appContext)
                     val benchmark = extractBenchmark(
                         conversation = activeConv,
                         startNs = startNs,
@@ -326,7 +330,7 @@ class LiteRtLmAiEngine(
                         outputText = buffer.toString(),
                         fallbackTokenCount = chunkCount,
                         peakHeapMb = peakHeapMb,
-                        thermalLabel = thermalLabel
+                        batteryThermal = postSnapshot
                     )
                     _lastBenchmark.value = benchmark
                     refreshMemoryUsage()
@@ -346,7 +350,7 @@ class LiteRtLmAiEngine(
                             outputText = buffer.toString(),
                             fallbackTokenCount = chunkCount,
                             peakHeapMb = maxOf(peakHeapMb, readNativeHeapMb()),
-                            thermalLabel = thermalLabel
+                            batteryThermal = ThermalAndMemoryPolicy.readBatterySnapshot(appContext)
                         ).also { _lastBenchmark.value = it }
                     } else {
                         null
@@ -449,33 +453,14 @@ class LiteRtLmAiEngine(
         history: List<MessageEntity>,
         contextBudgetTokens: Int
     ): List<Message> {
-        val conversational = history.filter {
-            it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT
+        val compressed = PromptCompressor.compressHistory(
+            history = history,
+            contextBudgetTokens = contextBudgetTokens,
+            maxRecentTurns = 8
+        )
+        return compressed.turns.map { turn ->
+            if (turn.isUser) Message.user(turn.content) else Message.model(turn.content)
         }
-        if (conversational.isEmpty()) return emptyList()
-
-        // Reserve ~40% of context budget for system prompt, current turn, and reply generation
-        val maxHistoryCharBudget = (contextBudgetTokens * 0.6f * 3.5f).toInt().coerceAtLeast(1024)
-        var runningChars = 0
-        val selected = mutableListOf<Message>()
-
-        for (item in conversational.asReversed()) {
-            val text = item.content.trim()
-            if (text.isEmpty()) continue
-            if (runningChars + text.length > maxHistoryCharBudget && selected.isNotEmpty()) {
-                break
-            }
-            runningChars += text.length
-            val mapped = when (item.role) {
-                MessageRole.USER -> Message.user(text)
-                MessageRole.ASSISTANT -> Message.model(text)
-                else -> null
-            }
-            if (mapped != null) {
-                selected.add(mapped)
-            }
-        }
-        return selected.asReversed()
     }
 
     @OptIn(ExperimentalApi::class)
@@ -487,7 +472,7 @@ class LiteRtLmAiEngine(
         outputText: String,
         fallbackTokenCount: Int,
         peakHeapMb: Float,
-        thermalLabel: String
+        batteryThermal: BatteryThermalSnapshot
     ): GenerationBenchmark {
         val nativeBench = runCatching { conversation.getBenchmarkInfo() }.getOrNull()
         val fallbackTtftMs = ((firstTokenNs ?: endNs) - startNs) / 1_000_000L
@@ -521,7 +506,9 @@ class LiteRtLmAiEngine(
             initTimeMs = activeInitTimeMs,
             peakMemoryMb = maxOf(peakHeapMb, currentHeapMb),
             modelSizeBytes = activeModelSizeBytes,
-            thermalStatus = thermalLabel
+            thermalStatus = batteryThermal.thermalStatusLabel,
+            batteryPercent = batteryThermal.batteryPercent,
+            batteryTempCelsius = batteryThermal.batteryTempCelsius
         )
     }
 
@@ -532,7 +519,7 @@ class LiteRtLmAiEngine(
         outputText: String,
         fallbackTokenCount: Int,
         peakHeapMb: Float,
-        thermalLabel: String
+        batteryThermal: BatteryThermalSnapshot
     ): GenerationBenchmark {
         val ttftMs = (((firstTokenNs ?: endNs) - startNs) / 1_000_000L).coerceAtLeast(1L)
         val decodeDurationSec = ((endNs - (firstTokenNs ?: startNs)).coerceAtLeast(1_000_000L)) / 1_000_000_000.0
@@ -553,7 +540,9 @@ class LiteRtLmAiEngine(
             initTimeMs = activeInitTimeMs,
             peakMemoryMb = maxOf(peakHeapMb, currentHeapMb),
             modelSizeBytes = activeModelSizeBytes,
-            thermalStatus = thermalLabel
+            thermalStatus = batteryThermal.thermalStatusLabel,
+            batteryPercent = batteryThermal.batteryPercent,
+            batteryTempCelsius = batteryThermal.batteryTempCelsius
         )
     }
 

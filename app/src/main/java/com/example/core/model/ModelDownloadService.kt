@@ -33,7 +33,7 @@ class ModelDownloadService : Service() {
                 val progress = intent.getIntExtra(EXTRA_PROGRESS, 0).coerceIn(0, 100)
 
                 val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setSmallIcon(R.drawable.ic_jarvis_notification)
                     .setContentTitle("JARVIS Hub • $title")
                     .setContentText(subtitle)
                     .setOngoing(true)
@@ -48,7 +48,7 @@ class ModelDownloadService : Service() {
             }
             else -> {
                 val fallbackNotification = NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setSmallIcon(R.drawable.ic_jarvis_notification)
                     .setContentTitle("JARVIS Hub")
                     .setContentText("Closing download service…")
                     .setOngoing(false)

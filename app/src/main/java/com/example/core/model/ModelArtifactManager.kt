@@ -3,6 +3,8 @@ package com.example.core.model
 import android.content.Context
 import android.net.Uri
 import android.os.StatFs
+import com.example.core.security.HttpSecuritySupport
+import com.example.core.security.SecurityLogRedactor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +74,10 @@ class ModelArtifactManager(
         }
 
     fun availableStorageBytes(): Long = storageSpaceProvider.availableBytes(modelsDirectory)
+
+    fun installedStorageFootprintBytes(): Long = runCatching {
+        modelsDirectory.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+    }.getOrDefault(0L)
 
     fun startDownload(slot: ModelSlot, bearerToken: String) {
         val url = slot.downloadUrl
@@ -247,7 +253,7 @@ class ModelArtifactManager(
                 artifactState = ArtifactState.NOT_INSTALLED,
                 status = ModelStatus.UNCONFIGURED
             )
-            val msg = e.localizedMessage ?: "Model download failed."
+            val msg = SecurityLogRedactor.redact(e.localizedMessage ?: "Model download failed.")
             _transferState.value = ArtifactTransferState.Error(slot.id, msg)
             Result.failure(e)
         }
@@ -498,14 +504,7 @@ class ModelArtifactManager(
 
     private fun isTrustedAuthHost(url: String): Boolean {
         val parsed = url.trim().toHttpUrlOrNull() ?: return false
-        val host = parsed.host.lowercase()
-        val isTrustedHttpsHf = parsed.isHttps && (
-            host == "huggingface.co" ||
-                host.endsWith(".huggingface.co") ||
-                host.endsWith(".hf.co")
-            )
-        val isLoopback = host == "localhost" || host == "127.0.0.1"
-        return isTrustedHttpsHf || isLoopback
+        return HttpSecuritySupport.isTrustedHfAuthHost(parsed)
     }
 
     private fun computeSha256(file: File): String {
@@ -531,6 +530,7 @@ class ModelArtifactManager(
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .addNetworkInterceptor(HttpSecuritySupport.hfRedirectAuthSanitizer)
             .build()
 
         fun defaultStorageSpaceProvider(): StorageSpaceProvider = StorageSpaceProvider { dir ->

@@ -81,6 +81,7 @@ fun DeviceDashboardScreen(
     onClearNotificationBuffer: () -> Unit = {},
     onSetAccessibilityAutomationEnabled: (Boolean) -> Unit = {},
     onSetCloudUploadConsentGranted: (Boolean) -> Unit = {},
+    onOpenBridgeSetup: () -> Unit = {},
     onNavigateBack: () -> Unit = {}
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -229,7 +230,8 @@ fun DeviceDashboardScreen(
                         onSetNotificationReaderEnabled = onSetNotificationReaderEnabled,
                         onSetNotificationPrivacyMaskEnabled = onSetNotificationPrivacyMaskEnabled,
                         onClearNotificationBuffer = onClearNotificationBuffer,
-                        onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled
+                        onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled,
+                        onOpenBridgeSetup = onOpenBridgeSetup
                     )
                 }
 
