@@ -68,7 +68,8 @@ fun DeviceDashboardScreen(
     onSetNotificationReaderEnabled: (Boolean) -> Unit = {},
     onSetNotificationPrivacyMaskEnabled: (Boolean) -> Unit = {},
     onClearNotificationBuffer: () -> Unit = {},
-    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit = {}
+    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit = {},
+    onSetCloudUploadConsentGranted: (Boolean) -> Unit = {}
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -77,6 +78,11 @@ fun DeviceDashboardScreen(
         if (perm != null) {
             onRuntimePermissionResult(perm, granted)
         }
+    }
+    val standalonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        onRefreshNow()
     }
 
     HudBackground {
@@ -154,36 +160,51 @@ fun DeviceDashboardScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (controlsState.activeTab == DeviceDashboardTab.CONTROLS) {
-                DeviceControlsConsole(
-                    controlsState = controlsState,
-                    onRunTool = onRunTool,
-                    onCancelActiveTool = onCancelActiveTool,
-                    onSetNotificationReaderEnabled = onSetNotificationReaderEnabled,
-                    onSetNotificationPrivacyMaskEnabled = onSetNotificationPrivacyMaskEnabled,
-                    onClearNotificationBuffer = onClearNotificationBuffer,
-                    onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled
-                )
-            } else {
-                when (uiState) {
-                    is DeviceTelemetryUiState.Loading -> {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Querying Android system telemetry…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+            when (controlsState.activeTab) {
+                DeviceDashboardTab.CONTROLS -> {
+                    DeviceControlsConsole(
+                        controlsState = controlsState,
+                        onRunTool = onRunTool,
+                        onCancelActiveTool = onCancelActiveTool,
+                        onSetNotificationReaderEnabled = onSetNotificationReaderEnabled,
+                        onSetNotificationPrivacyMaskEnabled = onSetNotificationPrivacyMaskEnabled,
+                        onClearNotificationBuffer = onClearNotificationBuffer,
+                        onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled
+                    )
+                }
 
-                    is DeviceTelemetryUiState.Ready -> {
-                        TelemetryGrid(telemetry = uiState.telemetry)
+                DeviceDashboardTab.PERMISSIONS -> {
+                    DevicePermissionsPrivacyConsole(
+                        controlsState = controlsState,
+                        onRequestRuntimePermission = { perm -> standalonePermissionLauncher.launch(perm) },
+                        onSetNotificationReaderEnabled = onSetNotificationReaderEnabled,
+                        onSetNotificationPrivacyMaskEnabled = onSetNotificationPrivacyMaskEnabled,
+                        onSetAccessibilityAutomationEnabled = onSetAccessibilityAutomationEnabled,
+                        onSetCloudUploadConsentGranted = onSetCloudUploadConsentGranted
+                    )
+                }
+
+                DeviceDashboardTab.TELEMETRY -> {
+                    when (uiState) {
+                        is DeviceTelemetryUiState.Loading -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Querying Android system telemetry…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        is DeviceTelemetryUiState.Ready -> {
+                            TelemetryGrid(telemetry = uiState.telemetry)
+                        }
                     }
                 }
             }

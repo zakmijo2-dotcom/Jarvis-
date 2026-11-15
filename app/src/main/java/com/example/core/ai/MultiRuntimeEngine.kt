@@ -19,6 +19,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+data class ModelCapabilityProfile(
+    val supportsToolCalling: Boolean = true,
+    val supportsVision: Boolean = false,
+    val supportsStreaming: Boolean = true,
+    val maxContextTokens: Int = 4096,
+    val estimatedLatencyTier: String = "FAST_LOCAL",
+    val offlineCapable: Boolean = true
+) {
+    fun toSummaryLabel(): String =
+        "ctx=$maxContextTokens • tools=${if (supportsToolCalling) "yes" else "no"} • tier=$estimatedLatencyTier • ${if (offlineCapable) "offline" else "cloud"}"
+}
+
 data class RuntimePerformanceSnapshot(
     val runtimeName: String,
     val formatId: RuntimeFormatId,
@@ -27,7 +39,8 @@ data class RuntimePerformanceSnapshot(
     val activeModelName: String?,
     val backendUsed: String?,
     val nativeHeapMb: Float,
-    val lastBenchmark: GenerationBenchmark?
+    val lastBenchmark: GenerationBenchmark?,
+    val capabilities: ModelCapabilityProfile = ModelCapabilityProfile()
 )
 
 /**
@@ -38,6 +51,7 @@ interface ModelRuntimeEngine {
     val formatId: RuntimeFormatId
     val runtimeName: String
     val isExecutionSupported: Boolean
+    val capabilityProfile: ModelCapabilityProfile
     val loadState: StateFlow<EngineLoadState>
     val isGenerating: StateFlow<Boolean>
     val lastBenchmark: StateFlow<GenerationBenchmark?>
@@ -64,6 +78,14 @@ class LiteRtLmRuntimeAdapter(
     override val formatId: RuntimeFormatId = RuntimeFormatId.LITERT_LM
     override val runtimeName: String = "LiteRT-LM"
     override val isExecutionSupported: Boolean = true
+    override val capabilityProfile: ModelCapabilityProfile = ModelCapabilityProfile(
+        supportsToolCalling = true,
+        supportsVision = false,
+        supportsStreaming = true,
+        maxContextTokens = 4096,
+        estimatedLatencyTier = "FAST_LOCAL",
+        offlineCapable = true
+    )
     override val loadState: StateFlow<EngineLoadState> = delegate.loadState
     override val isGenerating: StateFlow<Boolean> = delegate.isGenerating
     override val lastBenchmark: StateFlow<GenerationBenchmark?> = delegate.lastBenchmark
@@ -118,6 +140,14 @@ class PreparedFormatRuntimeStub(
     private val unavailableReason: String
 ) : ModelRuntimeEngine {
     override val isExecutionSupported: Boolean = false
+    override val capabilityProfile: ModelCapabilityProfile = ModelCapabilityProfile(
+        supportsToolCalling = false,
+        supportsVision = false,
+        supportsStreaming = false,
+        maxContextTokens = 2048,
+        estimatedLatencyTier = "UNSUPPORTED",
+        offlineCapable = false
+    )
     private val _loadState = MutableStateFlow<EngineLoadState>(EngineLoadState.Unloaded)
     override val loadState: StateFlow<EngineLoadState> = _loadState.asStateFlow()
 
@@ -257,6 +287,22 @@ class RuntimeEngineCoordinator(
     }
 
     fun getRuntime(formatId: RuntimeFormatId): ModelRuntimeEngine? = runtimes[formatId]
+
+    fun activeCapabilities(settings: JarvisSettings? = null): ModelCapabilityProfile {
+        val base = runtimes[activeFormat]?.capabilityProfile ?: ModelCapabilityProfile()
+        if (settings == null) return base
+        val ready = _loadState.value as? EngineLoadState.Ready
+        val tier = when {
+            ready?.backendUsed?.contains("GPU", ignoreCase = true) == true -> "GPU_ACCELERATED"
+            ready?.backendUsed?.contains("NPU", ignoreCase = true) == true -> "NPU_ACCELERATED"
+            ready != null -> "CPU_LOCAL"
+            else -> base.estimatedLatencyTier
+        }
+        return base.copy(
+            maxContextTokens = settings.contextLengthTokens.coerceAtLeast(512),
+            estimatedLatencyTier = tier
+        )
+    }
 
     fun reportAllRuntimes(): List<RuntimePerformanceSnapshot> =
         runtimes.values.map { it.reportPerformance() }

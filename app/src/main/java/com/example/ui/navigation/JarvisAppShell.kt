@@ -157,7 +157,8 @@ fun JarvisAppShell(
             conversationRepository = container.conversationRepository,
             wakeWordEngine = container.wakeWordEngine,
             localMemory = container.localMemory,
-            agentCore = container.agentCore
+            agentCore = container.agentCore,
+            skillEngine = container.skillEngine
         )
     )
 
@@ -426,7 +427,8 @@ fun JarvisAppShell(
                                 onSetNotificationReaderEnabled = deviceDashboardViewModel::setNotificationReaderEnabled,
                                 onSetNotificationPrivacyMaskEnabled = deviceDashboardViewModel::setNotificationPrivacyMaskEnabled,
                                 onClearNotificationBuffer = deviceDashboardViewModel::clearNotificationBuffer,
-                                onSetAccessibilityAutomationEnabled = deviceDashboardViewModel::setAccessibilityAutomationEnabled
+                                onSetAccessibilityAutomationEnabled = deviceDashboardViewModel::setAccessibilityAutomationEnabled,
+                                onSetCloudUploadConsentGranted = deviceDashboardViewModel::setCloudUploadConsentGranted
                             )
                         }
                         composable<SettingsRoute> {
@@ -463,7 +465,8 @@ fun JarvisAppShell(
                                 onMemorySearchQueryChange = settingsViewModel::updateMemorySearchQuery,
                                 onAddMemory = settingsViewModel::addMemoryItem,
                                 onEditMemory = settingsViewModel::editMemoryItem,
-                                onDeleteMemory = settingsViewModel::deleteMemoryItem
+                                onDeleteMemory = settingsViewModel::deleteMemoryItem,
+                                onDeleteSkill = settingsViewModel::deleteSkill
                             )
                         }
                     }

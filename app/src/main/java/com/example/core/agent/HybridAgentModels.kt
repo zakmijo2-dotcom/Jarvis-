@@ -32,14 +32,19 @@ data class RoutingDecision(
     val detectedTools: List<ToolCallRequest>,
     val explicitModelOverride: String? = null,
     val useCloudModel: Boolean = false,
-    val privacyBlockedReason: String? = null
+    val privacyBlockedReason: String? = null,
+    val capabilitySummary: String = "",
+    val matchedSkillName: String? = null
 )
 
 enum class PlanStepType(val label: String) {
     MEMORY_LOOKUP("Local Memory"),
+    CONTEXT_OBSERVE("Observe Context"),
     WEB_RESEARCH("Web Research"),
+    SKILL_EXECUTION("Skill Workflow"),
     ANDROID_TOOL("Device Tool"),
-    AI_SYNTHESIS("AI Synthesis")
+    AI_SYNTHESIS("AI Synthesis"),
+    RESULT_VERIFY("Verify Outcome")
 }
 
 enum class PlanStepStatus(val label: String) {

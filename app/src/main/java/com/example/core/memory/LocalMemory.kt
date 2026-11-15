@@ -13,6 +13,7 @@ enum class MemoryKind(val label: String) {
     PREFERENCE("Preference"),
     SUMMARY("Conversation Summary"),
     FACT("Fact"),
+    PROJECT("Project Context"),
     CONTEXT("Historical Context");
 
     companion object {
@@ -29,7 +30,11 @@ data class MemoryFact(
     val kind: MemoryKind = MemoryKind.FACT,
     val sourceConversationId: String? = null,
     val isUserApproved: Boolean = true,
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val importanceScore: Int = 1,
+    val accessCount: Int = 0,
+    val lastAccessedAt: Long = 0L,
+    val expiresAt: Long? = null
 )
 
 interface LocalMemory {
@@ -44,6 +49,24 @@ interface LocalMemory {
         containsSensitiveConsent: Boolean = false
     ): Result<MemoryFact>
 
+    suspend fun saveMemoryWithLifecycle(
+        kind: MemoryKind,
+        category: String,
+        content: String,
+        sourceConversationId: String? = null,
+        userApproved: Boolean = true,
+        containsSensitiveConsent: Boolean = false,
+        importanceScore: Int = 1,
+        ttlMillis: Long? = null
+    ): Result<MemoryFact> = saveMemory(
+        kind = kind,
+        category = category,
+        content = content,
+        sourceConversationId = sourceConversationId,
+        userApproved = userApproved,
+        containsSensitiveConsent = containsSensitiveConsent
+    )
+
     suspend fun updateMemory(
         id: String,
         category: String,
@@ -52,6 +75,7 @@ interface LocalMemory {
     ): Result<Unit>
 
     suspend fun deleteMemory(id: String)
+    suspend fun purgeExpiredMemories(): Int = 0
     suspend fun searchMemories(query: String): List<MemoryFact>
     suspend fun retrieveRelevantContext(prompt: String, maxItems: Int = 5): List<MemoryFact>
     suspend fun summarizeAndStoreConversation(
@@ -69,7 +93,10 @@ class RoomLocalMemory(
 ) : LocalMemory {
 
     override fun observeFacts(): Flow<List<MemoryFact>> =
-        memoryDao.observeFacts().map { list -> list.map(::toModel) }
+        memoryDao.observeFacts().map { list ->
+            val now = System.currentTimeMillis()
+            list.filter { it.expiresAt == null || it.expiresAt > now }.map(::toModel)
+        }
 
     override suspend fun saveFact(category: String, content: String) {
         saveMemory(
@@ -88,6 +115,26 @@ class RoomLocalMemory(
         sourceConversationId: String?,
         userApproved: Boolean,
         containsSensitiveConsent: Boolean
+    ): Result<MemoryFact> = saveMemoryWithLifecycle(
+        kind = kind,
+        category = category,
+        content = content,
+        sourceConversationId = sourceConversationId,
+        userApproved = userApproved,
+        containsSensitiveConsent = containsSensitiveConsent,
+        importanceScore = if (kind == MemoryKind.PREFERENCE || kind == MemoryKind.PROJECT) 3 else 1,
+        ttlMillis = null
+    )
+
+    override suspend fun saveMemoryWithLifecycle(
+        kind: MemoryKind,
+        category: String,
+        content: String,
+        sourceConversationId: String?,
+        userApproved: Boolean,
+        containsSensitiveConsent: Boolean,
+        importanceScore: Int,
+        ttlMillis: Long?
     ): Result<MemoryFact> {
         val clean = content.trim()
         if (clean.isEmpty()) {
@@ -99,6 +146,27 @@ class RoomLocalMemory(
             )
         }
         val now = System.currentTimeMillis()
+        memoryDao.deleteExpired(now)
+
+        // Duplicate detection: reinforce existing equivalent memory rather than duplicating
+        val normalizedNew = normalizeForDuplicate(clean)
+        val existing = memoryDao.getAllFactsOnce()
+            .firstOrNull { row ->
+                row.kind == kind.name &&
+                    normalizeForDuplicate(row.content) == normalizedNew
+            }
+        if (existing != null) {
+            memoryDao.reinforceDuplicate(existing.id, now)
+            return Result.success(
+                toModel(
+                    existing.copy(
+                        updatedAt = now,
+                        importanceScore = (existing.importanceScore + 1).coerceAtMost(10)
+                    )
+                )
+            )
+        }
+
         val entity = MemoryNoteEntity(
             id = UUID.randomUUID().toString(),
             category = category.trim().ifBlank { kind.label },
@@ -107,7 +175,11 @@ class RoomLocalMemory(
             kind = kind.name,
             sourceConversationId = sourceConversationId,
             isUserApproved = userApproved,
-            updatedAt = now
+            updatedAt = now,
+            importanceScore = importanceScore.coerceIn(1, 10),
+            accessCount = 0,
+            lastAccessedAt = 0L,
+            expiresAt = ttlMillis?.takeIf { it > 0L }?.let { now + it }
         )
         memoryDao.insertFact(entity)
         return Result.success(toModel(entity))
@@ -141,14 +213,23 @@ class RoomLocalMemory(
         memoryDao.deleteFactById(id)
     }
 
+    override suspend fun purgeExpiredMemories(): Int =
+        memoryDao.deleteExpired(System.currentTimeMillis())
+
     override suspend fun searchMemories(query: String): List<MemoryFact> {
+        val now = System.currentTimeMillis()
+        memoryDao.deleteExpired(now)
         val clean = query.trim()
-        if (clean.isEmpty()) return memoryDao.getAllFactsOnce().map(::toModel)
-        return memoryDao.searchFacts("%$clean%").map(::toModel)
+        val rows = if (clean.isEmpty()) memoryDao.getAllFactsOnce() else memoryDao.searchFacts("%$clean%")
+        return rows.filter { it.expiresAt == null || it.expiresAt > now }.map(::toModel)
     }
 
     override suspend fun retrieveRelevantContext(prompt: String, maxItems: Int): List<MemoryFact> {
-        val all = memoryDao.getAllFactsOnce().filter { it.isUserApproved }.map(::toModel)
+        val now = System.currentTimeMillis()
+        memoryDao.deleteExpired(now)
+        val all = memoryDao.getAllFactsOnce()
+            .filter { it.isUserApproved && (it.expiresAt == null || it.expiresAt > now) }
+            .map(::toModel)
         if (all.isEmpty()) return emptyList()
 
         val tokens = prompt.lowercase(Locale.getDefault())
@@ -156,12 +237,22 @@ class RoomLocalMemory(
             .filter { it.length >= 3 }
             .toSet()
 
-        return all.sortedByDescending { item ->
+        val ranked = all.sortedByDescending { item ->
             val text = "${item.category} ${item.content}".lowercase(Locale.getDefault())
             val overlap = tokens.count { token -> text.contains(token) }
-            val prefBoost = if (item.kind == MemoryKind.PREFERENCE) 2 else 0
-            (overlap * 10) + prefBoost
+            val kindBoost = when (item.kind) {
+                MemoryKind.PREFERENCE -> 4
+                MemoryKind.PROJECT -> 3
+                else -> 0
+            }
+            val recencyBoost = if (now - item.updatedAt <= 24L * 3_600_000L) 2 else 0
+            (overlap * 10) + (item.importanceScore * 2) + kindBoost + recencyBoost
         }.take(maxItems.coerceIn(1, 10))
+
+        ranked.forEach { hit ->
+            runCatching { memoryDao.recordAccess(hit.id, now) }
+        }
+        return ranked
     }
 
     override suspend fun summarizeAndStoreConversation(
@@ -213,6 +304,12 @@ class RoomLocalMemory(
         memoryDao.clearFacts()
     }
 
+    private fun normalizeForDuplicate(raw: String): String =
+        raw.lowercase(Locale.ROOT)
+            .replace(Regex("\\s+"), " ")
+            .replace(Regex("[.!?؟،,;:\"'`]+"), "")
+            .trim()
+
     private fun toModel(entity: MemoryNoteEntity): MemoryFact = MemoryFact(
         id = entity.id,
         category = entity.category,
@@ -221,7 +318,11 @@ class RoomLocalMemory(
         kind = MemoryKind.fromRaw(entity.kind),
         sourceConversationId = entity.sourceConversationId,
         isUserApproved = entity.isUserApproved,
-        updatedAt = entity.updatedAt
+        updatedAt = entity.updatedAt,
+        importanceScore = entity.importanceScore,
+        accessCount = entity.accessCount,
+        lastAccessedAt = entity.lastAccessedAt,
+        expiresAt = entity.expiresAt
     )
 
     companion object {

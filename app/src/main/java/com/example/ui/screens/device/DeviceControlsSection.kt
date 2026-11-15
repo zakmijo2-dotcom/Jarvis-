@@ -1,14 +1,18 @@
 package com.example.ui.screens.device
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,11 +27,13 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -685,7 +691,8 @@ fun DeviceModeChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 960.dp),
+            .widthIn(max = 960.dp)
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         FilterChip(
@@ -700,5 +707,200 @@ fun DeviceModeChips(
             label = { Text(DeviceDashboardTab.CONTROLS.label) },
             modifier = Modifier.testTag("device_tab_controls")
         )
+        FilterChip(
+            selected = selectedTab == DeviceDashboardTab.PERMISSIONS,
+            onClick = { onSelectTab(DeviceDashboardTab.PERMISSIONS) },
+            label = { Text(DeviceDashboardTab.PERMISSIONS.label) },
+            modifier = Modifier.testTag("device_tab_permissions")
+        )
+    }
+}
+
+@Composable
+fun DevicePermissionsPrivacyConsole(
+    controlsState: DeviceControlsState,
+    onRequestRuntimePermission: (String) -> Unit,
+    onSetNotificationReaderEnabled: (Boolean) -> Unit,
+    onSetNotificationPrivacyMaskEnabled: (Boolean) -> Unit,
+    onSetAccessibilityAutomationEnabled: (Boolean) -> Unit,
+    onSetCloudUploadConsentGranted: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 960.dp)
+            .testTag("device_permissions_list"),
+        contentPadding = PaddingValues(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            ControlsSectionPanel(
+                title = "RUNTIME ANDROID PERMISSIONS",
+                icon = Icons.Filled.Mic,
+                badgeText = "LEAST PRIVILEGE",
+                badgeNominal = true,
+                panelTestTag = "permissions_runtime_card"
+            ) {
+                PermissionStatusRow(
+                    title = "Microphone (RECORD_AUDIO)",
+                    description = "Required for Android SpeechRecognizer and local voice commands.",
+                    granted = controlsState.hasAudioPermission,
+                    actionLabel = "Grant Mic",
+                    onAction = { onRequestRuntimePermission(Manifest.permission.RECORD_AUDIO) },
+                    testTag = "perm_grant_audio_button"
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                PermissionStatusRow(
+                    title = "Contacts (READ_CONTACTS)",
+                    description = "Used exclusively when you explicitly invoke search_contacts.",
+                    granted = controlsState.hasContactsPermission,
+                    actionLabel = "Grant Contacts",
+                    onAction = { onRequestRuntimePermission(Manifest.permission.READ_CONTACTS) },
+                    testTag = "perm_grant_contacts_button"
+                )
+                if (Build.VERSION.SDK_INT >= 33) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    PermissionStatusRow(
+                        title = "Notifications (POST_NOTIFICATIONS)",
+                        description = "Displays foreground voice/download progress indicators.",
+                        granted = controlsState.hasPostNotificationsPermission,
+                        actionLabel = "Grant Post Notifs",
+                        onAction = { onRequestRuntimePermission(Manifest.permission.POST_NOTIFICATIONS) },
+                        testTag = "perm_grant_post_notif_button"
+                    )
+                }
+            }
+        }
+
+        item {
+            ControlsSectionPanel(
+                title = "SPECIAL ACCESS SERVICES",
+                icon = Icons.Filled.AccessibilityNew,
+                badgeText = if (controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized) "CONFIGURED" else "OS GATED",
+                badgeNominal = controlsState.isAccessibilityAuthorized || controlsState.isNotificationAuthorized,
+                panelTestTag = "permissions_special_access_card"
+            ) {
+                PermissionStatusRow(
+                    title = "Accessibility Service (5-Layer Automation)",
+                    description = "Zero passive scraping; runs UI inspection/tap/scroll only on explicit user approval.",
+                    granted = controlsState.isAccessibilityAuthorized,
+                    actionLabel = "Accessibility Settings",
+                    onAction = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    },
+                    testTag = "perm_open_a11y_settings_button"
+                )
+                SwitchRow(
+                    title = "Opt-in Accessibility Automation Actions",
+                    subtitle = "Service connected: ${controlsState.isAccessibilityConnected}",
+                    checked = controlsState.settings.accessibilityAutomationEnabled,
+                    onCheckedChange = onSetAccessibilityAutomationEnabled,
+                    testTag = "perm_switch_a11y"
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                PermissionStatusRow(
+                    title = "Notification Listener Service",
+                    description = "Captures recent notifications in RAM when explicitly enabled; never exported.",
+                    granted = controlsState.isNotificationAuthorized,
+                    actionLabel = "Notification Settings",
+                    onAction = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    },
+                    testTag = "perm_open_notif_settings_button"
+                )
+                SwitchRow(
+                    title = "Enable Notification Reader",
+                    subtitle = "Connected: ${controlsState.isNotificationConnected}",
+                    checked = controlsState.settings.notificationReaderEnabled,
+                    onCheckedChange = onSetNotificationReaderEnabled,
+                    testTag = "perm_switch_notif_reader"
+                )
+                SwitchRow(
+                    title = "Mask OTPs & Message Previews",
+                    subtitle = "Redacts verification codes and sensitive snippets before AI synthesis",
+                    checked = controlsState.settings.notificationPrivacyMaskEnabled,
+                    onCheckedChange = onSetNotificationPrivacyMaskEnabled,
+                    testTag = "perm_switch_notif_mask"
+                )
+            }
+        }
+
+        item {
+            ControlsSectionPanel(
+                title = "DATA PRIVACY & PROMPT SECURITY",
+                icon = Icons.Filled.VerifiedUser,
+                badgeText = if (controlsState.settings.cloudUploadConsentGranted) "CLOUD CONSENT ON" else "LOCAL PRIVATE",
+                badgeNominal = !controlsState.settings.cloudUploadConsentGranted,
+                panelTestTag = "permissions_privacy_policy_card"
+            ) {
+                SwitchRow(
+                    title = "Allow Cloud API Transmission",
+                    subtitle = "When OFF, all prompts, notifications, screen snapshots, and memories stay strictly on-device.",
+                    checked = controlsState.settings.cloudUploadConsentGranted,
+                    onCheckedChange = onSetCloudUploadConsentGranted,
+                    testTag = "perm_switch_cloud_consent"
+                )
+                Text(
+                    text = "• Untrusted external content (notifications, UI text, web snippets) is wrapped in [UNTRUSTED_EXTERNAL_DATA] boundaries with spoofed [TOOL_CALL] markers stripped.\n" +
+                        "• Dangerous tools (call, SMS, accessibility actions, reminders, skill saving) require explicit confirmation.\n" +
+                        "• Auto-skill distillation blocks high-risk or confirmation-gated tools.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(
+    title: String,
+    description: String,
+    granted: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit,
+    testTag: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(title, style = MaterialTheme.typography.labelLarge)
+                HudBadge(
+                    text = if (granted) "GRANTED" else "MISSING",
+                    color = if (granted) NominalGreen else SignalAmber
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        OutlinedButton(
+            onClick = onAction,
+            modifier = Modifier.testTag(testTag)
+        ) {
+            Text(actionLabel)
+        }
     }
 }

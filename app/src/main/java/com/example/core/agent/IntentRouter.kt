@@ -1,5 +1,6 @@
 package com.example.core.agent
 
+import com.example.core.ai.ModelCapabilityProfile
 import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolRegistry
 import com.example.data.repository.JarvisSettings
@@ -11,10 +12,14 @@ class IntentRouter {
         prompt: String,
         settings: JarvisSettings,
         isLocalModelReady: Boolean,
-        isNetworkConnected: Boolean = true
+        isNetworkConnected: Boolean = true,
+        activeCapabilities: ModelCapabilityProfile? = null,
+        matchedSkillName: String? = null
     ): RoutingDecision {
         val clean = prompt.trim()
         val lower = clean.lowercase(Locale.getDefault())
+        val localCapLabel = activeCapabilities?.toSummaryLabel() ?: "ctx=${settings.contextLengthTokens} • tools=yes • offline"
+        val cloudCapLabel = "ctx=cloud • tools=yes • streaming"
 
         // Direct /tool command always maps to deterministic local tool execution
         val directTool = ToolRegistry.parseDirectToolCommand(clean)
@@ -25,7 +30,8 @@ class IntentRouter {
                 complexityScore = 1,
                 needsWebResearch = false,
                 detectedTools = listOf(directTool),
-                useCloudModel = false
+                useCloudModel = false,
+                capabilitySummary = "deterministic_tool"
             )
         }
 
@@ -43,13 +49,15 @@ class IntentRouter {
                 "Local-Only mode active: local models cannot access the internet."
             } else null
             return RoutingDecision(
-                route = if (detectedTools.isNotEmpty() && complexity <= 3) {
+                route = if ((detectedTools.isNotEmpty() || matchedSkillName != null) && complexity <= 3) {
                     ExecutionRoute.ON_DEVICE_TOOLS
                 } else {
                     ExecutionRoute.LOCAL_LITERT_LM
                 },
                 reason = if (explicitOverride == "local") {
                     "Explicit @local override selected by user."
+                } else if (matchedSkillName != null) {
+                    "Matched saved local skill '$matchedSkillName' (Local Only)."
                 } else {
                     "Routing mode locked to Local Only (offline privacy preserved)."
                 },
@@ -58,7 +66,9 @@ class IntentRouter {
                 detectedTools = detectedTools,
                 explicitModelOverride = explicitOverride,
                 useCloudModel = false,
-                privacyBlockedReason = privacyNotice
+                privacyBlockedReason = privacyNotice,
+                capabilitySummary = localCapLabel,
+                matchedSkillName = matchedSkillName
             )
         }
 
@@ -75,7 +85,9 @@ class IntentRouter {
                     detectedTools = detectedTools,
                     explicitModelOverride = explicitOverride,
                     useCloudModel = true,
-                    privacyBlockedReason = "Cloud upload consent is disabled in Settings. Enable \"Allow Cloud API Transmission\" before sending data externally."
+                    privacyBlockedReason = "Cloud upload consent is disabled in Settings. Enable \"Allow Cloud API Transmission\" before sending data externally.",
+                    capabilitySummary = cloudCapLabel,
+                    matchedSkillName = matchedSkillName
                 )
             }
             if (!hasCloudKey) {
@@ -87,7 +99,9 @@ class IntentRouter {
                     detectedTools = detectedTools,
                     explicitModelOverride = explicitOverride,
                     useCloudModel = true,
-                    privacyBlockedReason = "No API key configured for ${settings.cloudProviderKind.label}. Add your API key in Settings."
+                    privacyBlockedReason = "No API key configured for ${settings.cloudProviderKind.label}. Add your API key in Settings.",
+                    capabilitySummary = cloudCapLabel,
+                    matchedSkillName = matchedSkillName
                 )
             }
             return RoutingDecision(
@@ -105,23 +119,36 @@ class IntentRouter {
                 needsWebResearch = needsWeb && settings.webResearchEnabled,
                 detectedTools = detectedTools,
                 explicitModelOverride = explicitOverride,
-                useCloudModel = true
+                useCloudModel = true,
+                capabilitySummary = cloudCapLabel,
+                matchedSkillName = matchedSkillName
             )
         }
 
         // 3. AUTO_HYBRID intelligence
-        if (detectedTools.isNotEmpty() && !needsWeb && complexity <= 4) {
+        if ((matchedSkillName != null || detectedTools.isNotEmpty()) && !needsWeb && complexity <= 4) {
             return RoutingDecision(
                 route = ExecutionRoute.ON_DEVICE_TOOLS,
-                reason = "Detected ${detectedTools.size} local device action(s); handling privately on-device.",
+                reason = if (matchedSkillName != null) {
+                    "Matched saved workflow skill '$matchedSkillName'; executing privately on-device."
+                } else {
+                    "Detected ${detectedTools.size} local device action(s); handling privately on-device."
+                },
                 complexityScore = complexity,
                 needsWebResearch = false,
                 detectedTools = detectedTools,
-                useCloudModel = false
+                useCloudModel = false,
+                capabilitySummary = localCapLabel,
+                matchedSkillName = matchedSkillName
             )
         }
 
-        val prefersCloud = needsWeb || complexity >= 6 || !isLocalModelReady
+        val exceedsLocalContext = activeCapabilities != null &&
+            clean.length / 4 > (activeCapabilities.maxContextTokens * 0.7f)
+        val localSupportsTools = activeCapabilities?.supportsToolCalling ?: true
+        val prefersCloud = needsWeb || complexity >= 6 || !isLocalModelReady || exceedsLocalContext ||
+            (detectedTools.isNotEmpty() && !localSupportsTools)
+
         if (prefersCloud && canUseCloud) {
             return RoutingDecision(
                 route = if (needsWeb && settings.webResearchEnabled) {
@@ -131,13 +158,16 @@ class IntentRouter {
                 },
                 reason = when {
                     needsWeb -> "Web-dependent query routed to ${settings.cloudProviderKind.label}."
+                    exceedsLocalContext -> "Prompt exceeds local context budget (${activeCapabilities?.maxContextTokens}); routed to Cloud AI."
                     complexity >= 6 -> "High reasoning complexity ($complexity/10) routed to Cloud AI."
                     else -> "Local model unloaded; falling back to consented Cloud AI."
                 },
                 complexityScore = complexity,
                 needsWebResearch = needsWeb && settings.webResearchEnabled,
                 detectedTools = detectedTools,
-                useCloudModel = true
+                useCloudModel = true,
+                capabilitySummary = cloudCapLabel,
+                matchedSkillName = matchedSkillName
             )
         }
 
@@ -162,7 +192,9 @@ class IntentRouter {
             needsWebResearch = needsWeb && settings.webResearchEnabled,
             detectedTools = detectedTools,
             useCloudModel = false,
-            privacyBlockedReason = fallbackNote
+            privacyBlockedReason = fallbackNote,
+            capabilitySummary = localCapLabel,
+            matchedSkillName = matchedSkillName
         )
     }
 
@@ -178,7 +210,7 @@ class IntentRouter {
                 index = idx++,
                 type = PlanStepType.MEMORY_LOOKUP,
                 title = "Query Local Memory",
-                detail = "Retrieve user-approved preferences & historical context"
+                detail = "Retrieve ranked user preferences, project context & facts"
             )
         )
 
@@ -198,20 +230,51 @@ class IntentRouter {
             )
         }
 
-        decision.detectedTools.forEach { toolReq ->
-            val argsSummary = if (toolReq.arguments.isEmpty()) "no args"
-            else toolReq.arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }
+        if (!decision.matchedSkillName.isNullOrBlank()) {
             steps.add(
                 AgentPlanStep(
                     index = idx++,
-                    type = PlanStepType.ANDROID_TOOL,
-                    title = "Execute ${toolReq.toolName}",
-                    detail = argsSummary
+                    type = PlanStepType.SKILL_EXECUTION,
+                    title = "Run Skill ${decision.matchedSkillName}",
+                    detail = "Execute verified multi-step workflow '${decision.matchedSkillName}'"
+                )
+            )
+        } else {
+            decision.detectedTools.forEach { toolReq ->
+                val argsSummary = if (toolReq.arguments.isEmpty()) "no args"
+                else toolReq.arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                steps.add(
+                    AgentPlanStep(
+                        index = idx++,
+                        type = PlanStepType.ANDROID_TOOL,
+                        title = "Execute ${toolReq.toolName}",
+                        detail = argsSummary
+                    )
+                )
+            }
+        }
+
+        val lower = prompt.lowercase(Locale.getDefault())
+        val shouldObserveContext = lower.contains("screen") ||
+            lower.contains("current app") ||
+            lower.contains("notification") ||
+            decision.matchedSkillName != null ||
+            decision.detectedTools.any {
+                it.toolName in setOf("tap_ui_element", "scroll_screen", "input_ui_text", "inspect_screen_elements")
+            }
+
+        if (shouldObserveContext) {
+            steps.add(
+                AgentPlanStep(
+                    index = idx++,
+                    type = PlanStepType.CONTEXT_OBSERVE,
+                    title = "Observe Device Context",
+                    detail = "Capture telemetry, battery, network, and authorized UI context"
                 )
             )
         }
 
-        val shouldRunSynthesis = decision.detectedTools.isEmpty() ||
+        val shouldRunSynthesis = (decision.detectedTools.isEmpty() && decision.matchedSkillName == null) ||
             prompt.split(" ").size > 7 ||
             decision.needsWebResearch ||
             prompt.contains("summarize", ignoreCase = true) ||
@@ -222,10 +285,21 @@ class IntentRouter {
             val engineLabel = if (decision.useCloudModel) "Cloud AI Streaming" else "Local LiteRT-LM"
             steps.add(
                 AgentPlanStep(
-                    index = idx,
+                    index = idx++,
                     type = PlanStepType.AI_SYNTHESIS,
                     title = "Synthesize Response ($engineLabel)",
                     detail = "Combine memory, verified step outputs, and prompt"
+                )
+            )
+        }
+
+        if (decision.detectedTools.isNotEmpty() || !decision.matchedSkillName.isNullOrBlank() || decision.needsWebResearch) {
+            steps.add(
+                AgentPlanStep(
+                    index = idx,
+                    type = PlanStepType.RESULT_VERIFY,
+                    title = "Verify & Distill Outcome",
+                    detail = "Audit step verification evidence and safe skill eligibility"
                 )
             )
         }
@@ -286,6 +360,21 @@ class IntentRouter {
 
                 lower.contains("pause music") || lower.contains("play music") || lower.contains("play/pause") ->
                     detected.add(ToolCallRequest("control_media_playback", mapOf("command" to "play_pause"), "Agent Planner"))
+
+                lower.contains("remind me") || lower.contains("set a timer") || lower.contains("set timer") || lower.contains("create reminder") -> {
+                    val minutes = Regex("""(\d{1,4})\s*(?:min|minute|minutes)""")
+                        .find(lower)
+                        ?.groupValues
+                        ?.getOrNull(1)
+                        ?: "15"
+                    val label = clause
+                        .replace(Regex("""^(?:please\s+)?(?:remind me to|remind me|set a timer for|set timer for|create reminder for)\s*""", RegexOption.IGNORE_CASE), "")
+                        .replace(Regex("""\s+in\s+\d+\s*(?:min|minute|minutes).*$""", RegexOption.IGNORE_CASE), "")
+                        .trim()
+                        .ifBlank { "JARVIS Reminder" }
+                        .take(80)
+                    detected.add(ToolCallRequest("create_reminder", mapOf("label" to label, "minutes" to minutes), "Agent Planner"))
+                }
 
                 lower.startsWith("launch ") || lower.startsWith("open app ") -> {
                     val target = clause

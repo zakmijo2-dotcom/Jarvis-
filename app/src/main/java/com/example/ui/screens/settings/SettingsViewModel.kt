@@ -11,6 +11,8 @@ import com.example.core.cloud.CloudUsageStats
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.MemoryFact
 import com.example.core.memory.MemoryKind
+import com.example.core.skills.AgentSkill
+import com.example.core.skills.SkillEngine
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.wakeword.WakeWordState
 import com.example.core.web.WebSearchProviderKind
@@ -33,6 +35,7 @@ data class SettingsUiState(
     val memoryFactsCount: Int = 0,
     val memorySearchQuery: String = "",
     val memories: List<MemoryFact> = emptyList(),
+    val skills: List<AgentSkill> = emptyList(),
     val cloudUsageStats: CloudUsageStats = CloudUsageStats(),
     val executionHistory: List<AgentExecutionRecord> = emptyList(),
     val statusBannerMessage: String? = null
@@ -43,7 +46,8 @@ class SettingsViewModel(
     private val conversationRepository: ConversationRepository,
     private val wakeWordEngine: WakeWordEngine,
     private val localMemory: LocalMemory,
-    private val agentCore: AgentCore? = null
+    private val agentCore: AgentCore? = null,
+    private val skillEngine: SkillEngine? = null
 ) : ViewModel() {
 
     private val statusBanner = MutableStateFlow<String?>(null)
@@ -51,6 +55,7 @@ class SettingsViewModel(
 
     private val cloudUsageFlow = agentCore?.cloudUsageStats ?: flowOf(CloudUsageStats())
     private val executionHistoryFlow = agentCore?.observeExecutionHistory() ?: flowOf(emptyList())
+    private val skillsFlow = skillEngine?.observeSkills() ?: flowOf(emptyList())
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.settingsFlow,
@@ -59,6 +64,7 @@ class SettingsViewModel(
         memorySearchQuery,
         cloudUsageFlow,
         executionHistoryFlow,
+        skillsFlow,
         statusBanner
     ) { values ->
         val settings = values[0] as JarvisSettings
@@ -69,7 +75,9 @@ class SettingsViewModel(
         val usage = values[4] as CloudUsageStats
         @Suppress("UNCHECKED_CAST")
         val executions = values[5] as List<AgentExecutionRecord>
-        val banner = values[6] as String?
+        @Suppress("UNCHECKED_CAST")
+        val skills = values[6] as List<AgentSkill>
+        val banner = values[7] as String?
 
         val filtered = if (query.isBlank()) {
             allFacts
@@ -89,6 +97,7 @@ class SettingsViewModel(
             memoryFactsCount = allFacts.size,
             memorySearchQuery = query,
             memories = filtered,
+            skills = skills,
             cloudUsageStats = usage,
             executionHistory = executions,
             statusBannerMessage = banner
@@ -288,6 +297,13 @@ class SettingsViewModel(
         }
     }
 
+    fun deleteSkill(id: String) {
+        viewModelScope.launch {
+            skillEngine?.deleteSkill(id)
+            statusBanner.value = "Skill deleted from Skills Library."
+        }
+    }
+
     fun purgeConversationArchive() {
         viewModelScope.launch {
             conversationRepository.clearAllAndReset()
@@ -306,7 +322,8 @@ class SettingsViewModel(
             conversationRepository: ConversationRepository,
             wakeWordEngine: WakeWordEngine,
             localMemory: LocalMemory,
-            agentCore: AgentCore? = null
+            agentCore: AgentCore? = null,
+            skillEngine: SkillEngine? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -315,7 +332,8 @@ class SettingsViewModel(
                     conversationRepository = conversationRepository,
                     wakeWordEngine = wakeWordEngine,
                     localMemory = localMemory,
-                    agentCore = agentCore
+                    agentCore = agentCore,
+                    skillEngine = skillEngine
                 ) as T
             }
         }

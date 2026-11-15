@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -423,6 +424,80 @@ fun LocalMemoryManagerCard(
                 editingFact = null
             }
         )
+    }
+}
+
+@Composable
+fun SkillsLibraryCard(
+    uiState: SettingsUiState,
+    onDeleteSkill: (String) -> Unit
+) {
+    SectionCard(
+        title = "REUSABLE SKILLS LIBRARY (${uiState.skills.size})",
+        icon = Icons.Filled.AutoFixHigh,
+        tag = "settings_skills_library_card"
+    ) {
+        if (uiState.skills.isEmpty()) {
+            Text(
+                text = "No procedural skills saved yet. Safe multi-step workflows (excluding dangerous/confirmed actions) can be saved via /tool save_skill or auto-distilled after verified runs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                uiState.skills.take(12).forEach { skill ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.small,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "${skill.name} v${skill.version}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    HudBadge(
+                                        text = "${skill.usageCount} RUNS",
+                                        color = NominalGreen
+                                    )
+                                }
+                                Text(
+                                    text = skill.description,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "Steps: ${skill.steps.joinToString(" → ") { it.toolName }} • ${skill.provenance}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = { onDeleteSkill(skill.id) },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("delete_skill_${skill.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = "Delete skill",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

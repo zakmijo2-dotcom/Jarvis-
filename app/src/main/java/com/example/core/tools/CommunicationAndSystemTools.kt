@@ -4,10 +4,19 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.AlarmClock
 import android.provider.ContactsContract
+import com.example.core.memory.LocalMemory
+import com.example.core.memory.MemoryKind
+import com.example.core.security.PromptSecuritySanitizer
+import com.example.core.skills.AgentSkill
+import com.example.core.skills.SkillEngine
+import com.example.core.skills.SkillStepSpec
+import com.example.data.repository.JarvisSettings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 data class ContactMatch(
     val displayName: String,
@@ -301,12 +310,17 @@ class ReadNotificationsTool : JarvisTool {
         val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
         val lines = items.joinToString("\n") { item ->
             val time = formatter.format(Date(item.postedAtMillis))
-            "• [$time] ${item.appLabel} — ${item.title}: ${item.maskedPreview}"
+            val safeTitle = PromptSecuritySanitizer.sanitizeExternalText(item.title, 120)
+            val safePreview = PromptSecuritySanitizer.sanitizeExternalText(item.maskedPreview, 180)
+            "• [$time] ${item.appLabel} — $safeTitle: $safePreview"
         }
         return ToolExecutionResult(
             toolName = name,
             status = ToolExecutionStatus.SUCCESS,
-            summary = "Recent Notifications (${items.size}):\n$lines",
+            summary = PromptSecuritySanitizer.wrapUntrustedBlock(
+                sourceLabel = "AndroidNotifications",
+                rawContent = "Recent Notifications (${items.size}):\n$lines"
+            ),
             verifiedFacts = mapOf(
                 "count" to items.size.toString(),
                 "privacyMasked" to items.any { it.rawContentRedacted }.toString()
@@ -445,12 +459,17 @@ class InspectScreenElementsTool(
                 if (el.isScrollable) add("scrollable")
             }.joinToString(",")
             val flagSuffix = if (flags.isNotEmpty()) " [$flags]" else ""
-            "• ${el.label} (${el.className}$flagSuffix) @ ${el.bounds}"
+            val safeLabel = if (el.label == "[REDACTED_PASSWORD]") "[REDACTED_PASSWORD]"
+            else PromptSecuritySanitizer.sanitizeExternalText(el.label, 80)
+            "• $safeLabel (${el.className}$flagSuffix) @ ${el.bounds}"
         }
         return ToolExecutionResult(
             toolName = name,
             status = ToolExecutionStatus.SUCCESS,
-            summary = "Active Window UI Elements (${elements.size}):\n$lines",
+            summary = PromptSecuritySanitizer.wrapUntrustedBlock(
+                sourceLabel = "AccessibilityWindow",
+                rawContent = "Active Window UI Elements (${elements.size}):\n$lines"
+            ),
             verifiedFacts = mapOf(
                 "count" to elements.size.toString(),
                 "clickableCount" to elements.count { it.isClickable }.toString(),
@@ -646,4 +665,353 @@ class InputUiTextTool(
         }
     }
 }
+
+class CreateReminderTool(
+    private val intentLauncher: (Context, Intent) -> Boolean = ::launchIntentSafely
+) : JarvisTool {
+    override val name: String = "create_reminder"
+    override val category: ToolCategory = ToolCategory.APPLICATION
+    override val description: String = "Create a countdown timer or alarm reminder using standard Android Clock intents after user confirmation."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "label",
+            type = ToolParameterType.STRING,
+            description = "Reminder or timer title (1-80 characters)."
+        ),
+        ToolParameterSpec(
+            name = "minutes",
+            type = ToolParameterType.INTEGER,
+            description = "Countdown duration in minutes (1-1440).",
+            required = false,
+            minInt = 1,
+            maxInt = 1440
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val label = args["label"]?.trim().orEmpty()
+        if (label.isEmpty() || label.length > 80) {
+            return ToolValidationResult.Invalid("Parameter 'label' is required (1-80 characters).")
+        }
+        val minutesRaw = args["minutes"]?.trim().orEmpty()
+        val minutes = if (minutesRaw.isEmpty()) 15 else minutesRaw.toIntOrNull()
+            ?: return ToolValidationResult.Invalid("Parameter 'minutes' must be an integer between 1 and 1440.")
+        if (minutes !in 1..1440) {
+            return ToolValidationResult.Invalid("Parameter 'minutes' must be between 1 and 1440.")
+        }
+        return ToolValidationResult.Valid(mapOf("label" to label, "minutes" to minutes.toString()))
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> {
+        val label = args["label"].orEmpty()
+        val minutes = args["minutes"] ?: "15"
+        return "Confirm creating Android reminder/timer '$label' in $minutes min?" to
+            "Uses standard Android Clock intent (zero background permissions required)."
+    }
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val label = args.getValue("label")
+        val minutes = args.getValue("minutes").toInt()
+        val timerIntent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(AlarmClock.EXTRA_MESSAGE, label)
+            putExtra(AlarmClock.EXTRA_LENGTH, minutes * 60)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        }
+        val started = intentLauncher(context, timerIntent)
+        return if (started) {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Opened Clock reminder/timer '$label' for $minutes minute(s).",
+                verifiedFacts = mapOf("label" to label, "minutes" to minutes.toString()),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = "No Android Clock app handled ACTION_SET_TIMER on this device.",
+                requestArgs = args
+            )
+        }
+    }
+}
+
+class RetrieveMemoryTool(
+    private val localMemoryProvider: () -> LocalMemory?
+) : JarvisTool {
+    override val name: String = "retrieve_memory"
+    override val category: ToolCategory = ToolCategory.MEMORY
+    override val description: String = "Search and rank user-approved persistent memories (preferences, project context, summaries, facts)."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "query",
+            type = ToolParameterType.STRING,
+            description = "Topic or keywords to retrieve from persistent Room memory."
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
+    override val requiresUserConfirmation: Boolean = false
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val q = args["query"]?.trim().orEmpty()
+        if (q.isEmpty() || q.length > 120) {
+            return ToolValidationResult.Invalid("Parameter 'query' is required (1-120 characters).")
+        }
+        return ToolValidationResult.Valid(mapOf("query" to q))
+    }
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val mem = localMemoryProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "LocalMemory is not bound.")
+        val query = args.getValue("query")
+        val matches = mem.retrieveRelevantContext(query, maxItems = 5)
+        if (matches.isEmpty()) {
+            return ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "No persistent memory entries matched '$query'.",
+                verifiedFacts = mapOf("query" to query, "count" to "0"),
+                requestArgs = args
+            )
+        }
+        val formatted = matches.joinToString("\n") {
+            "• [${it.kind.label} / ${it.category}] ${it.content}"
+        }
+        return ToolExecutionResult(
+            toolName = name,
+            status = ToolExecutionStatus.SUCCESS,
+            summary = "Retrieved ${matches.size} memory record(s):\n$formatted",
+            verifiedFacts = mapOf("query" to query, "count" to matches.size.toString()),
+            requestArgs = args
+        )
+    }
+}
+
+class SaveMemoryTool(
+    private val localMemoryProvider: () -> LocalMemory?
+) : JarvisTool {
+    override val name: String = "save_memory"
+    override val category: ToolCategory = ToolCategory.MEMORY
+    override val description: String = "Save a non-sensitive user preference, project context, or fact to persistent Room memory with duplicate checks."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "kind",
+            type = ToolParameterType.ENUM,
+            description = "Memory classification.",
+            allowedValues = listOf("PREFERENCE", "PROJECT", "FACT", "CONTEXT")
+        ),
+        ToolParameterSpec(
+            name = "category",
+            type = ToolParameterType.STRING,
+            description = "Short category label (e.g. 'Language', 'Workflow').",
+            required = false
+        ),
+        ToolParameterSpec(
+            name = "content",
+            type = ToolParameterType.STRING,
+            description = "Memory fact to persist (1-500 characters; secrets blocked)."
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
+    override val requiresUserConfirmation: Boolean = false
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val kindRaw = args["kind"]?.trim()?.uppercase(Locale.ROOT).orEmpty().ifEmpty { "FACT" }
+        if (kindRaw !in setOf("PREFERENCE", "PROJECT", "FACT", "CONTEXT")) {
+            return ToolValidationResult.Invalid("Parameter 'kind' must be PREFERENCE, PROJECT, FACT, or CONTEXT.")
+        }
+        val content = args["content"]?.trim().orEmpty()
+        if (content.isEmpty() || content.length > 500) {
+            return ToolValidationResult.Invalid("Parameter 'content' is required (1-500 characters).")
+        }
+        val category = args["category"]?.trim().orEmpty().ifEmpty { kindRaw }
+        return ToolValidationResult.Valid(mapOf("kind" to kindRaw, "category" to category, "content" to content))
+    }
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val mem = localMemoryProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "LocalMemory is not bound.")
+        val kind = MemoryKind.fromRaw(args.getValue("kind"))
+        val res = mem.saveMemory(
+            kind = kind,
+            category = args.getValue("category"),
+            content = args.getValue("content"),
+            userApproved = true,
+            containsSensitiveConsent = false
+        )
+        return if (res.isSuccess) {
+            val saved = res.getOrThrow()
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Persisted ${saved.kind.label} memory (${saved.category}, score=${saved.importanceScore}).",
+                verifiedFacts = mapOf("memoryId" to saved.id, "kind" to saved.kind.name),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = res.exceptionOrNull()?.localizedMessage ?: "Failed to save memory.",
+                requestArgs = args
+            )
+        }
+    }
+}
+
+class SaveSkillTool(
+    private val skillEngineProvider: () -> SkillEngine?,
+    private val registryProvider: () -> ToolRegistry?
+) : JarvisTool {
+    override val name: String = "save_skill"
+    override val category: ToolCategory = ToolCategory.MEMORY
+    override val description: String = "Save a safe, reusable procedural workflow skill (battery/device checks, settings shortcuts) to the Skills Library."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "name",
+            type = ToolParameterType.STRING,
+            description = "Unique snake_case skill identifier (e.g. 'daily_health_check')."
+        ),
+        ToolParameterSpec(
+            name = "description",
+            type = ToolParameterType.STRING,
+            description = "Short explanation of what the workflow achieves."
+        ),
+        ToolParameterSpec(
+            name = "trigger",
+            type = ToolParameterType.STRING,
+            description = "Comma-separated trigger phrases (e.g. 'daily check, morning audit')."
+        ),
+        ToolParameterSpec(
+            name = "tool_sequence",
+            type = ToolParameterType.STRING,
+            description = "Comma-separated safe registered tool names (e.g. 'read_battery_status,read_device_info')."
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
+    override val requiresUserConfirmation: Boolean = true
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val skillName = args["name"]?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        val desc = args["description"]?.trim().orEmpty()
+        val trigger = args["trigger"]?.trim().orEmpty()
+        val seq = args["tool_sequence"]?.trim().orEmpty()
+        if (skillName.length < 2 || desc.isEmpty() || seq.isEmpty()) {
+            return ToolValidationResult.Invalid("Parameters 'name', 'description', and 'tool_sequence' are required.")
+        }
+        return ToolValidationResult.Valid(
+            mapOf(
+                "name" to skillName,
+                "description" to desc,
+                "trigger" to trigger.ifBlank { skillName.replace('_', ' ') },
+                "tool_sequence" to seq
+            )
+        )
+    }
+
+    override fun describeConfirmation(args: Map<String, String>): Pair<String, String> =
+        "Save reusable workflow skill '${args["name"].orEmpty()}'?" to
+            "JARVIS validates every tool step and blocks dangerous or destructive actions from automatic skill persistence."
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val engine = skillEngineProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "SkillEngine is not bound.")
+        val registry = registryProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "ToolRegistry is not bound.")
+        val toolNames = args.getValue("tool_sequence")
+            .split(',')
+            .map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it.isNotEmpty() }
+        val steps = toolNames.map { tName ->
+            if (registry.getTool(tName) == null) {
+                return ToolExecutionResult(name, ToolExecutionStatus.VALIDATION_ERROR, "Unknown tool '$tName' in skill sequence.")
+            }
+            SkillStepSpec(toolName = tName)
+        }
+        val res = engine.saveSkill(
+            AgentSkill(
+                id = UUID.randomUUID().toString(),
+                name = args.getValue("name"),
+                description = args.getValue("description"),
+                triggerPattern = args.getValue("trigger"),
+                steps = steps,
+                provenance = "Explicit Operator Tool"
+            ),
+            allowHighRiskManualSave = false
+        )
+        return if (res.isSuccess) {
+            val saved = res.getOrThrow()
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.SUCCESS,
+                summary = "Saved reusable skill '${saved.name}' v${saved.version} (${saved.steps.size} step(s)).",
+                verifiedFacts = mapOf("skillName" to saved.name, "version" to saved.version.toString()),
+                requestArgs = args
+            )
+        } else {
+            ToolExecutionResult(
+                toolName = name,
+                status = ToolExecutionStatus.FAILED,
+                summary = res.exceptionOrNull()?.localizedMessage ?: "Failed to save skill.",
+                requestArgs = args
+            )
+        }
+    }
+}
+
+class RunSkillTool(
+    private val skillEngineProvider: () -> SkillEngine?,
+    private val registryProvider: () -> ToolRegistry?
+) : JarvisTool {
+    override val name: String = "run_skill"
+    override val category: ToolCategory = ToolCategory.MEMORY
+    override val description: String = "Execute a saved multi-step procedural skill from the Skills Library and verify every step."
+    override val parameters: List<ToolParameterSpec> = listOf(
+        ToolParameterSpec(
+            name = "name",
+            type = ToolParameterType.STRING,
+            description = "Exact skill name to execute."
+        )
+    )
+    override val permissionRequirements: List<ToolPermissionRequirement> = emptyList()
+    override val requiresUserConfirmation: Boolean = false
+
+    override fun validate(args: Map<String, String>): ToolValidationResult {
+        val nameArg = args["name"]?.trim().orEmpty()
+        if (nameArg.isEmpty()) return ToolValidationResult.Invalid("Parameter 'name' is required.")
+        return ToolValidationResult.Valid(mapOf("name" to nameArg))
+    }
+
+    override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult {
+        val engine = skillEngineProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "SkillEngine is not bound.")
+        val registry = registryProvider()
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "ToolRegistry is not bound.")
+        val skill = engine.getSkillByName(args.getValue("name"))
+            ?: return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "Skill '${args.getValue("name")}' was not found.")
+        val report = engine.executeSkill(
+            context = context,
+            skill = skill,
+            providedParams = args,
+            toolRegistry = registry,
+            settings = JarvisSettings(),
+            userConfirmed = false
+        )
+        return ToolExecutionResult(
+            toolName = name,
+            status = if (report.overallSuccess) ToolExecutionStatus.SUCCESS else ToolExecutionStatus.FAILED,
+            summary = report.summary,
+            verifiedFacts = mapOf(
+                "skillName" to skill.name,
+                "completedSteps" to report.completedSteps.toString(),
+                "totalSteps" to report.totalSteps.toString()
+            ),
+            requestArgs = args
+        )
+    }
+}
+
 

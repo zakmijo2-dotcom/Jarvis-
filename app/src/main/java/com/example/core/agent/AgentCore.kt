@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
+import com.example.core.ai.RuntimeEngineCoordinator
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudInferenceConfig
 import com.example.core.cloud.CloudProviderRegistry
@@ -13,23 +14,31 @@ import com.example.core.memory.LocalMemory
 import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
 import com.example.core.model.RuntimeFormatId
+import com.example.core.skills.SkillEngine
 import com.example.core.tools.AccessibilityActionTool
+import com.example.core.tools.AccessibilityController
 import com.example.core.tools.AdjustMediaVolumeTool
 import com.example.core.tools.AndroidTools
 import com.example.core.tools.ComposeMessageTool
 import com.example.core.tools.ControlMediaPlaybackTool
+import com.example.core.tools.CreateReminderTool
 import com.example.core.tools.GoHomeScreenTool
 import com.example.core.tools.InitiatePhoneCallTool
 import com.example.core.tools.InputUiTextTool
 import com.example.core.tools.InspectScreenElementsTool
 import com.example.core.tools.JarvisTool
 import com.example.core.tools.LaunchInstalledAppTool
+import com.example.core.tools.NotificationBridge
 import com.example.core.tools.OpenAndroidSettingsTool
 import com.example.core.tools.OpenAppScreenTool
 import com.example.core.tools.PendingToolConfirmation
 import com.example.core.tools.ReadBatteryStatusTool
 import com.example.core.tools.ReadDeviceInfoTool
 import com.example.core.tools.ReadNotificationsTool
+import com.example.core.tools.RetrieveMemoryTool
+import com.example.core.tools.RunSkillTool
+import com.example.core.tools.SaveMemoryTool
+import com.example.core.tools.SaveSkillTool
 import com.example.core.tools.ScrollScreenTool
 import com.example.core.tools.SearchContactsTool
 import com.example.core.tools.TapUiElementTool
@@ -37,6 +46,7 @@ import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
 import com.example.core.tools.ToolRegistry
+import com.example.core.tools.UiObservationSnapshot
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.web.OkHttpWebResearchService
 import com.example.core.web.WebResearchConfig
@@ -64,27 +74,41 @@ sealed interface AgentDispatchResult {
 }
 
 object ToolRegistryFactory {
-    fun createDefault(androidTools: AndroidTools): ToolRegistry = ToolRegistry(
-        tools = listOf(
-            LaunchInstalledAppTool(),
-            OpenAppScreenTool(),
-            GoHomeScreenTool(),
-            OpenAndroidSettingsTool(),
-            ReadBatteryStatusTool(androidTools),
-            ReadDeviceInfoTool(androidTools),
-            AdjustMediaVolumeTool(),
-            ControlMediaPlaybackTool(),
-            SearchContactsTool(),
-            InitiatePhoneCallTool(),
-            ComposeMessageTool(),
-            ReadNotificationsTool(),
-            AccessibilityActionTool(),
-            InspectScreenElementsTool(),
-            TapUiElementTool(),
-            ScrollScreenTool(),
-            InputUiTextTool()
+    fun createDefault(
+        androidTools: AndroidTools,
+        localMemoryProvider: () -> LocalMemory? = { null },
+        skillEngineProvider: () -> SkillEngine? = { null }
+    ): ToolRegistry {
+        var registryRef: ToolRegistry? = null
+        val registry = ToolRegistry(
+            tools = listOf(
+                LaunchInstalledAppTool(),
+                OpenAppScreenTool(),
+                GoHomeScreenTool(),
+                OpenAndroidSettingsTool(),
+                ReadBatteryStatusTool(androidTools),
+                ReadDeviceInfoTool(androidTools),
+                AdjustMediaVolumeTool(),
+                ControlMediaPlaybackTool(),
+                SearchContactsTool(),
+                InitiatePhoneCallTool(),
+                ComposeMessageTool(),
+                ReadNotificationsTool(),
+                AccessibilityActionTool(),
+                InspectScreenElementsTool(),
+                TapUiElementTool(),
+                ScrollScreenTool(),
+                InputUiTextTool(),
+                CreateReminderTool(),
+                RetrieveMemoryTool(localMemoryProvider),
+                SaveMemoryTool(localMemoryProvider),
+                SaveSkillTool(skillEngineProvider) { registryRef },
+                RunSkillTool(skillEngineProvider) { registryRef }
+            )
         )
-    )
+        registryRef = registry
+        return registry
+    }
 }
 
 interface AgentCore {
@@ -133,11 +157,16 @@ class Phase2AgentCore(
     private val wakeWordEngine: WakeWordEngine,
     private val localMemory: LocalMemory,
     private val appContext: Context? = null,
-    private val toolRegistry: ToolRegistry = ToolRegistryFactory.createDefault(androidTools),
+    private val toolRegistry: ToolRegistry = ToolRegistryFactory.createDefault(
+        androidTools = androidTools,
+        localMemoryProvider = { localMemory }
+    ),
     private val cloudAiClient: CloudAiClient = OkHttpCloudAiClient(),
     private val webResearchService: WebResearchService = OkHttpWebResearchService(),
     private val intentRouter: IntentRouter = IntentRouter(),
-    private val agentExecutionDao: AgentExecutionDao? = null
+    private val agentExecutionDao: AgentExecutionDao? = null,
+    private val skillEngine: SkillEngine? = null,
+    private val accessibilityController: AccessibilityController? = appContext?.let { AccessibilityController(it) }
 ) : AgentCore {
 
     private val cancelPlanFlag = AtomicBoolean(false)
@@ -197,12 +226,18 @@ class Phase2AgentCore(
             (activeModel?.runtimeFormat == RuntimeFormatId.LITERT_LM &&
                 activeModel.artifactState == ArtifactState.READY)
         val isConnected = runCatching { androidTools.readDeviceTelemetry().isNetworkConnected }.getOrDefault(true)
+        val activeCapabilities = (aiEngine as? RuntimeEngineCoordinator)?.activeCapabilities(settings)
+        val matchedSkill = if (ToolRegistry.parseDirectToolCommand(prompt) == null) {
+            runCatching { skillEngine?.findMatchingSkill(prompt) }.getOrNull()
+        } else null
 
         val decision = intentRouter.routePrompt(
             prompt = prompt,
             settings = settings,
             isLocalModelReady = isLocalReady,
-            isNetworkConnected = isConnected
+            isNetworkConnected = isConnected,
+            activeCapabilities = activeCapabilities,
+            matchedSkillName = matchedSkill?.name
         )
 
         // Strict privacy / consent block for Cloud-Only or explicit cloud requests without consent/key
@@ -292,6 +327,8 @@ class Phase2AgentCore(
 
         val memorySnippets = mutableListOf<String>()
         val toolOutputs = mutableListOf<String>()
+        val executedSafeRequests = mutableListOf<ToolCallRequest>()
+        val seenModelToolCalls = mutableSetOf<String>()
         var webContextBlock = ""
         var finalAiText = ""
         var overallStatus = "COMPLETED"
@@ -308,7 +345,9 @@ class Phase2AgentCore(
                 val step = steps[i]
                 if (step.status == PlanStepStatus.COMPLETED || step.status == PlanStepStatus.RECOVERED) {
                     step.resultSummary?.let {
-                        if (step.type == PlanStepType.ANDROID_TOOL) toolOutputs.add(it)
+                        if (step.type == PlanStepType.ANDROID_TOOL || step.type == PlanStepType.SKILL_EXECUTION || step.type == PlanStepType.CONTEXT_OBSERVE) {
+                            toolOutputs.add(it)
+                        }
                     }
                     continue
                 }
@@ -319,10 +358,38 @@ class Phase2AgentCore(
 
                 when (step.type) {
                     PlanStepType.MEMORY_LOOKUP -> {
+                        runCatching { localMemory.purgeExpiredMemories() }
                         val matches = localMemory.retrieveRelevantContext(prompt, maxItems = 4)
                         matches.forEach { memorySnippets.add("[${it.kind.label} / ${it.category}] ${it.content}") }
-                        val summary = if (matches.isEmpty()) "No matching local memory items." else "Retrieved ${matches.size} local memory item(s)."
+                        val summary = if (matches.isEmpty()) "No matching local memory items." else "Retrieved ${matches.size} ranked memory item(s)."
                         steps[i] = steps[i].copy(status = PlanStepStatus.COMPLETED, resultSummary = summary)
+                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                    }
+
+                    PlanStepType.CONTEXT_OBSERVE -> {
+                        val telemetry = runCatching { androidTools.readDeviceTelemetry() }.getOrNull()
+                        val observedParts = mutableListOf<String>()
+                        telemetry?.let {
+                            val availMb = it.availRamBytes / (1024L * 1024L)
+                            val totalMb = it.totalRamBytes / (1024L * 1024L)
+                            observedParts.add("Battery=${it.batteryPercent}% • RAM=${availMb}/${totalMb}MB • Thermal=${it.thermalStatusLabel} • Net=${if (it.isNetworkConnected) it.networkTransport else "Offline"}")
+                        }
+                        if (settings.notificationReaderEnabled) {
+                            val notifCount = NotificationBridge.notifications.value.size
+                            observedParts.add("CapturedNotifications=$notifCount")
+                        }
+                        var a11yNote = "UI tree not queried"
+                        if (settings.accessibilityAutomationEnabled && accessibilityController?.isAuthorized() == true) {
+                            val snap = accessibilityController.observeCurrentScreen(15)
+                            a11yNote = "pkg=${snap.activePackageName ?: "none"}, nodes=${snap.elements.size}, hash=${snap.windowSignatureHash}"
+                            observedParts.add(snap.toSanitizedPromptSummary(10))
+                        }
+                        val obsSummary = observedParts.joinToString("\n").ifBlank { "Minimal telemetry captured." }
+                        toolOutputs.add("Context Observation: $obsSummary")
+                        steps[i] = steps[i].copy(
+                            status = PlanStepStatus.COMPLETED,
+                            resultSummary = "Telemetry & context observed ($a11yNote)."
+                        )
                         emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                     }
 
@@ -343,10 +410,63 @@ class Phase2AgentCore(
                             emit(HybridAgentEvent.ToolSnapshotEmitted("Web Research // ${report.providerLabel}", webContextBlock))
                         } else {
                             val err = webResult.exceptionOrNull()?.localizedMessage ?: "Web research failed."
-                            // Error recovery: proceed without live web facts if local/cloud synthesis can still assist
                             steps[i] = steps[i].copy(status = PlanStepStatus.RECOVERED, resultSummary = "Recovered offline after web failure: $err")
                             emit(HybridAgentEvent.Notice("Web Research // Recovered", "Web lookup failed ($err). Continuing with available offline knowledge without fabricating live facts."))
                         }
+                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                    }
+
+                    PlanStepType.SKILL_EXECUTION -> {
+                        val skill = matchedSkill ?: decision.matchedSkillName?.let { skillEngine?.getSkillByName(it) }
+                        val ctx = appContext
+                        if (skill == null || skillEngine == null || ctx == null) {
+                            steps[i] = steps[i].copy(status = PlanStepStatus.FAILED, resultSummary = "Saved skill could not be resolved.")
+                            emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                            continue
+                        }
+                        val report = skillEngine.executeSkill(
+                            context = ctx,
+                            skill = skill,
+                            providedParams = emptyMap(),
+                            toolRegistry = toolRegistry,
+                            settings = settings,
+                            userConfirmed = confirmedStepIndex == i
+                        )
+                        val blockingResult = report.stepResults.firstOrNull {
+                            it.status == ToolExecutionStatus.CONFIRMATION_REQUIRED ||
+                                it.status == ToolExecutionStatus.PERMISSION_DENIED
+                        }
+                        if (blockingResult?.status == ToolExecutionStatus.CONFIRMATION_REQUIRED) {
+                            val req = ToolCallRequest(blockingResult.toolName, blockingResult.requestArgs, "Skill:${skill.name}")
+                            steps[i] = steps[i].copy(status = PlanStepStatus.WAITING_CONFIRMATION, resultSummary = blockingResult.summary)
+                            emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                            emit(HybridAgentEvent.ConfirmationRequired(req, i))
+                            overallStatus = "AWAITING_CONFIRMATION"
+                            return@flow
+                        }
+                        if (blockingResult?.status == ToolExecutionStatus.PERMISSION_DENIED) {
+                            val req = ToolCallRequest(blockingResult.toolName, blockingResult.requestArgs, "Skill:${skill.name}")
+                            steps[i] = steps[i].copy(status = PlanStepStatus.WAITING_PERMISSION, resultSummary = blockingResult.summary)
+                            emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                            emit(
+                                HybridAgentEvent.PermissionRequired(
+                                    request = req,
+                                    missingRuntimePermission = blockingResult.missingRuntimePermission,
+                                    missingSpecialAccess = blockingResult.missingSpecialAccess,
+                                    rationale = blockingResult.summary
+                                )
+                            )
+                            overallStatus = "PERMISSION_DENIED"
+                            return@flow
+                        }
+
+                        toolOutputs.add(report.summary)
+                        report.stepResults.forEach { r -> toolOutputs.add("${r.toolName}: ${r.summary}") }
+                        steps[i] = steps[i].copy(
+                            status = if (report.overallSuccess) PlanStepStatus.COMPLETED else PlanStepStatus.FAILED,
+                            resultSummary = report.summary
+                        )
+                        emit(HybridAgentEvent.ToolSnapshotEmitted("Skill // ${skill.name} v${skill.version}", report.summary))
                         emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                     }
 
@@ -359,7 +479,29 @@ class Phase2AgentCore(
                             emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                             continue
                         }
-                        val toolRes = executeTool(toolRequest, settings, userConfirmed = confirmedStepIndex == i)
+
+                        val preUiSnapshot: UiObservationSnapshot? =
+                            if (toolRequest.toolName in UI_VERIFIED_TOOLS &&
+                                settings.accessibilityAutomationEnabled &&
+                                accessibilityController?.isAuthorized() == true
+                            ) {
+                                accessibilityController.observeCurrentScreen(20)
+                            } else null
+
+                        var toolRes = executeTool(toolRequest, settings, userConfirmed = confirmedStepIndex == i)
+                        var recoveredByRetry = false
+
+                        // Bounded 1x retry only for strictly read-only safe tools on transient failures
+                        if (toolRes.status == ToolExecutionStatus.FAILED &&
+                            toolRequest.toolName in SAFE_RETRYABLE_READ_TOOLS
+                        ) {
+                            val retryRes = executeTool(toolRequest, settings, userConfirmed = confirmedStepIndex == i)
+                            if (retryRes.status == ToolExecutionStatus.SUCCESS) {
+                                toolRes = retryRes
+                                recoveredByRetry = true
+                            }
+                        }
+
                         when (toolRes.status) {
                             ToolExecutionStatus.CONFIRMATION_REQUIRED -> {
                                 steps[i] = steps[i].copy(status = PlanStepStatus.WAITING_CONFIRMATION, resultSummary = toolRes.summary)
@@ -386,8 +528,23 @@ class Phase2AgentCore(
                             }
 
                             ToolExecutionStatus.SUCCESS -> {
-                                toolOutputs.add("${toolRes.toolName}: ${toolRes.summary}")
-                                steps[i] = steps[i].copy(status = PlanStepStatus.COMPLETED, resultSummary = toolRes.summary)
+                                var finalSummary = toolRes.summary
+                                if (preUiSnapshot != null && accessibilityController != null) {
+                                    val postUiSnapshot = accessibilityController.observeCurrentScreen(20)
+                                    val verification = accessibilityController.stateVerifier.verifyTransition(
+                                        actionName = toolRes.toolName,
+                                        dispatched = true,
+                                        before = preUiSnapshot,
+                                        after = postUiSnapshot
+                                    )
+                                    finalSummary = "${toolRes.summary}\nUI Verification: ${verification.evidence}"
+                                }
+                                executedSafeRequests.add(toolRequest)
+                                toolOutputs.add("${toolRes.toolName}: $finalSummary")
+                                steps[i] = steps[i].copy(
+                                    status = if (recoveredByRetry) PlanStepStatus.RECOVERED else PlanStepStatus.COMPLETED,
+                                    resultSummary = finalSummary
+                                )
                                 emit(HybridAgentEvent.ToolSnapshotEmitted("Tool // ${toolRes.toolName} (VERIFIED)", formatToolResult(toolRes)))
                             }
 
@@ -401,130 +558,290 @@ class Phase2AgentCore(
                     }
 
                     PlanStepType.AI_SYNTHESIS -> {
-                        val augmentedPrompt = buildAugmentedPrompt(
-                            rawPrompt = prompt,
-                            memorySnippets = memorySnippets,
-                            toolOutputs = toolOutputs,
-                            webContextBlock = webContextBlock,
-                            useCloud = decision.useCloudModel
-                        )
-
                         var usedCloud = decision.useCloudModel
                         var synthesisFailed = false
                         var synthesisError = ""
+                        var completedSuccessfully = false
 
-                        if (decision.useCloudModel) {
-                            val effectiveModel = decision.explicitModelOverride
-                                ?.takeIf { it != "cloud" && it != "local" }
-                                ?: settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
-
-                            val cloudConfig = CloudInferenceConfig(
-                                providerKind = settings.cloudProviderKind,
-                                endpointUrl = settings.cloudEndpointUrl.ifBlank { settings.cloudProviderKind.defaultEndpoint },
-                                modelId = effectiveModel,
-                                apiKey = settings.cloudApiKey,
-                                timeoutSeconds = settings.cloudTimeoutSeconds,
-                                maxOutputTokens = settings.maxOutputTokens,
-                                temperature = settings.samplerTemperature
-                            )
-                            val sysPrompt = buildString {
-                                appendLine("You are JARVIS, an accurate hybrid AI assistant. Never fabricate live data or tool results.")
-                                append(toolRegistry.buildSystemToolCatalogPrompt())
+                        for (loopIteration in 1..MAX_CLOSED_LOOP_TOOL_ITERATIONS) {
+                            if (cancelPlanFlag.get()) {
+                                overallStatus = "CANCELLED"
+                                break
                             }
 
-                            cloudAiClient.streamChat(cloudConfig, sysPrompt, augmentedPrompt, history).collect { event ->
-                                when (event) {
+                            val augmentedPrompt = buildAugmentedPrompt(
+                                rawPrompt = prompt,
+                                memorySnippets = memorySnippets,
+                                toolOutputs = toolOutputs,
+                                webContextBlock = webContextBlock,
+                                useCloud = usedCloud
+                            )
+
+                            var iterationText = ""
+                            var iterationCompletedEvent: AiStreamEvent.Completed? = null
+                            var iterationCancelledEvent: AiStreamEvent.Cancelled? = null
+                            synthesisFailed = false
+                            synthesisError = ""
+
+                            val streamSource: Flow<AiStreamEvent> = if (usedCloud) {
+                                val effectiveModel = decision.explicitModelOverride
+                                    ?.takeIf { it != "cloud" && it != "local" }
+                                    ?: settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+                                val cloudConfig = CloudInferenceConfig(
+                                    providerKind = settings.cloudProviderKind,
+                                    endpointUrl = settings.cloudEndpointUrl.ifBlank { settings.cloudProviderKind.defaultEndpoint },
+                                    modelId = effectiveModel,
+                                    apiKey = settings.cloudApiKey,
+                                    timeoutSeconds = settings.cloudTimeoutSeconds,
+                                    maxOutputTokens = settings.maxOutputTokens,
+                                    temperature = settings.samplerTemperature
+                                )
+                                val sysPrompt = buildString {
+                                    appendLine("You are JARVIS, an accurate autonomous Android assistant. Never fabricate live data or tool results.")
+                                    append(toolRegistry.buildSystemToolCatalogPrompt())
+                                }
+                                cloudAiClient.streamChat(cloudConfig, sysPrompt, augmentedPrompt, history)
+                            } else {
+                                val readyErr = ensureLocalModelLoaded(settings)
+                                if (readyErr != null) {
+                                    steps[i] = steps[i].copy(status = PlanStepStatus.FAILED, resultSummary = readyErr)
+                                    overallStatus = "LOCAL_UNLOADED"
+                                    emit(HybridAgentEvent.Notice("Engine Unloaded", readyErr))
+                                    break
+                                }
+                                aiEngine.streamReply(conversationId, augmentedPrompt, history, settings)
+                            }
+
+                            streamSource.collect { ev ->
+                                when (ev) {
+                                    is AiStreamEvent.Started -> emit(HybridAgentEvent.AiStream(ev, usedCloud = usedCloud))
+                                    is AiStreamEvent.Delta -> emit(HybridAgentEvent.AiStream(ev, usedCloud = usedCloud))
+                                    is AiStreamEvent.Completed -> {
+                                        iterationText = ev.fullText
+                                        iterationCompletedEvent = ev
+                                    }
+                                    is AiStreamEvent.Cancelled -> {
+                                        iterationText = ev.partialText
+                                        iterationCancelledEvent = ev
+                                        overallStatus = "CANCELLED"
+                                    }
                                     is AiStreamEvent.Error -> {
                                         synthesisFailed = true
-                                        synthesisError = event.message
-                                        if (settings.routingMode == AgentRoutingMode.AUTO_HYBRID && isLocalReady) {
-                                            // Error recovery: fallback cleanly from failed cloud request to local LiteRT-LM!
+                                        synthesisError = ev.message
+                                        if (usedCloud && settings.routingMode == AgentRoutingMode.AUTO_HYBRID && isLocalReady) {
                                             emit(
                                                 HybridAgentEvent.Notice(
                                                     label = "Auto Hybrid // Local Fallback",
-                                                    message = "Cloud provider unavailable (${event.message}). Falling back to offline LiteRT-LM model."
+                                                    message = "Cloud provider unavailable (${ev.message}). Falling back to offline LiteRT-LM model."
                                                 )
                                             )
                                         } else {
-                                            emit(HybridAgentEvent.AiStream(event, usedCloud = true))
+                                            emit(HybridAgentEvent.AiStream(ev, usedCloud = usedCloud))
                                         }
                                     }
-
-                                    is AiStreamEvent.Completed -> {
-                                        finalAiText = event.fullText
-                                        emit(HybridAgentEvent.AiStream(event, usedCloud = true))
-                                    }
-
-                                    is AiStreamEvent.Cancelled -> {
-                                        finalAiText = event.partialText
-                                        overallStatus = "CANCELLED"
-                                        emit(HybridAgentEvent.AiStream(event, usedCloud = true))
-                                    }
-
-                                    else -> emit(HybridAgentEvent.AiStream(event, usedCloud = true))
                                 }
                             }
 
                             // Automatic recovery onto local LiteRT-LM if AUTO_HYBRID cloud failed & local ready
-                            if (synthesisFailed && settings.routingMode == AgentRoutingMode.AUTO_HYBRID && isLocalReady && !cancelPlanFlag.get()) {
+                            if (synthesisFailed && usedCloud && settings.routingMode == AgentRoutingMode.AUTO_HYBRID && isLocalReady && !cancelPlanFlag.get()) {
                                 usedCloud = false
                                 synthesisFailed = false
-                                runLocalModelStream(conversationId, augmentedPrompt, history, settings) { ev ->
-                                    if (ev is AiStreamEvent.Completed) finalAiText = ev.fullText
-                                    if (ev is AiStreamEvent.Error) {
-                                        synthesisFailed = true
-                                        synthesisError = ev.message
+                                val readyErr = ensureLocalModelLoaded(settings)
+                                if (readyErr == null) {
+                                    runLocalModelStream(conversationId, augmentedPrompt, history, settings) { ev ->
+                                        when (ev) {
+                                            is AiStreamEvent.Completed -> {
+                                                iterationText = ev.fullText
+                                                iterationCompletedEvent = ev
+                                            }
+                                            is AiStreamEvent.Cancelled -> {
+                                                iterationText = ev.partialText
+                                                iterationCancelledEvent = ev
+                                                overallStatus = "CANCELLED"
+                                            }
+                                            is AiStreamEvent.Error -> {
+                                                synthesisFailed = true
+                                                synthesisError = ev.message
+                                                emit(HybridAgentEvent.AiStream(ev, usedCloud = false))
+                                            }
+                                            else -> emit(HybridAgentEvent.AiStream(ev, usedCloud = false))
+                                        }
                                     }
-                                    emit(HybridAgentEvent.AiStream(ev, usedCloud = false))
+                                } else {
+                                    synthesisFailed = true
+                                    synthesisError = readyErr
                                 }
-                                steps[i] = steps[i].copy(
-                                    status = if (synthesisFailed) PlanStepStatus.FAILED else PlanStepStatus.RECOVERED,
-                                    resultSummary = if (synthesisFailed) synthesisError else "Recovered via offline LiteRT-LM after Cloud failure."
-                                )
-                            } else {
-                                steps[i] = steps[i].copy(
-                                    status = when {
-                                        overallStatus == "CANCELLED" -> PlanStepStatus.CANCELLED
-                                        synthesisFailed -> PlanStepStatus.FAILED
-                                        else -> PlanStepStatus.COMPLETED
-                                    },
-                                    resultSummary = if (synthesisFailed) synthesisError else "Completed via ${settings.cloudProviderKind.label}."
-                                )
                             }
-                        } else {
-                            // Local LiteRT-LM inference
-                            val readyErr = ensureLocalModelLoaded(settings)
-                            if (readyErr != null) {
-                                steps[i] = steps[i].copy(status = PlanStepStatus.FAILED, resultSummary = readyErr)
-                                overallStatus = "LOCAL_UNLOADED"
-                                emit(HybridAgentEvent.Notice("Engine Unloaded", readyErr))
-                            } else {
-                                runLocalModelStream(conversationId, augmentedPrompt, history, settings) { ev ->
-                                    when (ev) {
-                                        is AiStreamEvent.Completed -> finalAiText = ev.fullText
-                                        is AiStreamEvent.Cancelled -> {
-                                            finalAiText = ev.partialText
-                                            overallStatus = "CANCELLED"
-                                        }
-                                        is AiStreamEvent.Error -> {
-                                            synthesisFailed = true
-                                            synthesisError = ev.message
-                                        }
-                                        else -> Unit
-                                    }
-                                    emit(HybridAgentEvent.AiStream(ev, usedCloud = false))
+
+                            val cancelledEv = iterationCancelledEvent
+                            if (cancelledEv != null) {
+                                finalAiText = cancelledEv.partialText
+                                emit(HybridAgentEvent.AiStream(cancelledEv, usedCloud = usedCloud))
+                                break
+                            }
+
+                            if (synthesisFailed) {
+                                break
+                            }
+
+                            val completedEv = iterationCompletedEvent ?: break
+                            val inlineToolCall = ToolRegistry.parseModelToolCall(iterationText)
+
+                            if (inlineToolCall == null || loopIteration >= MAX_CLOSED_LOOP_TOOL_ITERATIONS) {
+                                if (inlineToolCall != null && loopIteration >= MAX_CLOSED_LOOP_TOOL_ITERATIONS) {
+                                    emit(
+                                        HybridAgentEvent.Notice(
+                                            label = "Agent Loop Guard",
+                                            message = "Reached max tool verification depth ($MAX_CLOSED_LOOP_TOOL_ITERATIONS); concluding with verified facts gathered so far."
+                                        )
+                                    )
                                 }
-                                steps[i] = steps[i].copy(
-                                    status = when {
-                                        overallStatus == "CANCELLED" -> PlanStepStatus.CANCELLED
-                                        synthesisFailed -> PlanStepStatus.FAILED
-                                        else -> PlanStepStatus.COMPLETED
-                                    },
-                                    resultSummary = if (synthesisFailed) synthesisError else "Completed offline via LiteRT-LM."
+                                finalAiText = iterationText
+                                emit(HybridAgentEvent.AiStream(completedEv, usedCloud = usedCloud))
+                                completedSuccessfully = true
+                                break
+                            }
+
+                            val callSignature = "${inlineToolCall.toolName}:${inlineToolCall.arguments}"
+                            if (!seenModelToolCalls.add(callSignature)) {
+                                emit(
+                                    HybridAgentEvent.Notice(
+                                        label = "Agent Loop Guard",
+                                        message = "Prevented duplicate tool call '${inlineToolCall.toolName}'."
+                                    )
+                                )
+                                finalAiText = iterationText
+                                emit(HybridAgentEvent.AiStream(completedEv, usedCloud = usedCloud))
+                                completedSuccessfully = true
+                                break
+                            }
+
+                            val loopToolResult = executeTool(
+                                request = inlineToolCall,
+                                settings = settings,
+                                userConfirmed = confirmedStepIndex == i
+                            )
+
+                            when (loopToolResult.status) {
+                                ToolExecutionStatus.CONFIRMATION_REQUIRED -> {
+                                    steps[i] = steps[i].copy(
+                                        status = PlanStepStatus.WAITING_CONFIRMATION,
+                                        resultSummary = loopToolResult.summary
+                                    )
+                                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                                    emit(HybridAgentEvent.ConfirmationRequired(inlineToolCall, i))
+                                    overallStatus = "AWAITING_CONFIRMATION"
+                                    return@flow
+                                }
+
+                                ToolExecutionStatus.PERMISSION_DENIED -> {
+                                    steps[i] = steps[i].copy(
+                                        status = PlanStepStatus.WAITING_PERMISSION,
+                                        resultSummary = loopToolResult.summary
+                                    )
+                                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                                    emit(
+                                        HybridAgentEvent.PermissionRequired(
+                                            request = inlineToolCall,
+                                            missingRuntimePermission = loopToolResult.missingRuntimePermission,
+                                            missingSpecialAccess = loopToolResult.missingSpecialAccess,
+                                            rationale = loopToolResult.summary
+                                        )
+                                    )
+                                    emit(
+                                        HybridAgentEvent.ToolSnapshotEmitted(
+                                            label = "Permission Validator // ${loopToolResult.toolName}",
+                                            content = formatToolResult(loopToolResult)
+                                        )
+                                    )
+                                    overallStatus = "PERMISSION_DENIED"
+                                    return@flow
+                                }
+
+                                else -> {
+                                    if (loopToolResult.status == ToolExecutionStatus.SUCCESS) {
+                                        executedSafeRequests.add(inlineToolCall)
+                                    }
+                                    emit(
+                                        HybridAgentEvent.ToolSnapshotEmitted(
+                                            label = "Closed-Loop Tool // ${loopToolResult.toolName} (${loopToolResult.status.name})",
+                                            content = formatToolResult(loopToolResult)
+                                        )
+                                    )
+                                    toolOutputs.add(
+                                        "[TOOL_RESULT tool=${loopToolResult.toolName} status=${loopToolResult.status.name}] ${loopToolResult.summary}"
+                                    )
+                                }
+                            }
+                        }
+
+                        if (overallStatus != "LOCAL_UNLOADED") {
+                            steps[i] = steps[i].copy(
+                                status = when {
+                                    overallStatus == "CANCELLED" -> PlanStepStatus.CANCELLED
+                                    synthesisFailed -> PlanStepStatus.FAILED
+                                    !usedCloud && decision.useCloudModel && completedSuccessfully -> PlanStepStatus.RECOVERED
+                                    else -> PlanStepStatus.COMPLETED
+                                },
+                                resultSummary = when {
+                                    synthesisFailed -> synthesisError
+                                    !usedCloud && decision.useCloudModel -> "Recovered via offline LiteRT-LM after Cloud failure."
+                                    usedCloud -> "Completed via ${settings.cloudProviderKind.label}."
+                                    else -> "Completed offline via LiteRT-LM."
+                                }
+                            )
+                        }
+                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                    }
+
+                    PlanStepType.RESULT_VERIFY -> {
+                        val failedCount = steps.take(i).count { it.status == PlanStepStatus.FAILED }
+                        val recoveredCount = steps.take(i).count { it.status == PlanStepStatus.RECOVERED }
+                        var distilledNote = ""
+
+                        if (failedCount == 0 &&
+                            executedSafeRequests.size >= 2 &&
+                            decision.matchedSkillName == null &&
+                            skillEngine != null
+                        ) {
+                            val candidateName = "workflow_" + executedSafeRequests
+                                .map { it.toolName.take(10) }
+                                .distinct()
+                                .joinToString("_")
+                                .take(38)
+                            val triggerHint = executedSafeRequests.joinToString(", ") {
+                                it.toolName.replace('_', ' ')
+                            }
+                            val distilled = skillEngine.distillWorkflowIfSafe(
+                                name = candidateName,
+                                description = "Auto-distilled verified workflow for: ${prompt.take(90)}",
+                                triggerPattern = triggerHint,
+                                executedRequests = executedSafeRequests,
+                                toolRegistry = toolRegistry
+                            )
+                            if (distilled.isSuccess) {
+                                val saved = distilled.getOrThrow()
+                                distilledNote = " • Auto-saved safe skill '${saved.name}' v${saved.version}"
+                                emit(
+                                    HybridAgentEvent.Notice(
+                                        label = "Skills Engine",
+                                        message = "Distilled reusable safe workflow '${saved.name}' v${saved.version}."
+                                    )
                                 )
                             }
                         }
 
+                        val verifyStatus = when {
+                            failedCount > 0 -> PlanStepStatus.FAILED
+                            recoveredCount > 0 -> PlanStepStatus.RECOVERED
+                            else -> PlanStepStatus.COMPLETED
+                        }
+                        val verifySummary = when {
+                            failedCount > 0 -> "Verification flagged $failedCount failed step(s)."
+                            recoveredCount > 0 -> "Verified completion with $recoveredCount recovered step(s)$distilledNote."
+                            else -> "All executed steps verified cleanly$distilledNote."
+                        }
+                        steps[i] = steps[i].copy(status = verifyStatus, resultSummary = verifySummary)
                         emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                     }
                 }
@@ -699,6 +1016,8 @@ class Phase2AgentCore(
             is EngineLoadState.Error -> "Error: ${state.message}"
         }
         val usage = cloudUsageStats.value
+        val skillsCount = runCatching { skillEngine?.listSkillsOnce()?.size ?: 0 }.getOrDefault(0)
+        val a11yStatus = if (accessibilityController?.isAuthorized() == true) "Authorized" else "Inactive"
         val summary = buildString {
             appendLine("JARVIS SYSTEM READINESS")
             appendLine("• Local AI Engine: $engineStatus")
@@ -707,7 +1026,8 @@ class Phase2AgentCore(
             appendLine("• Wake Word Interface: ${wakeWordEngine.state.value.label} (\"${wakeWordEngine.keyword}\", verified=${wakeWordEngine.isPhraseDetectionVerified})")
             appendLine("• Android Tool Registry: ${toolRegistry.listTools().size} verified tools online")
             appendLine("• Cloud Providers: ${providers.joinToString { it.name }} (reqs=${usage.totalRequests})")
-            appendLine("• Local Memory Store: Room v6 Persistence Active (WAL)")
+            appendLine("• Local Memory Store: Room v7 Persistence Active (WAL) • Skills=$skillsCount")
+            appendLine("• Accessibility Stack: 5-Layer Controller ($a11yStatus)")
         }.trim()
         return AgentDispatchResult.ToolSnapshot(
             label = "AgentCore // Readiness Audit",
@@ -805,4 +1125,16 @@ class Phase2AgentCore(
         }
         return res
     }
+
+    companion object {
+        private const val MAX_CLOSED_LOOP_TOOL_ITERATIONS = 3
+        private val UI_VERIFIED_TOOLS = setOf("tap_ui_element", "scroll_screen", "input_ui_text")
+        private val SAFE_RETRYABLE_READ_TOOLS = setOf(
+            "read_battery_status",
+            "read_device_info",
+            "search_contacts",
+            "retrieve_memory"
+        )
+    }
 }
+

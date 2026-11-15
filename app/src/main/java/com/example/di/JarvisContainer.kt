@@ -22,6 +22,8 @@ import com.example.core.model.ModelFormatRegistry
 import com.example.core.model.ModelManager
 import com.example.core.model.RoomModelManager
 import com.example.core.security.SecureCredentialStore
+import com.example.core.skills.RoomSkillEngine
+import com.example.core.skills.SkillEngine
 import com.example.core.tools.AndroidSystemTools
 import com.example.core.tools.AndroidTools
 import com.example.core.tools.ToolRegistry
@@ -125,16 +127,24 @@ open class JarvisContainer(context: Context) {
         AndroidSystemTools(appContext)
     }
 
+    open val localMemory: LocalMemory by lazy {
+        RoomLocalMemory(database.memoryDao())
+    }
+
+    open val skillEngine: SkillEngine by lazy {
+        RoomSkillEngine(database.skillDao())
+    }
+
     open val toolRegistry: ToolRegistry by lazy {
-        ToolRegistryFactory.createDefault(androidTools)
+        ToolRegistryFactory.createDefault(
+            androidTools = androidTools,
+            localMemoryProvider = { localMemory },
+            skillEngineProvider = { skillEngine }
+        )
     }
 
     open val cloudProviderRegistry: CloudProviderRegistry by lazy {
         Phase1CloudProviderRegistry()
-    }
-
-    open val localMemory: LocalMemory by lazy {
-        RoomLocalMemory(database.memoryDao())
     }
 
     open val agentCore: AgentCore by lazy {
@@ -150,7 +160,8 @@ open class JarvisContainer(context: Context) {
             cloudAiClient = cloudAiClient,
             webResearchService = webResearchService,
             intentRouter = IntentRouter(),
-            agentExecutionDao = database.agentExecutionDao()
+            agentExecutionDao = database.agentExecutionDao(),
+            skillEngine = skillEngine
         )
     }
 }

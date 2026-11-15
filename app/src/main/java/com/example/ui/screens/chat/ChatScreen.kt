@@ -33,6 +33,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
@@ -256,48 +258,113 @@ fun ChatScreen(
                 val inProgress = activePlan.steps.any {
                     it.status == PlanStepStatus.RUNNING || it.status == PlanStepStatus.PENDING
                 }
+                var monitorExpanded by rememberSaveable(activePlan.planId) { mutableStateOf(false) }
+                val completedCount = activePlan.steps.count {
+                    it.status == PlanStepStatus.COMPLETED || it.status == PlanStepStatus.RECOVERED
+                }
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 840.dp)
                         .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .testTag("agent_plan_banner"),
+                        .testTag("agent_execution_monitor"),
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { monitorExpanded = !monitorExpanded }
+                                .testTag("agent_monitor_toggle"),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "AGENT ROUTE: ${activePlan.routeDecision.route.label}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            if (inProgress) {
-                                TextButton(
-                                    onClick = onCancelActiveTool,
-                                    modifier = Modifier.testTag("cancel_plan_button")
-                                ) {
-                                    Text("Cancel Plan")
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "LIVE AGENT • ${activePlan.routeDecision.route.label} ($completedCount/${activePlan.steps.size})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                val subMeta = buildString {
+                                    activePlan.routeDecision.matchedSkillName?.let { append("Skill: $it • ") }
+                                    if (activePlan.routeDecision.capabilitySummary.isNotBlank()) {
+                                        append(activePlan.routeDecision.capabilitySummary)
+                                    } else {
+                                        append(activePlan.goal.take(56))
+                                    }
+                                }
+                                Text(
+                                    text = subMeta,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (inProgress) {
+                                    TextButton(
+                                        onClick = onCancelActiveTool,
+                                        modifier = Modifier.testTag("cancel_plan_button")
+                                    ) {
+                                        Text("Stop Agent")
+                                    }
+                                }
+                                Icon(
+                                    imageVector = if (monitorExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = if (monitorExpanded) "Collapse monitor" else "Expand monitor",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        if (monitorExpanded) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                            activePlan.steps.forEach { step ->
+                                val statusColor = when (step.status) {
+                                    PlanStepStatus.COMPLETED, PlanStepStatus.RECOVERED -> MaterialTheme.colorScheme.primary
+                                    PlanStepStatus.RUNNING -> MaterialTheme.colorScheme.secondary
+                                    PlanStepStatus.FAILED, PlanStepStatus.CANCELLED -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.tertiary
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${step.index + 1}. ${step.title}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = step.status.label.uppercase(Locale.getDefault()),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = statusColor
+                                        )
+                                    }
+                                    val detailLine = step.resultSummary?.takeIf { it.isNotBlank() } ?: step.detail
+                                    if (detailLine.isNotBlank()) {
+                                        Text(
+                                            text = detailLine,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }
-                        Text(
-                            text = activePlan.steps.joinToString(" • ") {
-                                "${it.title} [${it.status.label}]"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                 }
             }

@@ -5,7 +5,8 @@ enum class ToolCategory(val label: String) {
     DEVICE("Device Control"),
     COMMUNICATION("Communication"),
     NOTIFICATIONS("Notifications"),
-    ACCESSIBILITY("Accessibility")
+    ACCESSIBILITY("Accessibility"),
+    MEMORY("Memory & Skills")
 }
 
 enum class ToolRiskLevel(val label: String) {

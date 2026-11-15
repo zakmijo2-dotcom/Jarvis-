@@ -26,9 +26,10 @@ class JarvisTypeConverters {
         DownloadTaskEntity::class,
         ModelBenchmarkEntity::class,
         MemoryNoteEntity::class,
-        AgentExecutionEntity::class
+        AgentExecutionEntity::class,
+        SkillEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -39,6 +40,7 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun modelBenchmarkDao(): ModelBenchmarkDao
     abstract fun memoryDao(): MemoryDao
     abstract fun agentExecutionDao(): AgentExecutionDao
+    abstract fun skillDao(): SkillDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -167,6 +169,40 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN importanceScore INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN accessCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN lastAccessedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE memory_notes ADD COLUMN expiresAt INTEGER")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_skills (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        triggerPattern TEXT NOT NULL,
+                        requiredPermissionsJson TEXT NOT NULL,
+                        parametersJson TEXT NOT NULL,
+                        stepsJson TEXT NOT NULL,
+                        validationRules TEXT NOT NULL,
+                        failureHandling TEXT NOT NULL,
+                        version INTEGER NOT NULL DEFAULT 1,
+                        provenance TEXT NOT NULL,
+                        riskLevel TEXT NOT NULL,
+                        usageCount INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_agent_skills_name ON agent_skills (name)"
+                )
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -174,7 +210,14 @@ abstract class JarvisDatabase : RoomDatabase() {
                 "jarvis_foundation.db"
             )
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7
+                )
                 .build()
     }
 }

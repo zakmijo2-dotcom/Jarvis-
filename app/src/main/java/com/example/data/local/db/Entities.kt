@@ -133,7 +133,11 @@ data class MemoryNoteEntity(
     val kind: String = "FACT",
     val sourceConversationId: String? = null,
     val isUserApproved: Boolean = true,
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val importanceScore: Int = 1,
+    val accessCount: Int = 0,
+    val lastAccessedAt: Long = 0L,
+    val expiresAt: Long? = null
 )
 
 @Entity(
@@ -161,4 +165,26 @@ data class ConversationWithPreview(
     val pinned: Boolean,
     val lastMessage: String?,
     val messageCount: Int
+)
+
+@Entity(
+    tableName = "agent_skills",
+    indices = [Index(value = ["name"], unique = true)]
+)
+data class SkillEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val triggerPattern: String,
+    val requiredPermissionsJson: String,
+    val parametersJson: String,
+    val stepsJson: String,
+    val validationRules: String,
+    val failureHandling: String,
+    val version: Int = 1,
+    val provenance: String = "User Distilled",
+    val riskLevel: String = "LOW",
+    val usageCount: Int = 0,
+    val createdAt: Long,
+    val updatedAt: Long
 )

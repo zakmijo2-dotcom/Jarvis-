@@ -3,6 +3,7 @@ package com.example.ui.screens.device
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -36,7 +37,8 @@ import kotlinx.coroutines.launch
 
 enum class DeviceDashboardTab(val label: String) {
     TELEMETRY("Telemetry"),
-    CONTROLS("Device Controls")
+    CONTROLS("Device Controls"),
+    PERMISSIONS("Permissions & Privacy")
 }
 
 sealed interface DeviceTelemetryUiState {
@@ -57,6 +59,8 @@ data class DeviceControlsState(
     val isAccessibilityAuthorized: Boolean = false,
     val isAccessibilityConnected: Boolean = false,
     val hasContactsPermission: Boolean = false,
+    val hasAudioPermission: Boolean = false,
+    val hasPostNotificationsPermission: Boolean = true,
     val registeredToolCount: Int = 0,
     val activeToolName: String? = null,
     val pendingConfirmation: PendingToolConfirmation? = null,
@@ -150,6 +154,12 @@ class DeviceDashboardViewModel(
         val contactsGranted = ctx?.let {
             ContextCompat.checkSelfPermission(it, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         } ?: false
+        val audioGranted = ctx?.let {
+            ContextCompat.checkSelfPermission(it, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        } ?: false
+        val postNotifGranted = if (Build.VERSION.SDK_INT >= 33 && ctx != null) {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
 
         DeviceControlsState(
             activeTab = tab,
@@ -160,6 +170,8 @@ class DeviceDashboardViewModel(
             isAccessibilityAuthorized = a11yAuth,
             isAccessibilityConnected = a11yConnected,
             hasContactsPermission = contactsGranted,
+            hasAudioPermission = audioGranted,
+            hasPostNotificationsPermission = postNotifGranted,
             registeredToolCount = agentCore?.listRegisteredTools()?.size ?: 0
         )
     }
@@ -232,6 +244,13 @@ class DeviceDashboardViewModel(
     fun setAccessibilityAutomationEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setAccessibilityAutomationEnabled(enabled)
+            authRefreshTick.value += 1
+        }
+    }
+
+    fun setCloudUploadConsentGranted(granted: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setCloudUploadConsentGranted(granted)
             authRefreshTick.value += 1
         }
     }

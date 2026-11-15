@@ -176,13 +176,13 @@ interface ModelBenchmarkDao {
 
 @Dao
 interface MemoryDao {
-    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC, createdAt DESC")
+    @Query("SELECT * FROM memory_notes ORDER BY importanceScore DESC, updatedAt DESC, createdAt DESC")
     fun observeFacts(): Flow<List<MemoryNoteEntity>>
 
-    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC, createdAt DESC")
+    @Query("SELECT * FROM memory_notes ORDER BY importanceScore DESC, updatedAt DESC, createdAt DESC")
     suspend fun getAllFactsOnce(): List<MemoryNoteEntity>
 
-    @Query("SELECT * FROM memory_notes WHERE content LIKE :pattern OR category LIKE :pattern ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM memory_notes WHERE content LIKE :pattern OR category LIKE :pattern ORDER BY importanceScore DESC, updatedAt DESC")
     suspend fun searchFacts(pattern: String): List<MemoryNoteEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -190,6 +190,30 @@ interface MemoryDao {
 
     @Query("UPDATE memory_notes SET category = :category, content = :content, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateFact(id: String, category: String, content: String, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE memory_notes
+        SET accessCount = accessCount + 1,
+            lastAccessedAt = :accessedAt,
+            importanceScore = MIN(10, importanceScore + 1)
+        WHERE id = :id
+        """
+    )
+    suspend fun recordAccess(id: String, accessedAt: Long)
+
+    @Query(
+        """
+        UPDATE memory_notes
+        SET updatedAt = :updatedAt,
+            importanceScore = MIN(10, importanceScore + 1)
+        WHERE id = :id
+        """
+    )
+    suspend fun reinforceDuplicate(id: String, updatedAt: Long)
+
+    @Query("DELETE FROM memory_notes WHERE expiresAt IS NOT NULL AND expiresAt <= :nowMillis")
+    suspend fun deleteExpired(nowMillis: Long): Int
 
     @Query("DELETE FROM memory_notes WHERE id = :id")
     suspend fun deleteFactById(id: String)
@@ -208,4 +232,28 @@ interface AgentExecutionDao {
 
     @Query("DELETE FROM agent_executions")
     suspend fun clearExecutions()
+}
+
+@Dao
+interface SkillDao {
+    @Query("SELECT * FROM agent_skills ORDER BY usageCount DESC, updatedAt DESC")
+    fun observeSkills(): Flow<List<SkillEntity>>
+
+    @Query("SELECT * FROM agent_skills ORDER BY usageCount DESC, updatedAt DESC")
+    suspend fun getAllSkillsOnce(): List<SkillEntity>
+
+    @Query("SELECT * FROM agent_skills WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun getByName(name: String): SkillEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSkill(skill: SkillEntity)
+
+    @Query("UPDATE agent_skills SET usageCount = usageCount + 1, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun incrementUsage(id: String, updatedAt: Long)
+
+    @Query("DELETE FROM agent_skills WHERE id = :id")
+    suspend fun deleteSkillById(id: String)
+
+    @Query("DELETE FROM agent_skills")
+    suspend fun clearSkills()
 }

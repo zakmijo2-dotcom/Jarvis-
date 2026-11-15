@@ -96,7 +96,8 @@ fun SettingsScreen(
     onMemorySearchQueryChange: (String) -> Unit = {},
     onAddMemory: (MemoryKind, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onEditMemory: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
-    onDeleteMemory: (String) -> Unit = {}
+    onDeleteMemory: (String) -> Unit = {},
+    onDeleteSkill: (String) -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
     val settings = uiState.settings
@@ -306,6 +307,13 @@ fun SettingsScreen(
                     onAddMemory = onAddMemory,
                     onEditMemory = onEditMemory,
                     onDeleteMemory = onDeleteMemory
+                )
+            }
+
+            item {
+                SkillsLibraryCard(
+                    uiState = uiState,
+                    onDeleteSkill = onDeleteSkill
                 )
             }
 

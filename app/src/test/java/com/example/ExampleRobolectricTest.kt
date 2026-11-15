@@ -109,7 +109,9 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("SYSTEM TELEMETRY").assertIsDisplayed()
 
-        composeTestRule.onNodeWithTag("device_tab_controls").performClick()
+        composeTestRule.onNodeWithTag("device_tab_controls")
+            .performScrollTo()
+            .performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("device_controls_list").assertIsDisplayed()
         composeTestRule.onNodeWithTag("device_controls_list")
@@ -118,6 +120,15 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("device_controls_list")
             .performScrollToNode(hasTestTag("accessibility_disclosure_card"))
         composeTestRule.onNodeWithTag("accessibility_disclosure_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("device_tab_permissions")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("device_permissions_list").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("device_permissions_list")
+            .performScrollToNode(hasTestTag("permissions_privacy_policy_card"))
+        composeTestRule.onNodeWithTag("permissions_privacy_policy_card").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("nav_tab_settings").performClick()
         composeTestRule.waitForIdle()
@@ -136,6 +147,10 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_memory_manager_card"))
         composeTestRule.onNodeWithTag("settings_memory_manager_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_skills_library_card"))
+        composeTestRule.onNodeWithTag("settings_skills_library_card").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_execution_history_card"))

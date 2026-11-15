@@ -67,6 +67,11 @@ object AccessibilityBridge {
     @Volatile
     private var testInputOverride: ((String?, String) -> Boolean)? = null
 
+    @Volatile
+    private var lastObservedPackageName: String? = null
+
+    fun getLastObservedPackageName(): String? = lastObservedPackageName
+
     fun attach(service: JarvisAccessibilityService) {
         serviceRef = WeakReference(service)
         _isServiceConnected.value = true
@@ -149,9 +154,13 @@ object AccessibilityBridge {
      * by a user-confirmed tool call. Password fields are strictly redacted.
      */
     fun inspectActiveWindowElements(maxElements: Int = 25): List<ScreenElementSummary> {
-        testElementsOverride?.let { return it(maxElements) }
+        testElementsOverride?.let {
+            lastObservedPackageName = "test.window"
+            return it(maxElements)
+        }
         val service = serviceRef?.get() ?: return emptyList()
         val root = runCatching { service.rootInActiveWindow }.getOrNull() ?: return emptyList()
+        lastObservedPackageName = root.packageName?.toString()
 
         val summaries = mutableListOf<ScreenElementSummary>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
