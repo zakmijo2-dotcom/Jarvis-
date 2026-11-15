@@ -545,9 +545,19 @@ fun DeviceBridgeSetupScreen(
                         }
                         Text(if (uiState.isPairingBusy) "Pairing…" else "Pair Device")
                     }
+                }
+            }
 
-                    EditorialHairlineDivider(modifier = Modifier.padding(vertical = 12.dp))
-
+            // 2b. Wireless ADB Step 2 — Connect & Verify
+            item {
+                val adb = uiState.wirelessAdb
+                val isConnected = adb.connectionState == WirelessAdbConnectionState.CONNECTED
+                HudPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 860.dp)
+                        .testTag("wireless_adb_connect_card")
+                ) {
                     Text(
                         text = "Step 2 — Connect & verify session",
                         style = MaterialTheme.typography.titleSmall,

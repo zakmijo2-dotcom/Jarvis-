@@ -34,7 +34,7 @@ class JarvisInstrumentationTest {
         assertNotNull(shizukuSnapshot.availability)
 
         val adb = WirelessAdbController(context)
-        val connectAttempt = adb.connect(host = "127.0.0.1", portInput = "1")
+        val connectAttempt = adb.connect(host = "127.0.0.1", connectPortText = "1")
         assertTrue(connectAttempt.isFailure)
         assertFalse(adb.status.value.connectionState == WirelessAdbConnectionState.CONNECTED)
     }

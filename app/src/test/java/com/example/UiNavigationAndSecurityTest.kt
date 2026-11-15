@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import org.junit.Rule
@@ -41,13 +42,9 @@ class UiNavigationAndSecurityTest {
         composeTestRule.onNodeWithTag("wireless_adb_card").assertIsDisplayed()
 
         // Test Wireless ADB pairing failure handling and ephemeral code scrubbing
-        composeTestRule.onNodeWithTag("bridge_setup_list")
-            .performScrollToNode(hasTestTag("adb_pairing_port_input"))
-        composeTestRule.onNodeWithTag("adb_pairing_port_input").performTextInput("37123")
-        composeTestRule.onNodeWithTag("adb_pairing_code_input").performTextInput("654321")
-        composeTestRule.onNodeWithTag("bridge_setup_list")
-            .performScrollToNode(hasTestTag("adb_pair_button"))
-        composeTestRule.onNodeWithTag("adb_pair_button").performClick()
+        composeTestRule.onNodeWithTag("adb_pairing_port_input").performScrollTo().performTextInput("37123")
+        composeTestRule.onNodeWithTag("adb_pairing_code_input").performScrollTo().performTextInput("654321")
+        composeTestRule.onNodeWithTag("adb_pair_button").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 15_000) {
             composeTestRule
