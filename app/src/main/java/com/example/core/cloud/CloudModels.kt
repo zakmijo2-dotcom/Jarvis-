@@ -69,7 +69,8 @@ data class CloudInferenceConfig(
     val apiKey: String,
     val timeoutSeconds: Int = 30,
     val maxOutputTokens: Int = 512,
-    val temperature: Float = 0.7f
+    val temperature: Float = 0.7f,
+    val toolsSchemaJson: String? = null
 )
 
 data class CloudUsageStats(

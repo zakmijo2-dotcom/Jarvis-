@@ -252,6 +252,80 @@ class ToolRegistry(
         }
     }.trim()
 
+    fun buildOpenAiToolsJsonString(): String {
+        val arr = org.json.JSONArray()
+        for (tool in toolsByName.values) {
+            val props = org.json.JSONObject()
+            val req = org.json.JSONArray()
+            for (spec in tool.parameters) {
+                val p = org.json.JSONObject().apply {
+                    put("type", if (spec.type == ToolParameterType.INTEGER) "integer" else "string")
+                    put("description", spec.description)
+                    if (spec.allowedValues.isNotEmpty()) {
+                        put("enum", org.json.JSONArray(spec.allowedValues))
+                    }
+                }
+                props.put(spec.name, p)
+                if (spec.required) req.put(spec.name)
+            }
+            val fn = org.json.JSONObject().apply {
+                put("name", tool.name)
+                put("description", tool.description)
+                put(
+                    "parameters",
+                    org.json.JSONObject().apply {
+                        put("type", "object")
+                        put("properties", props)
+                        put("required", req)
+                    }
+                )
+            }
+            arr.put(
+                org.json.JSONObject().apply {
+                    put("type", "function")
+                    put("function", fn)
+                }
+            )
+        }
+        return arr.toString()
+    }
+
+    fun buildGeminiToolsJsonString(): String {
+        val decls = org.json.JSONArray()
+        for (tool in toolsByName.values) {
+            val props = org.json.JSONObject()
+            val req = org.json.JSONArray()
+            for (spec in tool.parameters) {
+                val p = org.json.JSONObject().apply {
+                    put("type", if (spec.type == ToolParameterType.INTEGER) "INTEGER" else "STRING")
+                    put("description", spec.description)
+                    if (spec.allowedValues.isNotEmpty()) {
+                        put("enum", org.json.JSONArray(spec.allowedValues))
+                    }
+                }
+                props.put(spec.name, p)
+                if (spec.required) req.put(spec.name)
+            }
+            decls.put(
+                org.json.JSONObject().apply {
+                    put("name", tool.name)
+                    put("description", tool.description)
+                    put(
+                        "parameters",
+                        org.json.JSONObject().apply {
+                            put("type", "OBJECT")
+                            put("properties", props)
+                            put("required", req)
+                        }
+                    )
+                }
+            )
+        }
+        return org.json.JSONArray().put(
+            org.json.JSONObject().put("functionDeclarations", decls)
+        ).toString()
+    }
+
     companion object {
         private val SHELL_BLOCKLIST_REGEX = Regex("([;&|`$]|\\$\\(|&&|\\|\\||\\bsu\\b|/system/bin/)")
 

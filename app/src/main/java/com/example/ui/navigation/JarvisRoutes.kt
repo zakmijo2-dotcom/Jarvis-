@@ -34,7 +34,7 @@ data object SettingsRoute
 enum class TopDestination(
     val route: Any,
     val routeQualifiedName: String,
-    @StringRes val labelRes: Int,
+    @param:StringRes val labelRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector,
     val testTag: String
