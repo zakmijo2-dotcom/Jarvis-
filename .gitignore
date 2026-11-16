@@ -21,5 +21,7 @@ debug.keystore
 *.keystore
 .build-outputs/
 .aistudio/
+release-apks/
+*.apk
 
 

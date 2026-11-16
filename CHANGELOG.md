@@ -5,6 +5,23 @@ License: **GNU General Public License v3.0 (`GPL-3.0`)**
 
 ---
 
+## [1.0.1] — Shizuku, Wireless ADB Bridge & Automated Releases (`versionCode = 2`)
+
+### Added
+- **Shizuku Integration (`core/device/ShizukuController`, `JarvisShizukuUserService`):**
+  - Seamless non-root system command execution and privileged operations via Shizuku API (`13.1.5`).
+  - Added user service IPC and permission verification checks.
+- **Wireless ADB Bridge & Setup Wizard (`core/device/WirelessAdbController`, `ui/screens/bridge/DeviceBridgeSetupScreen`):**
+  - In-app pairing wizard with step-by-step wireless pairing code, port input, and automatic socket connection.
+  - Device bridge status tracking and connection telemetry.
+- **Extended System Privilege Tools (`core/tools/SystemPrivilegeTools`):**
+  - Advanced package management, application freeze/unfreeze, and rootless system parameter controls.
+- **Automated CI/CD APK Compilation & Release Pipeline:**
+  - Modernized GitHub Actions workflow (`android-release.yml`) for automated signing and building of both `Jarvis-release.apk` and `Jarvis-debug.apk`.
+  - Automated SHA-256 integrity checksum generation and asset publishing.
+
+---
+
 ## [1.0.0] — Initial Public Release (`versionCode = 1`)
 
 ### Added
