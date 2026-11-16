@@ -1,6 +1,6 @@
 @echo off
 REM ==============================================================================
-REM J.A.R.V.I.S v1.0.0 — Fast One-Click APK Builder (Windows)
+REM J.A.R.V.I.S v1.0.1 — Fast One-Click APK Builder (Windows)
 REM Usage:
 REM   build-apk.bat             -> Fast signed Release APK (auto-creates keystore)
 REM   build-apk.bat --debug     -> Instant signed Debug APK (fastest incremental)
@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=--fast-release"
-set "OUTPUT_APK=%CD%\JARVIS-v1.0.0.apk"
+set "OUTPUT_APK=%CD%\JARVIS-v1.0.1.apk"
 
 where gradle >nul 2>nul
 if %ERRORLEVEL% equ 0 (
@@ -59,8 +59,12 @@ if "%MODE%"=="--optimize" (
 )
 if errorlevel 1 exit /b 1
 
-for %%F in ("app\build\outputs\apk\release\*.apk") do (
-  copy /y "%%~fF" "%OUTPUT_APK%" >nul
+if exist "app\build\outputs\apk\release\app-release.apk" (
+  copy /y "app\build\outputs\apk\release\app-release.apk" "%OUTPUT_APK%" >nul
+) else (
+  for %%F in ("app\build\outputs\apk\release\*.apk") do (
+    copy /y "%%~fF" "%OUTPUT_APK%" >nul
+  )
 )
 
 :done

@@ -1074,7 +1074,7 @@ class JarvisFoundationTest {
     fun `phase 5 tool registry validates safety permissions and executes all device application and communication tools`() = runBlocking {
         val sysTools = AndroidSystemTools(context)
         val defaultRegistry = ToolRegistryFactory.createDefault(sysTools)
-        assertEquals(25, defaultRegistry.listTools().size)
+        assertEquals(34, defaultRegistry.listTools().size)
         assertNotNull(defaultRegistry.getTool("check_device_bridge"))
         assertNotNull(defaultRegistry.getTool("force_stop_app"))
         assertNotNull(defaultRegistry.getTool("trim_app_caches"))
@@ -1083,6 +1083,15 @@ class JarvisFoundationTest {
         assertNotNull(defaultRegistry.getTool("save_memory"))
         assertNotNull(defaultRegistry.getTool("save_skill"))
         assertNotNull(defaultRegistry.getTool("run_skill"))
+        assertNotNull(defaultRegistry.getTool("capture_screen_ocr"))
+        assertNotNull(defaultRegistry.getTool("capture_screen_visual"))
+        assertNotNull(defaultRegistry.getTool("tap_coordinates"))
+        assertNotNull(defaultRegistry.getTool("long_press_coordinates"))
+        assertNotNull(defaultRegistry.getTool("swipe_screen"))
+        assertNotNull(defaultRegistry.getTool("open_url"))
+        assertNotNull(defaultRegistry.getTool("web_search"))
+        assertNotNull(defaultRegistry.getTool("fetch_webpage"))
+        assertNotNull(defaultRegistry.getTool("mcp_call"))
 
         val launchedIntents = mutableListOf<Intent>()
         var notificationAuthorized = false

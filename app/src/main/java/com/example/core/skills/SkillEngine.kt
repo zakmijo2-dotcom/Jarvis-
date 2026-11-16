@@ -497,6 +497,11 @@ class RoomSkillEngine(
             "compose_message",
             "accessibility_global_action",
             "tap_ui_element",
+            "tap_coordinates",
+            "long_press_coordinates",
+            "swipe_screen",
+            "capture_screen_visual",
+            "mcp_call",
             "input_ui_text",
             "scroll_screen",
             "create_reminder"

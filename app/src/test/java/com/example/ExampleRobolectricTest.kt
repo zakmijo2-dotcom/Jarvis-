@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -16,7 +17,10 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +34,19 @@ class ExampleRobolectricTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    @Before
+    fun resetSettingsBefore() {
+        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+        composeTestRule.waitForIdle()
+    }
+
+    @After
+    fun resetSettingsAfter() {
+        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+    }
+
     @Test
     fun `read string from context`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -38,10 +55,46 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `navigate across all jarvis destinations including home bento more hub and inspect model hub tabs`() {
+    fun `clean default chat mode hides bottom tabs and offers drawer and settings entry points`() {
         composeTestRule.waitForIdle()
 
-        // Home screen (initial start destination)
+        // Default startup opens Clean Chat mode without bottom navigation bar clutter
+        composeTestRule.onNodeWithTag("chat_model_selector_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("topbar_settings_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("topbar_new_session_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("chat_attach_image_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("chat_input_field").assertIsDisplayed()
+
+        // Bottom 4-tab operator bar must be absent in Clean Default Mode
+        composeTestRule.onAllNodesWithTag("nav_tab_home").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("nav_tab_more").assertCountEquals(0)
+
+        // Drawer quick navigation footer exposes 1-tap Models, Voice, Activity, Settings
+        composeTestRule.onNodeWithTag("open_history_drawer_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history_drawer_sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("new_session_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("drawer_nav_models").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("drawer_nav_voice").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("drawer_nav_activity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("drawer_nav_settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun `toggling advanced operator mode reveals 4-tab workspace home bento and all sub hubs`() {
+        composeTestRule.waitForIdle()
+
+        // Enable Advanced Operator Mode from Settings
+        composeTestRule.onNodeWithTag("topbar_settings_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("switch_advanced_operator_mode").assertIsDisplayed().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Home tab now available in 4-tab bar
+        composeTestRule.onNodeWithTag("nav_tab_home").performClick()
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("home_greeting_text").assertIsDisplayed()
         composeTestRule.onNodeWithTag("home_headline_text").assertIsDisplayed()
         composeTestRule.onNodeWithTag("home_bento_voice").assertIsDisplayed()
@@ -59,9 +112,7 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("more_screen_list").assertIsDisplayed()
         composeTestRule.onNodeWithTag("nav_tab_voice").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNode(
-            hasText("Voice") and !hasAnyAncestor(hasTestTag("nav_tab_voice"))
-        ).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("voice_screen_title").assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_listen_button").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_close_button").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("voice_toggle_type_button").performScrollTo().assertIsDisplayed()
@@ -76,9 +127,7 @@ class ExampleRobolectricTest {
         // Models tab
         composeTestRule.onNodeWithTag("nav_tab_models").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNode(
-            hasText("Models") and !hasTestTag("nav_tab_models") and !hasAnyAncestor(hasTestTag("nav_tab_models"))
-        ).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("models_screen_title").assertIsDisplayed()
         composeTestRule.onNodeWithTag("engine_runtime_hud_card").assertIsDisplayed()
         composeTestRule.onNodeWithText("LiteRT-LM runtime").assertIsDisplayed()
 
@@ -165,13 +214,13 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("nav_tab_settings").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("Settings").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_screen_title").assertIsDisplayed()
         composeTestRule.onNodeWithText("Local inference").assertIsDisplayed()
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("context_chip_4096"))
         composeTestRule.onNodeWithTag("context_chip_4096").assertIsDisplayed()
 
-        // Expand collapsible settings sections and verify inner content
+        // Expand collapsible settings sections and verify Phone-Use & MCP & Cloud & Web & Memory & Skills & History
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_section_cloud"))
         composeTestRule.onNodeWithTag("settings_section_cloud").performClick()
@@ -187,6 +236,24 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_web_research_card"))
         composeTestRule.onNodeWithTag("settings_web_research_card").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_section_phone_use"))
+        composeTestRule.onNodeWithTag("settings_section_phone_use").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("switch_screenshot_vision"))
+        composeTestRule.onNodeWithTag("switch_screenshot_vision").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_section_mcp"))
+        composeTestRule.onNodeWithTag("settings_section_mcp").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("mcp_add_button"))
+        composeTestRule.onNodeWithTag("mcp_add_button")
+            .performScrollTo()
+            .assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_section_memory"))
@@ -221,7 +288,17 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `home bento voice tile and history see all open expected destinations`() {
+    fun `home bento voice tile and history see all open expected destinations in operator mode`() {
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("topbar_settings_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("switch_advanced_operator_mode").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("nav_tab_home").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("home_bento_voice").performClick()
@@ -235,7 +312,6 @@ class ExampleRobolectricTest {
             .performScrollToNode(hasTestTag("home_history_see_all"))
         composeTestRule.onNodeWithTag("home_history_see_all").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("assistant_home_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("history_drawer_sheet").assertIsDisplayed()
         composeTestRule.onNodeWithTag("new_session_button").assertIsDisplayed()
     }
@@ -244,9 +320,6 @@ class ExampleRobolectricTest {
     fun `sending chat message persists user prompt and reports unloaded local engine honestly`() {
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("nav_tab_chat").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("assistant_home_header").assertIsDisplayed()
         composeTestRule.onNodeWithTag("chat_input_field").performTextInput("Initialize diagnostic check")
         composeTestRule.onNodeWithTag("chat_send_button").performClick()
 
@@ -259,10 +332,10 @@ class ExampleRobolectricTest {
 
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule
-                .onAllNodesWithText("Unloaded")
+                .onAllNodesWithText("Unloaded", substring = true, ignoreCase = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onAllNodesWithText("Unloaded").onFirst().assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Unloaded", substring = true, ignoreCase = true).onFirst().assertIsDisplayed()
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule
                 .onAllNodesWithTag("copy_message_button")
@@ -271,24 +344,9 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `open conversation history drawer from chat top bar`() {
-        composeTestRule.waitForIdle()
-
-        composeTestRule.onNodeWithTag("nav_tab_chat").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("open_history_drawer_button").performClick()
-        composeTestRule.waitForIdle()
-
-        composeTestRule.onNodeWithTag("history_drawer_sheet").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("new_session_button").assertIsDisplayed()
-    }
-
-    @Test
     fun `arabic message renders cleanly in chat with rtl auto direction`() {
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("nav_tab_chat").performClick()
-        composeTestRule.waitForIdle()
         val arabicPrompt = "مرحبا جارفيس ما حالة البطارية"
         composeTestRule.onNodeWithTag("chat_input_field").performTextInput(arabicPrompt)
         composeTestRule.onNodeWithTag("chat_send_button").performClick()

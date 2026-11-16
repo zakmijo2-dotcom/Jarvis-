@@ -277,7 +277,8 @@ fun VoiceScreen(
                     Text(
                         text = stringResource(R.string.voice_title),
                         style = MaterialTheme.typography.headlineSmall,
-                        color = palette.text
+                        color = palette.text,
+                        modifier = Modifier.testTag("voice_screen_title")
                     )
                 }
 

@@ -27,6 +27,16 @@ interface JarvisTool {
         "Confirm executing $name?" to "User confirmation required before running this device action."
 
     suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult
+
+    suspend fun execute(context: Context, args: Map<String, String>, settings: JarvisSettings): ToolExecutionResult =
+        execute(context, args)
+
+    suspend fun execute(
+        context: Context,
+        args: Map<String, String>,
+        settings: JarvisSettings,
+        userConfirmed: Boolean
+    ): ToolExecutionResult = execute(context, args, settings)
 }
 
 class ToolPermissionValidator(
@@ -131,9 +141,16 @@ class ToolRegistry(
         currentCoroutineContext().ensureActive()
 
         val normalizedName = request.toolName.trim().lowercase()
-        if (containsShellMetacharacters(normalizedName) ||
-            request.arguments.values.any { containsShellMetacharacters(it) }
-        ) {
+        val unsafeArg = request.arguments.entries.any { (k, v) ->
+            if ((k == "url" || v.startsWith("https://") || v.startsWith("http://")) &&
+                !v.contains("&&") && !v.contains("||")
+            ) {
+                URL_SHELL_BLOCKLIST_REGEX.containsMatchIn(v)
+            } else {
+                containsShellMetacharacters(v)
+            }
+        }
+        if (containsShellMetacharacters(normalizedName) || unsafeArg) {
             return@withContext ToolExecutionResult(
                 toolName = normalizedName.ifBlank { "unknown" },
                 status = ToolExecutionStatus.VALIDATION_ERROR,
@@ -224,7 +241,7 @@ class ToolRegistry(
         }
 
         return@withContext try {
-            tool.execute(context, cleanArgs)
+            tool.execute(context, cleanArgs, settings, userConfirmed)
         } catch (t: Throwable) {
             ToolExecutionResult(
                 toolName = tool.name,
@@ -328,6 +345,7 @@ class ToolRegistry(
 
     companion object {
         private val SHELL_BLOCKLIST_REGEX = Regex("([;&|`$]|\\$\\(|&&|\\|\\||\\bsu\\b|/system/bin/)")
+        private val URL_SHELL_BLOCKLIST_REGEX = Regex("([;|`$]|\\$\\(|&&|\\|\\||\\bsu\\b|/system/bin/)")
 
         fun containsShellMetacharacters(input: String): Boolean =
             SHELL_BLOCKLIST_REGEX.containsMatchIn(input)

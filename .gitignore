@@ -23,5 +23,6 @@ debug.keystore
 .aistudio/
 release-apks/
 *.apk
+research/open-source/repos/
 
 

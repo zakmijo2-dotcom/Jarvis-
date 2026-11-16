@@ -1,12 +1,16 @@
 package com.example.ui.screens.security
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +62,8 @@ import com.example.R
 import com.example.core.device.DeviceCapabilitySnapshot
 import com.example.core.device.ShizukuAvailabilityState
 import com.example.core.security.KeystoreHealthReport
+import com.example.core.vision.MediaProjectionCaptureController
+import com.example.core.vision.MediaProjectionForegroundService
 import com.example.data.repository.JarvisSettings
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
@@ -84,10 +90,20 @@ fun PermissionsSecurityScreen(
     val context = LocalContext.current
     val palette = JarvisThemeTokens.palette
     var keystoreReport by remember(initialKeystoreReport) { mutableStateOf(initialKeystoreReport) }
+    val projectionReady by MediaProjectionCaptureController.isReady.collectAsStateWithLifecycle()
 
     val runtimeLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) {
+        onRefreshPermissions()
+    }
+    val projectionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            MediaProjectionForegroundService.startWithConsent(context, result.resultCode, data)
+        }
         onRefreshPermissions()
     }
 
@@ -254,6 +270,25 @@ fun PermissionsSecurityScreen(
                         checked = settings.accessibilityAutomationEnabled,
                         onCheckedChange = onSetAccessibilityAutomationEnabled,
                         testTag = "sec_switch_a11y"
+                    )
+                    EditorialHairlineDivider()
+                    SecurityPermissionRow(
+                        title = "On-demand screen capture (MediaProjection)",
+                        description = "Optional visual screenshot fallback when Accessibility screenshot API is unavailable or disabled.",
+                        granted = projectionReady,
+                        actionLabel = if (projectionReady) "Revoke" else "Authorize",
+                        onAction = {
+                            if (projectionReady) {
+                                MediaProjectionForegroundService.stop(context)
+                                onRefreshPermissions()
+                            } else {
+                                val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+                                if (mgr != null) {
+                                    projectionLauncher.launch(mgr.createScreenCaptureIntent())
+                                }
+                            }
+                        },
+                        testTag = "sec_grant_projection_btn"
                     )
                     EditorialHairlineDivider()
                     SecurityPermissionRow(

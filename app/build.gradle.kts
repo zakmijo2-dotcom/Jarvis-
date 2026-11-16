@@ -102,10 +102,10 @@ abstract class ExportFastApkTask : DefaultTask() {
 tasks.register<ExportFastApkTask>("fastApk") {
   group = "build"
   description =
-    "Builds a signed, ready-to-install APK at maximum speed and outputs JARVIS-v1.0.0.apk in the project root."
+    "Builds a signed, ready-to-install APK at maximum speed and outputs JARVIS-v1.0.1.apk in the project root."
   dependsOn("assembleDebug")
   apkDir.set(layout.buildDirectory.dir("outputs/apk/debug"))
-  destinationApk.set(rootProject.layout.projectDirectory.file("JARVIS-v1.0.0.apk"))
+  destinationApk.set(rootProject.layout.projectDirectory.file("JARVIS-v1.0.1.apk"))
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
@@ -163,6 +163,7 @@ dependencies {
   implementation(libs.shizuku.api)
   implementation(libs.shizuku.provider)
   implementation(libs.kadb)
+  implementation(libs.mlkit.text.recognition)
   // implementation(libs.logging.interceptor)
   // implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)

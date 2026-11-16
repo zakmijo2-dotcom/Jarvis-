@@ -75,7 +75,14 @@ data class JarvisSettings(
     // Wireless ADB saved non-secret endpoint metadata (pairing codes are never stored)
     val wirelessAdbHost: String = "127.0.0.1",
     val wirelessAdbConnectPort: Int = 0,
-    val wirelessAdbPaired: Boolean = false
+    val wirelessAdbPaired: Boolean = false,
+    // Autonomous Phone-Use & Claude-Inspired Dual-Mode UI (v1.0.1)
+    val uiAdvancedModeEnabled: Boolean = false,
+    val screenshotVisionEnabled: Boolean = false,
+    val floatingOverlayEnabled: Boolean = true,
+    val blockedPackagesCsv: String = "",
+    val braveSearchApiKey: String = "",
+    val serpApiKey: String = ""
 )
 
 class SettingsRepository(
@@ -125,6 +132,12 @@ class SettingsRepository(
         val WIRELESS_ADB_HOST = stringPreferencesKey("wireless_adb_host")
         val WIRELESS_ADB_PORT = intPreferencesKey("wireless_adb_port")
         val WIRELESS_ADB_PAIRED = booleanPreferencesKey("wireless_adb_paired")
+        val UI_ADVANCED_MODE_ENABLED = booleanPreferencesKey("ui_advanced_mode_enabled")
+        val SCREENSHOT_VISION_ENABLED = booleanPreferencesKey("screenshot_vision_enabled")
+        val FLOATING_OVERLAY_ENABLED = booleanPreferencesKey("floating_overlay_enabled")
+        val BLOCKED_PACKAGES_CSV = stringPreferencesKey("blocked_packages_csv")
+        val BRAVE_API_KEY_ENC = stringPreferencesKey("brave_api_key_encrypted_v1")
+        val SERP_API_KEY_ENC = stringPreferencesKey("serp_api_key_encrypted_v1")
     }
 
     val settingsFlow: Flow<JarvisSettings> = dataStore.data.map { prefs ->
@@ -149,6 +162,12 @@ class SettingsRepository(
 
         val porcupineKeyEnc = prefs[Keys.PORCUPINE_ACCESS_KEY_ENC].orEmpty()
         val resolvedPorcupineKey = if (porcupineKeyEnc.isNotBlank()) credentialStore.decrypt(porcupineKeyEnc) else ""
+
+        val braveKeyEnc = prefs[Keys.BRAVE_API_KEY_ENC].orEmpty()
+        val resolvedBraveKey = if (braveKeyEnc.isNotBlank()) credentialStore.decrypt(braveKeyEnc) else ""
+
+        val serpKeyEnc = prefs[Keys.SERP_API_KEY_ENC].orEmpty()
+        val resolvedSerpKey = if (serpKeyEnc.isNotBlank()) credentialStore.decrypt(serpKeyEnc) else ""
 
         JarvisSettings(
             themeMode = AppThemeMode.fromName(prefs[Keys.THEME_MODE]),
@@ -187,7 +206,13 @@ class SettingsRepository(
             webSearchApiKey = resolvedWebKey,
             wirelessAdbHost = prefs[Keys.WIRELESS_ADB_HOST]?.ifBlank { "127.0.0.1" } ?: "127.0.0.1",
             wirelessAdbConnectPort = (prefs[Keys.WIRELESS_ADB_PORT] ?: 0).coerceIn(0, 65535),
-            wirelessAdbPaired = prefs[Keys.WIRELESS_ADB_PAIRED] ?: false
+            wirelessAdbPaired = prefs[Keys.WIRELESS_ADB_PAIRED] ?: false,
+            uiAdvancedModeEnabled = prefs[Keys.UI_ADVANCED_MODE_ENABLED] ?: false,
+            screenshotVisionEnabled = prefs[Keys.SCREENSHOT_VISION_ENABLED] ?: false,
+            floatingOverlayEnabled = prefs[Keys.FLOATING_OVERLAY_ENABLED] ?: true,
+            blockedPackagesCsv = prefs[Keys.BLOCKED_PACKAGES_CSV].orEmpty(),
+            braveSearchApiKey = resolvedBraveKey,
+            serpApiKey = resolvedSerpKey
         )
     }
 
@@ -377,6 +402,46 @@ class SettingsRepository(
             it[Keys.WIRELESS_ADB_HOST] = host.trim().ifBlank { "127.0.0.1" }
             it[Keys.WIRELESS_ADB_PORT] = port.coerceIn(0, 65535)
             it[Keys.WIRELESS_ADB_PAIRED] = paired
+        }
+    }
+
+    suspend fun setUiAdvancedModeEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.UI_ADVANCED_MODE_ENABLED] = enabled }
+    }
+
+    suspend fun setScreenshotVisionEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.SCREENSHOT_VISION_ENABLED] = enabled }
+    }
+
+    suspend fun setFloatingOverlayEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.FLOATING_OVERLAY_ENABLED] = enabled }
+    }
+
+    suspend fun setBlockedPackagesCsv(csv: String) {
+        dataStore.edit { it[Keys.BLOCKED_PACKAGES_CSV] = csv.trim() }
+    }
+
+    suspend fun setBraveSearchApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        dataStore.edit { prefs ->
+            if (trimmed.isEmpty()) {
+                prefs.remove(Keys.BRAVE_API_KEY_ENC)
+            } else {
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) prefs[Keys.BRAVE_API_KEY_ENC] = encrypted
+            }
+        }
+    }
+
+    suspend fun setSerpApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        dataStore.edit { prefs ->
+            if (trimmed.isEmpty()) {
+                prefs.remove(Keys.SERP_API_KEY_ENC)
+            } else {
+                val encrypted = credentialStore.encryptResult(trimmed).getOrElse { "" }
+                if (encrypted.isNotBlank()) prefs[Keys.SERP_API_KEY_ENC] = encrypted
+            }
         }
     }
 

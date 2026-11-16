@@ -22,8 +22,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
@@ -72,7 +76,11 @@ fun HistoryDrawerContent(
     onCreateNewConversation: () -> Unit,
     onRenameConversation: (String, String) -> Unit,
     onTogglePinned: (String, Boolean) -> Unit,
-    onDeleteConversation: (String) -> Unit
+    onDeleteConversation: (String) -> Unit,
+    onOpenModels: () -> Unit = {},
+    onOpenVoice: () -> Unit = {},
+    onOpenActivityHistory: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     var renamingTarget by remember { mutableStateOf<ConversationWithPreview?>(null) }
     var renameDraft by remember { mutableStateOf("") }
@@ -203,6 +211,51 @@ fun HistoryDrawerContent(
                     }
                 }
             }
+
+            EditorialHairlineDivider()
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DrawerQuickLink(
+                        icon = Icons.Filled.Memory,
+                        label = stringResource(R.string.nav_models),
+                        onClick = onOpenModels,
+                        testTag = "drawer_nav_models",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DrawerQuickLink(
+                        icon = Icons.Filled.GraphicEq,
+                        label = stringResource(R.string.nav_voice),
+                        onClick = onOpenVoice,
+                        testTag = "drawer_nav_voice",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DrawerQuickLink(
+                        icon = Icons.Filled.History,
+                        label = stringResource(R.string.drawer_nav_activity),
+                        onClick = onOpenActivityHistory,
+                        testTag = "drawer_nav_activity",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DrawerQuickLink(
+                        icon = Icons.Filled.Settings,
+                        label = stringResource(R.string.nav_settings),
+                        onClick = onOpenSettings,
+                        testTag = "drawer_nav_settings",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
     }
 
@@ -235,6 +288,40 @@ fun HistoryDrawerContent(
                     Text("Cancel")
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun DrawerQuickLink(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .minimumInteractiveComponentSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

@@ -48,7 +48,38 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn javax.annotation.**
+-dontwarn javax.naming.**
+-dontwarn java.awt.**
+-dontwarn sun.misc.**
 -dontwarn org.codehaus.mojo.animal_sniffer.**
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Shizuku API, Provider & AIDL UserService (instantiated via reflection in Shizuku server process)
+-keep class rikka.shizuku.** { *; }
+-dontwarn rikka.shizuku.**
+-keep class com.example.core.device.IJarvisShizukuService { *; }
+-keep class com.example.core.device.IJarvisShizukuService$** { *; }
+-keep class com.example.core.device.JarvisShizukuUserService {
+    public <init>();
+    *;
+}
+-keepclassmembers class com.example.core.device.AllowlistedCommandValidator { *; }
+
+# Pure-Kotlin Wireless ADB (Kadb: SPAKE2 + TLS 1.3)
+-keep class com.flyfishxu.kadb.** { *; }
+-dontwarn com.flyfishxu.kadb.**
+
+# On-device ML Kit Text Recognition (offline bundled Latin OCR)
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_text_common.** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.**
+
+# Autonomous Phone-Use Vision, MCP & Web data contracts
+-keep class com.example.core.vision.** { *; }
+-keep class com.example.core.mcp.** { *; }
+-keep class com.example.core.web.** { *; }
+
+

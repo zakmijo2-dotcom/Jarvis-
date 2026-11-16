@@ -38,6 +38,7 @@
     <string name="drawer_new_session">جلسة جديدة</string>
     <string name="drawer_search_hint">تصفية الجلسات…</string>
     <string name="drawer_empty">لا توجد جلسات محفوظة بعد.</string>
+    <string name="drawer_nav_activity">السجل</string>
     <string name="cd_open_history">فتح سجل المحادثات</string>
     <string name="cd_delete_session">حذف الجلسة</string>
     <string name="cd_rename_session">إعادة تسمية الجلسة</string>
@@ -47,9 +48,12 @@
     <string name="chat_input_hint">اكتب رسالة أو أمرًا…</string>
     <string name="cd_send_message">إرسال الرسالة</string>
     <string name="cd_voice_handoff">التبديل إلى الصوت</string>
+    <string name="cd_attach_image">إرفاق صورة</string>
+    <string name="cd_clear_attachment">إزالة الصورة المرفقة</string>
     <string name="chat_empty_title">جاهز للاستماع</string>
     <string name="chat_empty_subtitle">نماذج LiteRT-LM المحلية، أدوات أندرويد، البحث، والتوجيه السحابي الاختياري.</string>
     <string name="chip_telemetry_snapshot">حالة الجهاز</string>
+    <string name="chip_inspect_screen">فحص الشاشة</string>
     <string name="chip_engine_status">فحص المحرك</string>
     <string name="chip_open_models">النماذج</string>
 
@@ -84,6 +88,8 @@
     <!-- Settings Screen -->
     <string name="settings_title">الإعدادات</string>
     <string name="settings_clear_history">مسح المحادثات والذاكرة</string>
+    <string name="settings_advanced_operator_mode">وضع المشغّل المتقدم</string>
+    <string name="settings_advanced_operator_desc">إظهار شريط التبويبات الأربعة (الرئيسية، المحادثة، النماذج، المزيد) وأدوات التشخيص الكاملة. الإيقاف يحافظ على واجهة محادثة هادئة.</string>
 
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">قارئ إشعارات Jarvis</string>

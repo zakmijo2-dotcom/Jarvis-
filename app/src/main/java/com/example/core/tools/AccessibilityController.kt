@@ -123,6 +123,40 @@ class AccessibilityController(
         )
     }
 
+    suspend fun executeCoordinateTapWithVerification(x: Int, y: Int, longPress: Boolean = false): ActionVerificationResult {
+        val before = observeCurrentScreen(25)
+        val ok = if (longPress) {
+            actionExecutor.longPressCoordinates(x, y)
+        } else {
+            actionExecutor.tapCoordinates(x, y)
+        }
+        val after = captureSettledAfterSnapshot(before, ok, 25)
+        return stateVerifier.verifyTransition(
+            actionName = "${if (longPress) "long_press" else "tap_coordinates"}($x,$y)",
+            dispatched = ok,
+            before = before,
+            after = after
+        )
+    }
+
+    suspend fun executeSwipeWithVerification(
+        startX: Int,
+        startY: Int,
+        endX: Int,
+        endY: Int,
+        durationMs: Long = 280L
+    ): ActionVerificationResult {
+        val before = observeCurrentScreen(25)
+        val ok = actionExecutor.swipe(startX, startY, endX, endY, durationMs)
+        val after = captureSettledAfterSnapshot(before, ok, 25)
+        return stateVerifier.verifyTransition(
+            actionName = "swipe_screen($startX,$startY->$endX,$endY)",
+            dispatched = ok,
+            before = before,
+            after = after
+        )
+    }
+
     suspend fun verifyExternalTransition(
         actionName: String,
         dispatched: Boolean,
@@ -248,6 +282,10 @@ class ElementIdentificationEngine {
 
 class ActionExecutor {
     fun tap(targetQuery: String): Boolean = AccessibilityBridge.tapUiElement(targetQuery)
+    fun tapCoordinates(x: Int, y: Int): Boolean = AccessibilityBridge.tapAtCoordinates(x, y)
+    fun longPressCoordinates(x: Int, y: Int): Boolean = AccessibilityBridge.longPressAtCoordinates(x, y)
+    fun swipe(startX: Int, startY: Int, endX: Int, endY: Int, durationMs: Long = 280L): Boolean =
+        AccessibilityBridge.swipeCoordinates(startX, startY, endX, endY, durationMs)
     fun scroll(direction: String): Boolean = AccessibilityBridge.scrollUiScreen(direction)
     fun inputText(targetQuery: String?, text: String): Boolean = AccessibilityBridge.inputTextIntoUi(targetQuery, text)
     fun globalAction(action: AuthorizedAccessibilityAction): Boolean = AccessibilityBridge.performAuthorizedGlobalAction(action)

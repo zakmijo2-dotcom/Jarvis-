@@ -1,78 +1,40 @@
-# J.A.R.V.I.S Engineering & UI Restyle Progress Log — v1.0.0 (`GPL-3.0`)
+# J.A.R.V.I.S Architecture Upgrade & Build Fix Log — v1.0.0 (`GPL-3.0`)
 
-## Phase 1: Theme Tokens, Typography, Shapes & Localized Strings (Completed)
+## Phase 1: Shizuku-First Device Control & Pure-Kotlin Wireless ADB (Completed)
 - **What changed**:
-  - Updated `app/src/main/java/com/example/ui/theme/Color.kt` with exact Dark (`#15161A` background, `#1E2026` surface, `#272A32` surfaceHigh, `#33363F` hairline, `#ECEAE4` text, `#A5A8B0` textSecondary) and Light (`#F6F3EE` background, `#FBF9F5` surface, `#23252B` text) tokens plus the five low-saturation section hues: Sky (`#8FB8DE`, Chat), Peach (`#F0B49A`, Voice), Sage (`#A9CDB0`, Models & success), Sand (`#E3CF9E`, Device & warning), Lavender (`#B8AEE0`, Settings), muted Coral (`#E08A7B`, error), dark hue ink (`#16171A`), and `LocalJarvisPalette` section container/accent helpers.
-  - Updated `app/src/main/java/com/example/ui/theme/Shape.kt` to 20–24dp rounded cards and pill-ready shapes (`16.dp`–`24.dp`).
-  - Updated `app/src/main/java/com/example/ui/theme/Type.kt` keeping Inter for UI and JetBrains Mono for code/telemetry, large friendly greeting (`32.sp`), 15–16sp body copy with ~1.4x line height.
-  - Updated `app/src/main/java/com/example/ui/theme/Theme.kt` and `app/src/main/java/com/example/ui/components/HudComponents.kt` (`CircleShape` pill badges, 20dp surface containers, 8dp grid spacing).
-  - Added Home/Voice/More strings across `res/values/strings.xml`, `res/values-ar/strings.xml`, and `res/values-fr/strings.xml`.
+  - Added `dev.rikka.shizuku:api/provider:13.1.5`, `com.flyfishxu:kadb:1.3.0`, and `app/src/main/aidl/com/example/core/device/IJarvisShizukuService.aidl` (`aidl = true`, `ShizukuProvider` in `AndroidManifest.xml`).
+  - Implemented `ShizukuController`, `RealShizukuGateway`, `JarvisShizukuUserService` (strict allowlisted `argv` `ProcessBuilder` actions + `AllowlistedCommandValidator`), `WirelessAdbController`, `KadbWirelessTransport` (TCP preflight + SPAKE2/TLS + live `id` probe + `NsdManager` mDNS port discovery), `AndroidNativeController`, `PermissionManager`, `DeviceCapabilityManager`, and capability-based `DeviceCommandRouter` (`Shizuku -> Wireless ADB -> Native -> Accessibility`).
+  - Registered `check_device_bridge`, `force_stop_app`, and `trim_app_caches` in `SystemPrivilegeTools.kt` and `ToolRegistryFactory` (25 total registered tools).
 - **What was verified**:
-  - Ran `gradle :app:compileDebugKotlin --no-daemon` -> `BUILD SUCCESSFUL`.
-- **What could NOT be verified**:
-  - Visual rendering on physical device / emulator (no emulator/ADB available in environment).
+  - Verified lifecycle, permission denial, binder death, ADB pairing failures, secret scrubbing, confirmation gates, and fallback priority in `DeviceControlArchitectureTest` (`3/3` passed).
+- **Remaining limitations**:
+  - Live `moe.shizuku.privileged.api` daemon IPC and physical loopback ADB (`127.0.0.1`) pairing/TLS require a physical Android device.
 
-## Phase 2: Iridescent 5-Hue Glass Orb & Animation Safety (Completed)
+## Phase 2: AI Runtime Hardening & Hardware-Aware `ModelRouter` (Completed)
 - **What changed**:
-  - Rewrote `app/src/main/java/com/example/ui/components/JarvisOrb.kt` into a soft, slightly iridescent glass sphere blending the five muted hues (`Sky`, `Peach`, `Sage`, `Sand`, `Lavender`, plus muted `Coral` for `WARNING`) lit from the top-left with a specular highlight, gentle Fresnel rim, and soft ground shadow.
-  - Added AGSL `RuntimeShader` on API 33+ and radial/sweep Canvas fallback below API 33.
-  - Replaced continuous frame-loop `@Composable` state mutation with lifecycle-gated (`Lifecycle.State.RESUMED`) `rememberInfiniteTransition` read strictly in draw phase (`Canvas`) and quantized to 30fps (throttled to 10fps via `isModelGenerating`), plus static fallback on `!animationEnabled`, Battery Saver, Thermal >= Moderate (API 29+), and `ANIMATOR_DURATION_SCALE == 0`. Added Dark and Light `@Preview`s.
+  - Updated `RuntimeFormatAdapter.kt`, `ModelCompatibilityEngine.kt`, `ModelManager.kt`, and `DownloadQueueManager.kt` so only `.litertlm` (`LiteRT-LM 0.10.2`) reports `isExecutionSupported = true`; `.gguf`, `.tflite`, `.task`, and `.safetensors` are blocked cleanly without fake compatibility badges or simulated inference.
+  - Built `ModelRouter.kt` to score models using real available RAM, context-scaled KV-cache estimates, battery/thermal constraints, tool-calling capability, and measured `model_benchmarks`, enforcing an 85% RAM cap and `>= 2 GB` concurrent multi-model reserve.
 - **What was verified**:
-  - Ran `gradle :app:testDebugUnitTest --tests "com.example.ExampleRobolectricTest.open*" --no-daemon` -> `BUILD SUCCESSFUL` (confirmed `AppNotIdleException` idle deadlock is resolved).
-- **What could NOT be verified**:
-  - Hardware GPU AGSL shader visual output on API 33+ and <33 devices, live thermal/power-save callbacks.
+  - Verified hardware ranking, over-budget load rejection, thermal cloud offloading, and format blocking in `AiRouterAndSecurityTest`.
 
-## Phase 3: Home Screen, Bento Navigation & Shell (Completed)
+## Phase 3: Performance Optimization (Completed)
 - **What changed**:
-  - Updated `app/src/main/java/com/example/ui/navigation/JarvisRoutes.kt` with `HomeRoute` and 4-tab `TopDestination` bar (`Home`, `Chat`, `Models`, `More`).
-  - Created `app/src/main/java/com/example/ui/screens/home/HomeScreen.kt` featuring top settings pill button (`Lavender`), friendly greeting `"Hi, <name>"` + `"How can I help?"`, Bento tiles (`Voice` hero in `Peach` with embedded orb, `Chat` in `Sky`, `Models` in `Sage`, `Device` in `Sand`), and `"History"` with `"See all"` + Dark/Light `@Preview`s.
-  - Updated `app/src/main/java/com/example/ui/navigation/MoreScreen.kt` to expose section-hued `Voice`, `Device`, and `Settings` rows alongside the status overview.
-  - Updated `app/src/main/java/com/example/ui/navigation/JarvisAppShell.kt` to launch on `HomeRoute`, passively read user-approved `LocalMemory` facts for greeting name, highlight `More` on sub-routes, and expand the Chat history drawer on `"See all"`.
+  - Added `PromptCompressor.kt` (recent-turn retention + compacted older-turn digests), shared `16 MB` OkHttp disk cache (`http_api_cache` in `JarvisContainer.kt`), streaming token cancellation, and cold-startup timing in `JarvisApplication.kt` (`measuredStartupDurationMs()`).
 - **What was verified**:
-  - Ran `gradle :app:compileDebugKotlin --no-daemon` -> `BUILD SUCCESSFUL`.
-- **What could NOT be verified**:
-  - Live visual inspection of Bento tile density across phone/tablet widths without emulator.
+  - Verified token-budgeted compaction and benchmark persistence of measured-only metrics in `AiRouterAndSecurityTest`.
 
-## Phase 4: Voice Screen Restyle (Completed)
+## Phase 4: Dark Graphite & Cyan-Blue + Light Mode UI Redesign Across 9 Screens (Completed)
 - **What changed**:
-  - Restyled `app/src/main/java/com/example/ui/screens/voice/VoiceScreen.kt` with `Peach` section header badge/accents, centered `JarvisOrb` (with `isModelGenerating`), large readable transcript/answer block below the orb with Arabic RTL auto-direction, Coral permission-denied prompt, and the Type / large round Mic (tap + hold-to-talk + `voice_listen_button` accessibility/test semantics) / Close bottom bar.
-  - Restyled `app/src/main/java/com/example/ui/screens/voice/VoiceConsoleComponents.kt` with `Peach` accents, dark `#16171A` text on selected muted hue chips, `Coral` error cues, and `Sage` verification badge. Kept all wake-word, speech-language, TTS picker, and text fallback controls intact.
+  - Updated `Color.kt`, `Type.kt` (Space Grotesk + Plus Jakarta Sans + JetBrains Mono), and `Theme.kt` for Dark Graphite (`#0E1015`/`#151922`) default + Light Alabaster (`#F4F6F9`/`#FFFFFF`) toggle.
+  - Redesigned and integrated all 9 screens (`HomeScreen`, `ChatScreen` + `HistoryDrawerContent`, `ModelManagerScreen` + `ModelHubComponents`, `MoreScreen`, `VoiceScreen`, `DeviceDashboardScreen`, `DeviceBridgeSetupScreen`, `PermissionsSecurityScreen`, `ActivityHistoryScreen`, `SettingsScreen`) with adaptive `NavigationBar`/`NavigationRail` and lifecycle/thermal-throttled `JarvisOrb`.
 - **What was verified**:
-  - Ran `gradle :app:compileDebugKotlin --no-daemon` -> `BUILD SUCCESSFUL`.
-- **What could NOT be verified**:
-  - Live microphone RMS animation, physical hold-to-talk gesture release behavior, and TTS output on real hardware.
+  - Verified full UI navigation, theme toggling, ephemeral ADB code wiping, Keystore diagnostics, and Arabic RTL rendering in `ExampleRobolectricTest` and `UiNavigationAndSecurityTest`.
 
-## Phase 5: Chat, Models, Device, and Settings Section Restyle (Completed)
+## Phase 5 & 6: Security, Testing, R8 & CI Build Repair (Completed)
 - **What changed**:
-  - Restyled `app/src/main/java/com/example/ui/screens/chat/ChatScreen.kt` and `HistoryDrawerContent.kt` using `Sky` (`#8FB8DE`) section accents, `22–24dp` rounded bubbles/composer, dark `#16171A` text on user Sky bubbles (`palette.onHue`), `CircleShape` send/stop pills, `isModelGenerating` orb throttling, and Dark/Light `@Preview`s.
-  - Restyled `app/src/main/java/com/example/ui/screens/models/ModelManagerScreen.kt` and `ModelHubComponents.kt` using `Sage` (`#A9CDB0`) section accents/badges/progress bars, `Sand` warnings, `Coral` errors, `CircleShape` pill buttons, `22dp` `ModelSlotCard`s, and Dark/Light `@Preview`s.
-  - Restyled `app/src/main/java/com/example/ui/screens/device/DeviceDashboardScreen.kt` and `DeviceControlsSection.kt` using `Sand` (`#E3CF9E`) section accents, `Sage` battery/granted badges, `Coral` low-battery/failure indicators, `CircleShape` pill actions, and Dark/Light `@Preview`s.
-  - Restyled `app/src/main/java/com/example/ui/screens/settings/SettingsScreen.kt` and `SettingsHybridAndMemorySections.kt` using `Lavender` (`#B8AEE0`) section accents/chips/icons, `Coral` destructive actions, `CircleShape` primary buttons, collapsible plain-language sections, and Dark/Light `@Preview`s.
-- **What was verified**:
-  - Ran `gradle :app:compileDebugKotlin --no-daemon` -> `BUILD SUCCESSFUL`.
-  - Audited `@Preview` coverage across all 10 UI components/screens (`JarvisOrb`, `HomeScreen`, `MoreScreen`, `ChatScreen` standby/active, `HistoryDrawerContent`, `VoiceScreen`, `ModelManagerScreen`, `DeviceDashboardScreen`, `SettingsScreen`) in both light and dark modes.
-- **What could NOT be verified**:
-  - Visual screenshot/layout inspection across dark/light themes, Arabic RTL, and French locales (no emulator/ADB available in environment).
-
-## Phase 6: Robolectric Tests, Static Audit & Final Build Verification (Completed)
-- **What changed**:
-  - Updated `app/src/main/java/com/example/ui/navigation/JarvisAppShell.kt` so tapping `More` in the bottom navigation bar always pops back to or opens `MoreRoute` directly rather than restoring a nested child sub-route (`VoiceRoute`, `DeviceRoute`, `SettingsRoute`).
-  - Updated `app/src/main/java/com/example/ui/screens/chat/ChatScreen.kt` so auto-scrolling triggers only when `totalItemCount > 3` and tightened composer vertical padding so initial user prompts remain visible on compact viewports.
-  - Updated `app/src/test/java/com/example/ExampleRobolectricTest.kt` to verify the `HomeRoute` launch screen (`home_greeting_text`, `home_headline_text`, `home_bento_voice`, `home_bento_chat`, `home_bento_models`, `home_bento_device`), added `home bento voice tile and history see all open expected destinations` (`home_bento_voice` -> `VoiceScreen` -> `voice_close_button` -> `HomeScreen`, and `home_history_see_all` -> `ChatScreen` with `history_drawer_sheet` expanded), and preserved all existing Voice, Models, More, Device, Settings, Chat, Drawer, and Arabic RTL test assertions (44 total unit + Robolectric tests).
-- **What was verified**:
-  - Ran `gradle :app:testDebugUnitTest --no-daemon` -> `BUILD SUCCESSFUL` (44/44 tests passed: 1 `ExampleUnitTest`, 37 `JarvisFoundationTest`, 6 `ExampleRobolectricTest`).
-  - Verified zero modifications to `core/`, `data/`, Room schema/migrations, tool/agent logic, `applicationId`, or `signingConfigs`.
-  - Audited `@Preview` annotations across all screens and components in both Light and Dark themes (`JarvisOrb`, `HomeScreen`, `MoreScreen`, `ChatScreen`, `HistoryDrawerContent`, `VoiceScreen`, `ModelManagerScreen`, `DeviceDashboardScreen`, `SettingsScreen`).
-  - Audited string resources across `res/values/strings.xml`, `res/values-ar/strings.xml`, and `res/values-fr/strings.xml`.
-- **What could NOT be verified**:
-  - Live visual rendering and pixel-level layout inspection of Dark (`#15161A`) and Light (`#F6F3EE`) themes on a physical Android screen or emulator (no ADB/emulator available in build container).
-  - Hardware GPU execution of the API 33+ AGSL `RuntimeShader` vs. the `< API 33` Canvas fallback on physical devices.
-  - Live OS broadcasts/callbacks for Battery Saver (`ACTION_POWER_SAVE_MODE_CHANGED`), Thermal Throttling (`OnThermalStatusChangedListener` API 29+), and `ANIMATOR_DURATION_SCALE = 0`.
-  - Real hardware microphone audio capture, hold-to-talk touch release latency, and Android TTS audio playback.
-
-## Phase 7: Repository Hygiene, `GPL-3.0` Licensing & `v1.0.0` Documentation Standardization (Completed)
-- **What changed**:
-  - Added `/LICENSE` containing the complete official **GNU General Public License v3.0 (`GPL-3.0`)** text.
-  - Cleaned `/.gitignore` to ignore `/app/build`, `.build-outputs/`, `.aistudio/`, `*.jks`, and `*.keystore`.
-  - Removed outdated scratch file `/IMPLEMENTATION_PLAN.md`.
-  - Standardized all 7 root documentation files (`README.md`, `ARCHITECTURE.md`, `BUILD_AND_INSTALL.md`, `CHANGELOG.md`, `RELEASE_NOTES.md`, `TEST_PLAN.md`, `OPEN_SOURCE_CREDITS.md`, `PROGRESS.md`) on **`v1.0.0` (`versionCode = 1`, `versionName = "1.0.0"`)** and **`GPL-3.0`**, removing all outdated claims (`2.0.0`, `1.1.0`, `Room v5`/`v6`, `17 tools`, `42 tests`, `Obsidian Slate #090D14 / #22D3EE`).
+  - Added `SecurityLogRedactor.kt`, `HttpSecuritySupport.kt` (redirect `Authorization` stripping + bounded reads), and `SecureCredentialStore.verifyKeystoreHealth()`.
+  - Expanded test suites to **55 JVM/Robolectric tests** and **4 Android Instrumentation tests** (`JarvisInstrumentationTest.kt` + `ExampleInstrumentedTest.kt`).
+  - Added Shizuku AIDL/`JarvisShizukuUserService` & Kadb/BouncyCastle R8 rules to `app/proguard-rules.pro`.
+  - Replaced prebuilt-APK-dependent workflows with a single build-from-source GitHub Actions workflow (`.github/workflows/android-release.yml`) using JDK 21, Android SDK, and Gradle 9.3.1, and removed redundant `build-debug.yml`.
+- **What could NOT be verified in container**:
+  - Live device execution of Android Instrumentation tests (`androidTest` compiled cleanly in container; execution requires ADB/physical device), live Shizuku daemon, physical Wireless Debugging pairing, and `.litertlm` hardware GPU inference.

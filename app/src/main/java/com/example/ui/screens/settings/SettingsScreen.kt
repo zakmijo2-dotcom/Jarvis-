@@ -30,14 +30,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -131,15 +135,32 @@ fun SettingsScreen(
     onOpenBridgeSetup: () -> Unit = {},
     onOpenPermissionsSecurity: () -> Unit = {},
     onOpenActivityHistory: () -> Unit = {},
-    onNavigateBack: () -> Unit = {}
+    onNavigateBack: () -> Unit = {},
+    onSetUiAdvancedMode: (Boolean) -> Unit = {},
+    onSetScreenshotVision: (Boolean) -> Unit = {},
+    onSetFloatingOverlay: (Boolean) -> Unit = {},
+    onSetBlockedPackagesCsv: (String) -> Unit = {},
+    onSetBraveApiKey: (String) -> Unit = {},
+    onSetSerpApiKey: (String) -> Unit = {},
+    onAddMcpServer: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
+    onSetMcpServerEnabled: (String, Boolean) -> Unit = { _, _ -> },
+    onSyncMcpServer: (String) -> Unit = {},
+    onDeleteMcpServer: (String) -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
     val settings = uiState.settings
     var hfTokenDraft by remember(settings.huggingFaceToken) { mutableStateOf(settings.huggingFaceToken) }
+    var blockedPackagesDraft by remember(settings.blockedPackagesCsv) { mutableStateOf(settings.blockedPackagesCsv) }
+    var mcpNameDraft by rememberSaveable { mutableStateOf("") }
+    var mcpUrlDraft by rememberSaveable { mutableStateOf("") }
+    var mcpTokenDraft by rememberSaveable { mutableStateOf("") }
+    var mcpWriteConfirmDraft by rememberSaveable { mutableStateOf(true) }
 
     var localExpanded by rememberSaveable { mutableStateOf(true) }
     var cloudExpanded by rememberSaveable { mutableStateOf(false) }
     var webExpanded by rememberSaveable { mutableStateOf(false) }
+    var phoneUseExpanded by rememberSaveable { mutableStateOf(false) }
+    var mcpExpanded by rememberSaveable { mutableStateOf(false) }
     var memoryExpanded by rememberSaveable { mutableStateOf(false) }
     var skillsExpanded by rememberSaveable { mutableStateOf(false) }
     var historyExpanded by rememberSaveable { mutableStateOf(false) }
@@ -148,59 +169,66 @@ fun SettingsScreen(
     var dataExpanded by rememberSaveable { mutableStateOf(false) }
 
     HudBackground {
-        LazyColumn(
+        val headerPalette = JarvisThemeTokens.palette
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .testTag("settings_list"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .windowInsetsPadding(WindowInsets.statusBars),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            item {
-                val headerPalette = JarvisThemeTokens.palette
-                Row(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 840.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                IconButton(
+                    onClick = onNavigateBack,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 840.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .minimumInteractiveComponentSize()
+                        .testTag("settings_back_button")
                 ) {
-                    IconButton(
-                        onClick = onNavigateBack,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("settings_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_navigate_back),
-                            tint = headerPalette.text
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = headerPalette.lavenderContainer
-                    ) {
-                        Box(
-                            modifier = Modifier.size(36.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Settings,
-                                contentDescription = null,
-                                tint = headerPalette.onHue,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = headerPalette.text
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.cd_navigate_back),
+                        tint = headerPalette.text
                     )
                 }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = headerPalette.lavenderContainer
+                ) {
+                    Box(
+                        modifier = Modifier.size(36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = null,
+                            tint = headerPalette.onHue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.settings_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = headerPalette.text,
+                    modifier = Modifier.testTag("settings_screen_title")
+                )
             }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag("settings_list"),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
 
             if (uiState.statusBannerMessage != null) {
                 item {
@@ -230,6 +258,24 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // Interface Mode card (Clean Chat Default vs. 4-Tab Advanced Operator Mode)
+            item {
+                HudPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .testTag("settings_interface_mode_card")
+                ) {
+                    SettingsSwitchRow(
+                        label = stringResource(R.string.settings_advanced_operator_mode),
+                        description = stringResource(R.string.settings_advanced_operator_desc),
+                        checked = settings.uiAdvancedModeEnabled,
+                        onCheckedChange = onSetUiAdvancedMode,
+                        testTag = "switch_advanced_operator_mode"
+                    )
                 }
             }
 
@@ -425,8 +471,178 @@ fun SettingsScreen(
                         onSetWebResearchEnabled = onSetWebResearchEnabled,
                         onSetWebSearchProvider = onSetWebSearchProvider,
                         onSetWebCustomUrl = onSetWebCustomUrl,
-                        onSetWebApiKey = onSetWebApiKey
+                        onSetWebApiKey = onSetWebApiKey,
+                        onSetBraveApiKey = onSetBraveApiKey,
+                        onSetSerpApiKey = onSetSerpApiKey
                     )
+                }
+            }
+
+            // 3b. Autonomous Phone-Use & Safety
+            item {
+                CollapsibleSettingsSection(
+                    title = "Autonomous phone-use & safety",
+                    summary = "${if (settings.screenshotVisionEnabled) "Visual capture" else "Text/OCR only"} · ${if (settings.floatingOverlayEnabled) "HUD overlay" else "HUD hidden"}",
+                    icon = Icons.Filled.Security,
+                    expanded = phoneUseExpanded,
+                    onToggle = { phoneUseExpanded = !phoneUseExpanded },
+                    headerTestTag = "settings_section_phone_use"
+                ) {
+                    SettingsSwitchRow(
+                        label = "Allow visual screenshot multimodal context",
+                        description = "When enabled with cloud consent, attaches downscaled screen captures to cloud vision requests. Off = compact UI tree & on-device ML Kit OCR only.",
+                        checked = settings.screenshotVisionEnabled,
+                        onCheckedChange = onSetScreenshotVision,
+                        testTag = "switch_screenshot_vision"
+                    )
+                    EditorialHairlineDivider()
+                    SettingsSwitchRow(
+                        label = "Floating agent execution pill",
+                        description = "Shows non-blocking step status and emergency Stop button while running tasks across other apps.",
+                        checked = settings.floatingOverlayEnabled,
+                        onCheckedChange = onSetFloatingOverlay,
+                        testTag = "switch_floating_overlay"
+                    )
+                    EditorialHairlineDivider()
+                    OutlinedTextField(
+                        value = blockedPackagesDraft,
+                        onValueChange = { blockedPackagesDraft = it },
+                        label = { Text("Extra blocked package IDs (comma-separated)") },
+                        singleLine = false,
+                        maxLines = 3,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("blocked_packages_input")
+                    )
+                    TextButton(
+                        onClick = { onSetBlockedPackagesCsv(blockedPackagesDraft) },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("save_blocked_packages_button")
+                    ) { Text("Save blocked packages") }
+                }
+            }
+
+            // 3c. MCP Servers (Streamable HTTP JSON-RPC 2.0)
+            item {
+                val enabledMcpCount = uiState.mcpServers.count { it.enabled }
+                CollapsibleSettingsSection(
+                    title = "MCP servers",
+                    summary = "${uiState.mcpServers.size} configured · $enabledMcpCount enabled",
+                    icon = Icons.Filled.Extension,
+                    expanded = mcpExpanded,
+                    onToggle = { mcpExpanded = !mcpExpanded },
+                    headerTestTag = "settings_section_mcp"
+                ) {
+                    OutlinedTextField(
+                        value = mcpNameDraft,
+                        onValueChange = { mcpNameDraft = it },
+                        label = { Text("Server name") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("mcp_name_input")
+                    )
+                    OutlinedTextField(
+                        value = mcpUrlDraft,
+                        onValueChange = { mcpUrlDraft = it },
+                        label = { Text("Streamable HTTP endpoint URL") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("mcp_url_input")
+                    )
+                    OutlinedTextField(
+                        value = mcpTokenDraft,
+                        onValueChange = { mcpTokenDraft = it },
+                        label = { Text("Bearer token (optional, encrypted)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("mcp_token_input")
+                    )
+                    SettingsSwitchRow(
+                        label = "Require confirmation for mutating MCP tools",
+                        description = "Prompts before executing tools that create, update, delete, or send external data.",
+                        checked = mcpWriteConfirmDraft,
+                        onCheckedChange = { mcpWriteConfirmDraft = it },
+                        testTag = "mcp_write_confirm_switch"
+                    )
+                    Button(
+                        onClick = {
+                            if (mcpNameDraft.isNotBlank() && mcpUrlDraft.isNotBlank()) {
+                                onAddMcpServer(mcpNameDraft, mcpUrlDraft, mcpTokenDraft, mcpWriteConfirmDraft)
+                                mcpNameDraft = ""
+                                mcpUrlDraft = ""
+                                mcpTokenDraft = ""
+                            }
+                        },
+                        enabled = mcpNameDraft.isNotBlank() && mcpUrlDraft.isNotBlank(),
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("mcp_add_button")
+                    ) { Text("Save & sync MCP server") }
+
+                    if (uiState.mcpServers.isNotEmpty()) {
+                        EditorialHairlineDivider()
+                        uiState.mcpServers.forEach { srv ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${srv.name} (${srv.tools.size} tools)",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = "${srv.lastStatus} · ${srv.endpointUrl}",
+                                        style = JarvisMonoTelemetryStyle,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Switch(
+                                        checked = srv.enabled,
+                                        onCheckedChange = { onSetMcpServerEnabled(srv.id, it) },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("mcp_enable_${srv.id}")
+                                    )
+                                    IconButton(
+                                        onClick = { onSyncMcpServer(srv.id) },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("mcp_sync_${srv.id}")
+                                    ) {
+                                        Icon(Icons.Filled.Refresh, contentDescription = "Sync MCP tools")
+                                    }
+                                    IconButton(
+                                        onClick = { onDeleteMcpServer(srv.id) },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("mcp_delete_${srv.id}")
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = "Delete MCP server",
+                                            tint = JarvisThemeTokens.palette.errorAccent
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -702,6 +918,7 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
         }
     }
 

@@ -44,6 +44,7 @@
     <string name="drawer_new_session">New session</string>
     <string name="drawer_search_hint">Filter sessions…</string>
     <string name="drawer_empty">No saved sessions yet.</string>
+    <string name="drawer_nav_activity">Activity</string>
     <string name="cd_open_history">Open conversation history</string>
     <string name="cd_delete_session">Delete session</string>
     <string name="cd_rename_session">Rename session</string>
@@ -53,9 +54,12 @@
     <string name="chat_input_hint">Ask anything or enter a command…</string>
     <string name="cd_send_message">Send message</string>
     <string name="cd_voice_handoff">Switch to voice</string>
+    <string name="cd_attach_image">Attach image</string>
+    <string name="cd_clear_attachment">Remove attached image</string>
     <string name="chat_empty_title">Ready when you are</string>
     <string name="chat_empty_subtitle">Local LiteRT-LM models, Android actions, web search, and optional cloud routing.</string>
     <string name="chip_telemetry_snapshot">System status</string>
+    <string name="chip_inspect_screen">Inspect screen</string>
     <string name="chip_engine_status">Check engine</string>
     <string name="chip_open_models">Models</string>
 
@@ -93,6 +97,8 @@
     <!-- Settings Screen -->
     <string name="settings_title">Settings</string>
     <string name="settings_clear_history">Clear all conversations and memory</string>
+    <string name="settings_advanced_operator_mode">Advanced Operator Mode</string>
+    <string name="settings_advanced_operator_desc">Show the 4-tab operator navigation bar (Home, Chat, Models, More) and full inline diagnostic strips. Off keeps a clean chat-first workspace.</string>
 
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">Jarvis Notification Reader</string>

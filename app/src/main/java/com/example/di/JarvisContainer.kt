@@ -20,6 +20,8 @@ import com.example.core.device.PermissionManager
 import com.example.core.device.ShizukuController
 import com.example.core.device.WirelessAdbController
 import com.example.core.hf.HuggingFaceApiClient
+import com.example.core.mcp.McpClient
+import com.example.core.mcp.McpManager
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.RoomLocalMemory
 import com.example.core.model.DownloadQueueManager
@@ -28,6 +30,7 @@ import com.example.core.model.ModelCompatibilityEngine
 import com.example.core.model.ModelFormatRegistry
 import com.example.core.model.ModelManager
 import com.example.core.model.RoomModelManager
+import com.example.core.overlay.ExecutionOverlayManager
 import com.example.core.security.HttpSecuritySupport
 import com.example.core.security.SecureCredentialStore
 import com.example.core.skills.RoomSkillEngine
@@ -35,14 +38,19 @@ import com.example.core.skills.SkillEngine
 import com.example.core.tools.AndroidSystemTools
 import com.example.core.tools.AndroidTools
 import com.example.core.tools.ToolRegistry
+import com.example.core.vision.OnDeviceOcrEngine
+import com.example.core.vision.ScreenPerceptionEngine
 import com.example.core.voice.AndroidVoiceEngine
 import com.example.core.voice.VoiceEngine
 import com.example.core.wakeword.ModularWakeWordEngine
 import com.example.core.wakeword.WakeWordEngine
 import com.example.core.web.OkHttpWebResearchService
+import com.example.core.web.WebPageExtractor
 import com.example.core.web.WebResearchService
+import com.example.data.local.db.AgentCheckpointDao
 import com.example.data.local.db.JarvisDatabase
 import com.example.data.local.db.ModelBenchmarkDao
+import com.example.data.local.db.ResearchHistoryDao
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.SettingsRepository
 
@@ -133,7 +141,53 @@ open class JarvisContainer(context: Context) {
 
     open val cloudAiClient: CloudAiClient by lazy { OkHttpCloudAiClient(baseClient = sharedOkHttpClient) }
 
-    open val webResearchService: WebResearchService by lazy { OkHttpWebResearchService(baseClient = sharedOkHttpClient) }
+    open val agentCheckpointDao: AgentCheckpointDao by lazy {
+        database.agentCheckpointDao()
+    }
+
+    open val researchHistoryDao: ResearchHistoryDao by lazy {
+        database.researchHistoryDao()
+    }
+
+    open val webResearchService: WebResearchService by lazy {
+        OkHttpWebResearchService(
+            baseClient = sharedOkHttpClient,
+            researchHistoryDao = researchHistoryDao
+        )
+    }
+
+    open val webPageExtractor: WebPageExtractor by lazy {
+        WebPageExtractor(baseClient = sharedOkHttpClient)
+    }
+
+    open val mcpClient: McpClient by lazy {
+        McpClient(baseClient = sharedOkHttpClient)
+    }
+
+    open val mcpManager: McpManager by lazy {
+        McpManager(
+            context = appContext,
+            mcpServerDao = database.mcpServerDao(),
+            mcpClient = mcpClient,
+            credentialStore = credentialStore
+        )
+    }
+
+    open val onDeviceOcrEngine: OnDeviceOcrEngine by lazy {
+        OnDeviceOcrEngine()
+    }
+
+    open val executionOverlayManager: ExecutionOverlayManager by lazy {
+        ExecutionOverlayManager(appContext)
+    }
+
+    open val screenPerceptionEngine: ScreenPerceptionEngine by lazy {
+        ScreenPerceptionEngine(
+            context = appContext,
+            ocrEngine = onDeviceOcrEngine,
+            overlayManager = executionOverlayManager
+        )
+    }
 
     open val voiceEngine: VoiceEngine by lazy {
         AndroidVoiceEngine(appContext)
@@ -196,7 +250,11 @@ open class JarvisContainer(context: Context) {
             androidTools = androidTools,
             localMemoryProvider = { localMemory },
             skillEngineProvider = { skillEngine },
-            deviceCommandRouterProvider = { deviceCommandRouter }
+            deviceCommandRouterProvider = { deviceCommandRouter },
+            perceptionEngineProvider = { screenPerceptionEngine },
+            webResearchProvider = { webResearchService },
+            webPageExtractorProvider = { webPageExtractor },
+            mcpManagerProvider = { mcpManager }
         )
     }
 
@@ -225,7 +283,11 @@ open class JarvisContainer(context: Context) {
             skillEngine = skillEngine,
             deviceCommandRouter = deviceCommandRouter,
             modelRouter = modelRouter,
-            modelBenchmarkDao = modelBenchmarkDao
+            modelBenchmarkDao = modelBenchmarkDao,
+            screenPerceptionEngine = screenPerceptionEngine,
+            executionOverlayManager = executionOverlayManager,
+            checkpointDao = agentCheckpointDao,
+            mcpManager = mcpManager
         )
     }
 }

@@ -11,6 +11,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,8 +28,29 @@ class UiNavigationAndSecurityTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    @Before
+    fun resetSettingsBefore() {
+        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+        composeTestRule.waitForIdle()
+    }
+
+    @After
+    fun resetSettingsAfter() {
+        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+    }
+
     @Test
-    fun `navigate through new sub hubs bridge setup permissions security and activity history`() {
+    fun `navigate through new sub hubs bridge setup permissions security and all activity history tabs`() {
+        composeTestRule.waitForIdle()
+
+        // Enable Advanced Operator Mode so the 4-tab bar + More hub are accessible
+        composeTestRule.onNodeWithTag("topbar_settings_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("switch_advanced_operator_mode").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
         composeTestRule.waitForIdle()
 
         // 1. Open More -> Shizuku & Wireless ADB Setup
@@ -55,7 +80,7 @@ class UiNavigationAndSecurityTest {
         // Ephemeral 6-digit pairing code must be wiped immediately after pairing attempt
         composeTestRule.onNodeWithTag("adb_pairing_code_input").assertTextEquals("6-digit code", "")
 
-        // Back to More -> Permissions & Security (pinned top bar button is always visible)
+        // Back to More -> Permissions & Security (including MediaProjection card)
         composeTestRule.onNodeWithTag("bridge_back_button").performClick()
         composeTestRule.waitForIdle()
 
@@ -72,17 +97,25 @@ class UiNavigationAndSecurityTest {
         composeTestRule.onNodeWithTag("keystore_health_card").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("permissions_security_list")
+            .performScrollToNode(hasTestTag("sec_grant_projection_btn"))
+        composeTestRule.onNodeWithTag("sec_grant_projection_btn").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("permissions_security_list")
             .performScrollToNode(hasTestTag("permissions_back_button"))
         composeTestRule.onNodeWithTag("permissions_back_button").performClick()
         composeTestRule.waitForIdle()
 
-        // 3. Open Activity & Benchmarks History and cycle all 3 tabs
+        // 3. Open Activity & Benchmarks History and cycle all 5 tabs
         composeTestRule.onNodeWithTag("more_screen_list")
             .performScrollToNode(hasTestTag("nav_tab_activity_history"))
         composeTestRule.onNodeWithTag("nav_tab_activity_history").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("history_tab_executions").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("history_tab_checkpoints").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("history_tab_web").performClick()
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("history_tab_commands").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("history_tab_benchmarks").performClick()
@@ -96,25 +129,8 @@ class UiNavigationAndSecurityTest {
     fun `settings supports dark light system theme switching and model hub renders hardware fit card`() {
         composeTestRule.waitForIdle()
 
-        // Models tab shows storage & hardware fit card
-        composeTestRule.onNodeWithTag("nav_tab_models").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.waitUntil(timeoutMillis = 5000) {
-            composeTestRule
-                .onAllNodesWithTag("active_model_banner")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithTag("model_manager_list")
-            .performScrollToNode(hasTestTag("model_storage_and_fit_card"))
-        composeTestRule.onNodeWithTag("model_storage_and_fit_card").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Storage & hardware fit").assertIsDisplayed()
-
-        // More -> Settings -> Appearance -> Toggle Light & Dark Graphite theme cleanly
-        composeTestRule.onNodeWithTag("nav_tab_more").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("more_screen_list")
-            .performScrollToNode(hasTestTag("nav_tab_settings"))
-        composeTestRule.onNodeWithTag("nav_tab_settings").performClick()
+        // Chat -> Settings -> Appearance -> Toggle Light & Dark Graphite theme cleanly
+        composeTestRule.onNodeWithTag("topbar_settings_button").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("settings_list")
@@ -130,5 +146,21 @@ class UiNavigationAndSecurityTest {
         composeTestRule.onNodeWithTag("theme_chip_dark").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("theme_chip_dark").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Open Models via Clean Chat top bar model selector chip and verify hardware fit card
+        composeTestRule.onNodeWithTag("chat_model_selector_chip").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule
+                .onAllNodesWithTag("active_model_banner")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("model_manager_list")
+            .performScrollToNode(hasTestTag("model_storage_and_fit_card"))
+        composeTestRule.onNodeWithTag("model_storage_and_fit_card").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Storage & hardware fit").assertIsDisplayed()
     }
 }

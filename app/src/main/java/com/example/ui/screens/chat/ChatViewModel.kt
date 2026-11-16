@@ -1,5 +1,9 @@
 package com.example.ui.screens.chat
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,9 +16,12 @@ import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.GenerationBenchmark
+import com.example.core.cloud.CloudImageAttachment
 import com.example.core.memory.LocalMemory
 import com.example.core.model.ModelManager
 import com.example.core.model.ModelSlot
+import com.example.core.overlay.ExecutionHudState
+import com.example.core.overlay.ExecutionOverlayManager
 import com.example.core.tools.AndroidTools
 import com.example.core.tools.NotificationBridge
 import com.example.core.tools.PendingToolConfirmation
@@ -22,6 +29,8 @@ import com.example.core.tools.SpecialAccessType
 import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
+import com.example.core.vision.OnDeviceOcrEngine
+import com.example.core.vision.ScreenPerceptionEngine
 import java.io.File
 import com.example.data.local.db.ConversationWithPreview
 import com.example.data.local.db.MessageEntity
@@ -32,6 +41,7 @@ import com.example.data.repository.ConversationRepository
 import com.example.data.repository.JarvisSettings
 import com.example.data.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +52,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 data class ChatUiState(
@@ -65,7 +76,10 @@ data class ChatUiState(
     val activePlan: AgentPlanState? = null,
     val pendingRuntimePermission: String? = null,
     val pendingSpecialAccess: SpecialAccessType? = null,
-    val permissionRationale: String? = null
+    val permissionRationale: String? = null,
+    val executionHudState: ExecutionHudState = ExecutionHudState(),
+    val attachedImageLabel: String? = null,
+    val attachedImageOcrPreview: String? = null
 )
 
 private data class ChatToolOverlayState(
@@ -75,7 +89,9 @@ private data class ChatToolOverlayState(
     val pendingSpecialAccess: SpecialAccessType? = null,
     val permissionRationale: String? = null,
     val activePlan: AgentPlanState? = null,
-    val streamingIsCloud: Boolean = false
+    val streamingIsCloud: Boolean = false,
+    val attachedImage: CloudImageAttachment? = null,
+    val attachedImageOcrText: String? = null
 )
 
 private data class PausedPlanResumeContext(
@@ -95,7 +111,10 @@ class ChatViewModel(
     private val settingsRepository: SettingsRepository,
     private val modelBenchmarkDao: ModelBenchmarkDao? = null,
     private val localMemory: LocalMemory? = null,
-    private val androidTools: AndroidTools? = null
+    private val androidTools: AndroidTools? = null,
+    private val executionOverlayManager: ExecutionOverlayManager? = null,
+    private val onDeviceOcrEngine: OnDeviceOcrEngine? = null,
+    private val screenPerceptionEngine: ScreenPerceptionEngine? = null
 ) : ViewModel() {
 
     private val activeConversationId = MutableStateFlow<String?>(null)
@@ -140,6 +159,8 @@ class ChatViewModel(
         )
     }
 
+    private val hudStateFlow = executionOverlayManager?.hudState ?: flowOf(ExecutionHudState())
+
     val uiState: StateFlow<ChatUiState> = combine(
         baseDataFlow,
         aiEngine.loadState,
@@ -149,7 +170,8 @@ class ChatViewModel(
         streamingTokenEstimate,
         aiEngine.lastBenchmark,
         aiEngine.nativeMemoryMb,
-        toolOverlayState
+        toolOverlayState,
+        hudStateFlow
     ) { values ->
         val base = values[0] as BaseDataSnapshot
         val loadState = values[1] as EngineLoadState
@@ -160,6 +182,7 @@ class ChatViewModel(
         val lastBench = values[6] as GenerationBenchmark?
         val nativeMem = values[7] as Float
         val toolOverlay = values[8] as ChatToolOverlayState
+        val hudState = values[9] as ExecutionHudState
 
         val resolvedId = base.activeId ?: base.allConversations.firstOrNull()?.id
         val filteredConversations = if (base.query.isBlank()) {
@@ -195,7 +218,10 @@ class ChatViewModel(
             activePlan = toolOverlay.activePlan,
             pendingRuntimePermission = toolOverlay.pendingRuntimePermission,
             pendingSpecialAccess = toolOverlay.pendingSpecialAccess,
-            permissionRationale = toolOverlay.permissionRationale
+            permissionRationale = toolOverlay.permissionRationale,
+            executionHudState = hudState,
+            attachedImageLabel = toolOverlay.attachedImage?.label,
+            attachedImageOcrPreview = toolOverlay.attachedImageOcrText
         )
     }.stateIn(
         scope = viewModelScope,
@@ -210,9 +236,84 @@ class ChatViewModel(
         }
     }
 
+    fun attachImageUri(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            val processed = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    } ?: return@runCatching null
+                    val perception = screenPerceptionEngine ?: ScreenPerceptionEngine(context)
+                    val encoded = perception.encodeDownscaledJpegBase64(bitmap)
+                    val ocr = onDeviceOcrEngine?.recognizeBitmap(bitmap)
+                    if (!bitmap.isRecycled) runCatching { bitmap.recycle() }
+                    val b64 = encoded?.first ?: return@runCatching null
+                    val label = uri.lastPathSegment?.take(28)?.ifBlank { "photo.jpg" } ?: "photo.jpg"
+                    val attachment = CloudImageAttachment(
+                        base64Data = b64,
+                        mimeType = "image/jpeg",
+                        label = label
+                    )
+                    attachment to (ocr?.fullText?.takeIf { it.isNotBlank() })
+                }.getOrNull()
+            }
+            if (processed != null) {
+                toolOverlayState.value = toolOverlayState.value.copy(
+                    attachedImage = processed.first,
+                    attachedImageOcrText = processed.second
+                )
+            }
+        }
+    }
+
+    fun clearAttachedImage() {
+        toolOverlayState.value = toolOverlayState.value.copy(
+            attachedImage = null,
+            attachedImageOcrText = null
+        )
+    }
+
+    fun submitSteering(text: String) {
+        agentCore.submitSteeringMessage(text)
+    }
+
+    fun resumeSavedCheckpoint(checkpointId: String) {
+        if (uiState.value.isGenerating) return
+        generationJob = viewModelScope.launch {
+            val convId = activeConversationId.value
+                ?: conversationRepository.ensureDefaultConversation().also {
+                    activeConversationId.value = it
+                }
+            val settings = uiState.value.settings
+            val activeModel = modelManager.getActiveModelOnce()
+            val history = conversationRepository.getMessagesOnce(convId)
+            runHybridExecution(
+                convId = convId,
+                prompt = "",
+                history = history,
+                settings = settings,
+                activeModel = activeModel,
+                confirmedStepIndex = null,
+                existingSteps = null,
+                resumeCheckpointId = checkpointId
+            )
+        }
+    }
+
     fun sendMessage(rawText: String) {
         val text = rawText.trim()
-        if (text.isEmpty() || uiState.value.isGenerating) return
+        val attached = toolOverlayState.value.attachedImage
+        val ocrText = toolOverlayState.value.attachedImageOcrText
+        if ((text.isEmpty() && attached == null) || uiState.value.isGenerating) return
+        val displayPrompt = if (text.isNotEmpty()) text else "Describe attached image (${attached?.label ?: "photo"})"
+        val augmentedUserPrompt = buildString {
+            append(displayPrompt)
+            if (!ocrText.isNullOrBlank()) {
+                append("\n\n[ON_DEVICE_IMAGE_OCR_TEXT]: ")
+                append(ocrText.take(1500))
+            }
+        }
+        clearAttachedImage()
 
         generationJob = viewModelScope.launch {
             val convId = activeConversationId.value
@@ -223,21 +324,27 @@ class ChatViewModel(
             val activeModel = modelManager.getActiveModelOnce()
             val historyBeforeSend = conversationRepository.getMessagesOnce(convId)
 
+            val savedContent = if (attached != null) {
+                "$displayPrompt\n[Attached image: ${attached.label}]"
+            } else {
+                displayPrompt
+            }
             conversationRepository.appendMessage(
                 conversationId = convId,
                 role = MessageRole.USER,
-                content = text,
+                content = savedContent,
                 modelLabel = "Operator"
             )
 
             runHybridExecution(
                 convId = convId,
-                prompt = text,
+                prompt = augmentedUserPrompt,
                 history = historyBeforeSend,
                 settings = currentSettings,
                 activeModel = activeModel,
                 confirmedStepIndex = null,
-                existingSteps = null
+                existingSteps = null,
+                attachments = listOfNotNull(attached)
             )
         }
     }
@@ -273,7 +380,9 @@ class ChatViewModel(
         settings: JarvisSettings,
         activeModel: ModelSlot?,
         confirmedStepIndex: Int?,
-        existingSteps: List<AgentPlanStep>?
+        existingSteps: List<AgentPlanStep>?,
+        attachments: List<CloudImageAttachment> = emptyList(),
+        resumeCheckpointId: String? = null
     ) {
         try {
             agentCore.executeHybridTask(
@@ -282,7 +391,9 @@ class ChatViewModel(
                 history = history,
                 settings = settings,
                 confirmedStepIndex = confirmedStepIndex,
-                existingSteps = existingSteps
+                existingSteps = existingSteps,
+                attachments = attachments,
+                resumeCheckpointId = resumeCheckpointId
             ).collect { hybridEvent ->
                 when (hybridEvent) {
                     is HybridAgentEvent.PlanUpdated -> {
@@ -768,7 +879,10 @@ class ChatViewModel(
             settingsRepository: SettingsRepository,
             modelBenchmarkDao: ModelBenchmarkDao? = null,
             localMemory: LocalMemory? = null,
-            androidTools: AndroidTools? = null
+            androidTools: AndroidTools? = null,
+            executionOverlayManager: ExecutionOverlayManager? = null,
+            onDeviceOcrEngine: OnDeviceOcrEngine? = null,
+            screenPerceptionEngine: ScreenPerceptionEngine? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -780,7 +894,10 @@ class ChatViewModel(
                     settingsRepository = settingsRepository,
                     modelBenchmarkDao = modelBenchmarkDao,
                     localMemory = localMemory,
-                    androidTools = androidTools
+                    androidTools = androidTools,
+                    executionOverlayManager = executionOverlayManager,
+                    onDeviceOcrEngine = onDeviceOcrEngine,
+                    screenPerceptionEngine = screenPerceptionEngine
                 ) as T
             }
         }

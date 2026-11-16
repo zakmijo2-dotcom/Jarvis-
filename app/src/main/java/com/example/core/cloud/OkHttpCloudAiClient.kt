@@ -292,10 +292,26 @@ class OkHttpCloudAiClient(
                         }
                     )
                 }
+                val userParts = JSONArray().apply {
+                    put(JSONObject().put("text", prompt))
+                    config.attachments.take(3).forEach { att ->
+                        if (att.base64Data.isNotBlank()) {
+                            put(
+                                JSONObject().put(
+                                    "inlineData",
+                                    JSONObject().apply {
+                                        put("mimeType", att.mimeType)
+                                        put("data", att.base64Data)
+                                    }
+                                )
+                            )
+                        }
+                    }
+                }
                 contents.put(
                     JSONObject().apply {
                         put("role", "user")
-                        put("parts", JSONArray().put(JSONObject().put("text", prompt)))
+                        put("parts", userParts)
                     }
                 )
                 val payload = JSONObject().apply {
@@ -339,7 +355,30 @@ class OkHttpCloudAiClient(
                         }
                     )
                 }
-                messages.put(JSONObject().put("role", "user").put("content", prompt))
+                val validAtts = config.attachments.filter { it.base64Data.isNotBlank() }.take(3)
+                if (validAtts.isEmpty()) {
+                    messages.put(JSONObject().put("role", "user").put("content", prompt))
+                } else {
+                    val contentArr = JSONArray().apply {
+                        validAtts.forEach { att ->
+                            put(
+                                JSONObject().apply {
+                                    put("type", "image")
+                                    put(
+                                        "source",
+                                        JSONObject().apply {
+                                            put("type", "base64")
+                                            put("media_type", att.mimeType)
+                                            put("data", att.base64Data)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                        put(JSONObject().put("type", "text").put("text", prompt))
+                    }
+                    messages.put(JSONObject().put("role", "user").put("content", contentArr))
+                }
                 val payload = JSONObject().apply {
                     put("model", config.modelId)
                     put("max_tokens", config.maxOutputTokens)
@@ -374,7 +413,26 @@ class OkHttpCloudAiClient(
                         }
                     )
                 }
-                messages.put(JSONObject().put("role", "user").put("content", prompt))
+                val validAtts = config.attachments.filter { it.base64Data.isNotBlank() }.take(3)
+                if (validAtts.isEmpty()) {
+                    messages.put(JSONObject().put("role", "user").put("content", prompt))
+                } else {
+                    val contentArr = JSONArray().apply {
+                        put(JSONObject().put("type", "text").put("text", prompt))
+                        validAtts.forEach { att ->
+                            put(
+                                JSONObject().apply {
+                                    put("type", "image_url")
+                                    put(
+                                        "image_url",
+                                        JSONObject().put("url", "data:${att.mimeType};base64,${att.base64Data}")
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    messages.put(JSONObject().put("role", "user").put("content", contentArr))
+                }
                 val payload = JSONObject().apply {
                     put("model", config.modelId)
                     put("messages", messages)

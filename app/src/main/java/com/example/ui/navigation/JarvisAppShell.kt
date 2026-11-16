@@ -158,6 +158,7 @@ fun JarvisAppShell(
     var activeConversationIdHint by rememberSaveable { mutableStateOf<String?>(null) }
     var drawerSearchQuery by rememberSaveable { mutableStateOf("") }
     var pendingVoiceTranscript by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingResumeCheckpointId by rememberSaveable { mutableStateOf<String?>(null) }
     var openControlsTabOnDevice by rememberSaveable { mutableStateOf(false) }
 
     val defaultGreetingName = stringResource(R.string.home_default_name)
@@ -284,6 +285,22 @@ fun JarvisAppShell(
                             activeConversationIdHint = fallbackId
                         }
                     }
+                },
+                onOpenModels = {
+                    scope.launch { drawerState.close() }
+                    navigateToSubRoute(ModelsRoute)
+                },
+                onOpenVoice = {
+                    scope.launch { drawerState.close() }
+                    navigateToSubRoute(VoiceRoute)
+                },
+                onOpenActivityHistory = {
+                    scope.launch { drawerState.close() }
+                    navigateToSubRoute(ActivityHistoryRoute)
+                },
+                onOpenSettings = {
+                    scope.launch { drawerState.close() }
+                    navigateToSubRoute(SettingsRoute)
                 }
             )
         }
@@ -296,7 +313,7 @@ fun JarvisAppShell(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
-                    if (!useRail) {
+                    if (settings.uiAdvancedModeEnabled && !useRail) {
                         Column {
                             EditorialHairlineDivider()
                             NavigationBar(
@@ -350,7 +367,7 @@ fun JarvisAppShell(
                         .fillMaxSize()
                         .padding(innerPadding)
                 ) {
-                    if (useRail) {
+                    if (settings.uiAdvancedModeEnabled && useRail) {
                         val palette = JarvisThemeTokens.palette
                         NavigationRail(
                             containerColor = palette.surface,
@@ -401,7 +418,7 @@ fun JarvisAppShell(
 
                     NavHost(
                         navController = navController,
-                        startDestination = HomeRoute,
+                        startDestination = ChatRoute,
                         enterTransition = { fadeIn(animationSpec = tween(180)) },
                         exitTransition = { fadeOut(animationSpec = tween(150)) },
                         popEnterTransition = { fadeIn(animationSpec = tween(180)) },
@@ -473,7 +490,10 @@ fun JarvisAppShell(
                                     settingsRepository = container.settingsRepository,
                                     modelBenchmarkDao = container.modelBenchmarkDao,
                                     localMemory = container.localMemory,
-                                    androidTools = container.androidTools
+                                    androidTools = container.androidTools,
+                                    executionOverlayManager = container.executionOverlayManager,
+                                    onDeviceOcrEngine = container.onDeviceOcrEngine,
+                                    screenPerceptionEngine = container.screenPerceptionEngine
                                 )
                             )
                             val chatState by chatViewModel.uiState.collectAsStateWithLifecycle()
@@ -496,6 +516,13 @@ fun JarvisAppShell(
                                     chatViewModel.sendMessage(transcript)
                                 }
                             }
+                            LaunchedEffect(pendingResumeCheckpointId) {
+                                val checkpointId = pendingResumeCheckpointId
+                                if (!checkpointId.isNullOrBlank()) {
+                                    pendingResumeCheckpointId = null
+                                    chatViewModel.resumeSavedCheckpoint(checkpointId)
+                                }
+                            }
 
                             ChatScreen(
                                 uiState = chatState,
@@ -507,7 +534,7 @@ fun JarvisAppShell(
                                 onRunSystemSnapshot = chatViewModel::runSystemSnapshot,
                                 onRunReadinessAudit = chatViewModel::runEngineReadinessAudit,
                                 onNavigateToVoice = { navigateToSubRoute(VoiceRoute) },
-                                onNavigateToModels = { navigateToDestination(TopDestination.MODELS) },
+                                onNavigateToModels = { navigateToSubRoute(ModelsRoute) },
                                 onConfirmPendingTool = chatViewModel::confirmPendingTool,
                                 onCancelPendingTool = chatViewModel::cancelPendingTool,
                                 onCancelActiveTool = chatViewModel::cancelActiveTool,
@@ -519,7 +546,11 @@ fun JarvisAppShell(
                                 },
                                 onSelectRoutingMode = chatViewModel::setRoutingMode,
                                 onSummarizeSession = chatViewModel::summarizeCurrentSessionToMemory,
-                                onRegenerateResponse = chatViewModel::regenerateLastResponse
+                                onRegenerateResponse = chatViewModel::regenerateLastResponse,
+                                onAttachImageUri = { uri -> chatViewModel.attachImageUri(context, uri) },
+                                onClearAttachment = chatViewModel::clearAttachedImage,
+                                onSubmitSteering = chatViewModel::submitSteering,
+                                onOpenSettings = { navigateToSubRoute(SettingsRoute) }
                             )
                         }
 
@@ -834,11 +865,30 @@ fun JarvisAppShell(
                                 .collectAsStateWithLifecycle(initialValue = emptyList())
                             val benchmarks by container.modelBenchmarkDao.observeBenchmarks()
                                 .collectAsStateWithLifecycle(initialValue = emptyList())
+                            val checkpoints by container.agentCheckpointDao.observeCheckpoints()
+                                .collectAsStateWithLifecycle(initialValue = emptyList())
+                            val researchHistory by container.researchHistoryDao.observeHistory()
+                                .collectAsStateWithLifecycle(initialValue = emptyList())
 
                             ActivityHistoryScreen(
                                 executions = executions,
                                 commandResults = commandResults,
                                 benchmarks = benchmarks,
+                                checkpoints = checkpoints,
+                                researchHistory = researchHistory,
+                                onResumeCheckpoint = { checkpointId ->
+                                    val cp = checkpoints.firstOrNull { it.id == checkpointId }
+                                    if (cp != null) {
+                                        activeConversationIdHint = cp.conversationId
+                                    }
+                                    pendingResumeCheckpointId = checkpointId
+                                    navigateToDestination(TopDestination.CHAT)
+                                },
+                                onDeleteCheckpoint = { checkpointId ->
+                                    scope.launch {
+                                        container.agentCheckpointDao.deleteCheckpoint(checkpointId)
+                                    }
+                                },
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }
@@ -852,7 +902,8 @@ fun JarvisAppShell(
                                     wakeWordEngine = container.wakeWordEngine,
                                     localMemory = container.localMemory,
                                     agentCore = container.agentCore,
-                                    skillEngine = container.skillEngine
+                                    skillEngine = container.skillEngine,
+                                    mcpManager = container.mcpManager
                                 )
                             )
                             val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
@@ -896,7 +947,17 @@ fun JarvisAppShell(
                                 onOpenBridgeSetup = { navigateToSubRoute(DeviceBridgeSetupRoute) },
                                 onOpenPermissionsSecurity = { navigateToSubRoute(PermissionsSecurityRoute) },
                                 onOpenActivityHistory = { navigateToSubRoute(ActivityHistoryRoute) },
-                                onNavigateBack = { navController.popBackStack() }
+                                onNavigateBack = { navController.popBackStack() },
+                                onSetUiAdvancedMode = settingsViewModel::setUiAdvancedModeEnabled,
+                                onSetScreenshotVision = settingsViewModel::setScreenshotVisionEnabled,
+                                onSetFloatingOverlay = settingsViewModel::setFloatingOverlayEnabled,
+                                onSetBlockedPackagesCsv = settingsViewModel::setBlockedPackagesCsv,
+                                onSetBraveApiKey = settingsViewModel::setBraveSearchApiKey,
+                                onSetSerpApiKey = settingsViewModel::setSerpApiKey,
+                                onAddMcpServer = settingsViewModel::addOrUpdateMcpServer,
+                                onSetMcpServerEnabled = settingsViewModel::setMcpServerEnabled,
+                                onSyncMcpServer = settingsViewModel::syncMcpServerTools,
+                                onDeleteMcpServer = settingsViewModel::deleteMcpServer
                             )
                         }
                     }

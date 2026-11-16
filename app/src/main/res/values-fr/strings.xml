@@ -38,6 +38,7 @@
     <string name="drawer_new_session">Nouvelle session</string>
     <string name="drawer_search_hint">Filtrer les sessions…</string>
     <string name="drawer_empty">Aucune session enregistrée.</string>
+    <string name="drawer_nav_activity">Activité</string>
     <string name="cd_open_history">Ouvrir l\'historique des conversations</string>
     <string name="cd_delete_session">Supprimer la session</string>
     <string name="cd_rename_session">Renommer la session</string>
@@ -47,9 +48,12 @@
     <string name="chat_input_hint">Écrivez un message ou une commande…</string>
     <string name="cd_send_message">Envoyer le message</string>
     <string name="cd_voice_handoff">Passer à la voix</string>
+    <string name="cd_attach_image">Joindre une image</string>
+    <string name="cd_clear_attachment">Retirer l\'image jointe</string>
     <string name="chat_empty_title">Prêt à vous aider</string>
     <string name="chat_empty_subtitle">Modèles locaux LiteRT-LM, actions Android, recherche web et routage cloud optionnel.</string>
     <string name="chip_telemetry_snapshot">État système</string>
+    <string name="chip_inspect_screen">Inspecter l\'écran</string>
     <string name="chip_engine_status">Vérifier moteur</string>
     <string name="chip_open_models">Modèles</string>
 
@@ -84,6 +88,8 @@
     <!-- Settings Screen -->
     <string name="settings_title">Paramètres</string>
     <string name="settings_clear_history">Effacer les conversations et la mémoire</string>
+    <string name="settings_advanced_operator_mode">Mode Opérateur Avancé</string>
+    <string name="settings_advanced_operator_desc">Afficher la barre à 4 onglets (Accueil, Chat, Modèles, Plus) et les diagnostics complets. Désactivé pour une interface Chat épurée.</string>
 
     <!-- Device Control & Accessibility -->
     <string name="notification_listener_label">Lecteur de notifications Jarvis</string>

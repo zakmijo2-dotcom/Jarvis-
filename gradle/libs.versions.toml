@@ -45,6 +45,7 @@ litertlmAndroid = "0.10.2"
 porcupineAndroid = "4.0.2"
 shizuku = "13.1.5"
 kadb = "1.3.0"
+mlkitTextRecognition = "16.0.1"
 
 
 [libraries]
@@ -105,6 +106,7 @@ porcupine-android = { group = "ai.picovoice", name = "porcupine-android", versio
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 kadb = { group = "com.flyfishxu", name = "kadb", version.ref = "kadb" }
+mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextRecognition" }
 
 
 [plugins]

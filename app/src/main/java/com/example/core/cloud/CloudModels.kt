@@ -62,6 +62,12 @@ enum class CloudProviderKind(
     }
 }
 
+data class CloudImageAttachment(
+    val base64Data: String,
+    val mimeType: String = "image/jpeg",
+    val label: String = "screen"
+)
+
 data class CloudInferenceConfig(
     val providerKind: CloudProviderKind,
     val endpointUrl: String,
@@ -70,7 +76,8 @@ data class CloudInferenceConfig(
     val timeoutSeconds: Int = 30,
     val maxOutputTokens: Int = 512,
     val temperature: Float = 0.7f,
-    val toolsSchemaJson: String? = null
+    val toolsSchemaJson: String? = null,
+    val attachments: List<CloudImageAttachment> = emptyList()
 )
 
 data class CloudUsageStats(

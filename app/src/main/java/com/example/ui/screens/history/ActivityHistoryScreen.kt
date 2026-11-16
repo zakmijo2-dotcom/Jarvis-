@@ -50,7 +50,9 @@ import com.example.core.agent.AgentExecutionRecord
 import com.example.core.device.DeviceCommandResult
 import com.example.core.device.DeviceControlBackend
 import com.example.core.device.PrivilegedActionId
+import com.example.data.local.db.AgentCheckpointEntity
 import com.example.data.local.db.ModelBenchmarkEntity
+import com.example.data.local.db.ResearchHistoryEntity
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
@@ -64,6 +66,8 @@ import java.util.Locale
 
 enum class ActivityHistoryTab(val label: String) {
     EXECUTIONS("Executions"),
+    CHECKPOINTS("Checkpoints"),
+    WEB_HISTORY("Web History"),
     COMMANDS("Device Commands"),
     BENCHMARKS("AI Benchmarks")
 }
@@ -73,7 +77,11 @@ fun ActivityHistoryScreen(
     executions: List<AgentExecutionRecord>,
     commandResults: List<DeviceCommandResult>,
     benchmarks: List<ModelBenchmarkEntity>,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    checkpoints: List<AgentCheckpointEntity> = emptyList(),
+    researchHistory: List<ResearchHistoryEntity> = emptyList(),
+    onResumeCheckpoint: (String) -> Unit = {},
+    onDeleteCheckpoint: (String) -> Unit = {}
 ) {
     val palette = JarvisThemeTokens.palette
     var selectedTab by rememberSaveable { mutableStateOf(ActivityHistoryTab.EXECUTIONS) }
@@ -161,6 +169,24 @@ fun ActivityHistoryScreen(
                             .testTag("history_tab_executions")
                     )
                     FilterChip(
+                        selected = selectedTab == ActivityHistoryTab.CHECKPOINTS,
+                        onClick = { selectedTab = ActivityHistoryTab.CHECKPOINTS },
+                        label = { Text("${ActivityHistoryTab.CHECKPOINTS.label} (${checkpoints.size})") },
+                        colors = chipColors,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("history_tab_checkpoints")
+                    )
+                    FilterChip(
+                        selected = selectedTab == ActivityHistoryTab.WEB_HISTORY,
+                        onClick = { selectedTab = ActivityHistoryTab.WEB_HISTORY },
+                        label = { Text("${ActivityHistoryTab.WEB_HISTORY.label} (${researchHistory.size})") },
+                        colors = chipColors,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("history_tab_web")
+                    )
+                    FilterChip(
                         selected = selectedTab == ActivityHistoryTab.COMMANDS,
                         onClick = { selectedTab = ActivityHistoryTab.COMMANDS },
                         label = { Text("${ActivityHistoryTab.COMMANDS.label} (${commandResults.size})") },
@@ -190,6 +216,34 @@ fun ActivityHistoryScreen(
                     } else {
                         items(executions, key = { it.id }) { record ->
                             ExecutionRecordCard(record = record)
+                        }
+                    }
+                }
+
+                ActivityHistoryTab.CHECKPOINTS -> {
+                    if (checkpoints.isEmpty()) {
+                        item {
+                            EmptyHistoryPanel("No saved agent checkpoints yet. Multi-step autonomous runs save recoverable checkpoints here.")
+                        }
+                    } else {
+                        items(checkpoints, key = { it.id }) { cp ->
+                            CheckpointCard(
+                                checkpoint = cp,
+                                onResume = { onResumeCheckpoint(cp.id) },
+                                onDelete = { onDeleteCheckpoint(cp.id) }
+                            )
+                        }
+                    }
+                }
+
+                ActivityHistoryTab.WEB_HISTORY -> {
+                    if (researchHistory.isEmpty()) {
+                        item {
+                            EmptyHistoryPanel("No web research logs yet. Enable Web Search in Settings to run grounded queries.")
+                        }
+                    } else {
+                        items(researchHistory, key = { it.id }) { rec ->
+                            ResearchHistoryCard(record = rec)
                         }
                     }
                 }
@@ -415,6 +469,113 @@ private fun MeasuredBenchmarkHistoryCard(bm: ModelBenchmarkEntity) {
             style = JarvisMonoTelemetryStyle,
             color = palette.textSecondary
         )
+    }
+}
+
+@Composable
+private fun CheckpointCard(
+    checkpoint: AgentCheckpointEntity,
+    onResume: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val palette = JarvisThemeTokens.palette
+    val time = SimpleDateFormat("MMM d · HH:mm:ss", Locale.getDefault()).format(Date(checkpoint.updatedAt))
+    HudPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 860.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Step ${checkpoint.currentStep}/${checkpoint.maxSteps} · $time",
+                style = JarvisMonoTelemetryStyle,
+                color = palette.skyAccent
+            )
+            HudBadge(
+                text = checkpoint.status,
+                color = palette.onHue,
+                containerColor = palette.lavenderContainer
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = checkpoint.userGoal,
+            style = MaterialTheme.typography.titleSmall,
+            color = palette.text
+        )
+        if (checkpoint.lastObservationSummary.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = checkpoint.lastObservationSummary,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textSecondary
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.OutlinedButton(
+                onClick = onResume,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("checkpoint_resume_${checkpoint.id}")
+            ) {
+                Text("Resume in Chat")
+            }
+            androidx.compose.material3.TextButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("checkpoint_delete_${checkpoint.id}")
+            ) {
+                Text("Delete", color = palette.errorAccent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResearchHistoryCard(record: ResearchHistoryEntity) {
+    val palette = JarvisThemeTokens.palette
+    val time = SimpleDateFormat("MMM d · HH:mm", Locale.getDefault()).format(Date(record.timestamp))
+    HudPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 860.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = time,
+                style = JarvisMonoTelemetryStyle,
+                color = palette.textSecondary
+            )
+            HudBadge(
+                text = record.provider,
+                color = palette.onHue,
+                containerColor = palette.skyContainer
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = record.query,
+            style = MaterialTheme.typography.titleSmall,
+            color = palette.text
+        )
+        if (record.summarySnippet.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = record.summarySnippet,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textSecondary
+            )
+        }
     }
 }
 

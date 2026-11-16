@@ -1,4 +1,4 @@
-name: Fast APK Build & Release
+name: Build & Release Signed APK
 
 on:
   push:
@@ -8,13 +8,17 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
     inputs:
-      fast_mode:
-        description: 'Fast APK build (skips slow R8 minification for rapid APK output)'
+      build_mode:
+        description: 'APK build mode'
         required: false
-        type: boolean
-        default: true
-      publish_github_release:
-        description: 'Publish APK to GitHub Releases'
+        type: choice
+        default: 'fast-release'
+        options:
+          - 'fast-release'
+          - 'r8-release'
+          - 'debug'
+      run_tests:
+        description: 'Run JVM & Robolectric unit tests before packaging'
         required: false
         type: boolean
         default: true
@@ -23,6 +27,11 @@ on:
         required: false
         type: string
         default: 'v1.0.1'
+      publish_github_release:
+        description: 'Publish APK to GitHub Releases'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -33,129 +42,132 @@ concurrency:
 
 jobs:
   build-apk:
-    name: Build & Release Signed APK
+    name: Test & Build Signed APK
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Gradle 9.3.1 with Build Cache
+      - name: Set up Android SDK & Licenses
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 9.3.1 & Build Cache
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare Signing Keystores
+      - name: Restore Debug Keystore
         shell: bash
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PW: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          if [[ ! -f debug.keystore ]]; then
+            if [[ -f debug.keystore.base64 ]]; then
+              tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
+            else
+              keytool -genkeypair -noprompt \
+                -keystore debug.keystore \
+                -alias androiddebugkey \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -storepass android \
+                -keypass android \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
 
-          # 1. Generate debug keystore for debug builds
-          keytool -genkeypair -noprompt \
-            -keystore debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
+      - name: Run JVM & Robolectric Test Suite
+        if: ${{ inputs.run_tests != false }}
+        shell: bash
+        run: gradle :app:testDebugUnitTest --no-daemon
 
-          # 2. Release keystore setup
-          KEYSTORE_FILE="${{ runner.temp }}/ci-upload-key.jks"
-          rm -f "$KEYSTORE_FILE"
-
-          if [[ -n "${KEYSTORE_B64:-}" ]]; then
-            RESOLVED_KEY_PW="${KEY_PW:-$STORE_PW}"
-            printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > "$KEYSTORE_FILE"
-            echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
-            echo "STORE_PASSWORD=$STORE_PW" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$RESOLVED_KEY_PW" >> "$GITHUB_ENV"
+      - name: Configure Release Signing Keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_FILE="${{ runner.temp }}/my-upload-key.jks"
+          if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$KEYSTORE_FILE"
+            STORE_PW="${ANDROID_STORE_PASSWORD:?ANDROID_STORE_PASSWORD secret is required with ANDROID_KEYSTORE_BASE64}"
+            KEY_PW="${ANDROID_KEY_PASSWORD:-$STORE_PW}"
           else
-            EPHEMERAL_PW="jarvis-ci-auto-key"
+            STORE_PW="jarvis-ci-ephemeral-key"
+            KEY_PW="$STORE_PW"
             keytool -genkeypair -noprompt \
               -keystore "$KEYSTORE_FILE" \
               -alias upload \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -storepass "$EPHEMERAL_PW" \
-              -keypass "$EPHEMERAL_PW" \
-              -dname "CN=JARVIS Android, OU=Mobile, O=JARVIS, L=Algiers, ST=DZ, C=DZ"
-            echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
-            echo "STORE_PASSWORD=$EPHEMERAL_PW" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$EPHEMERAL_PW" >> "$GITHUB_ENV"
+              -storepass "$STORE_PW" \
+              -keypass "$KEY_PW" \
+              -dname "CN=JARVIS Android CI,OU=Mobile,O=JARVIS,C=US"
           fi
+          echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+          echo "::add-mask::$STORE_PW"
+          echo "::add-mask::$KEY_PW"
+          echo "STORE_PASSWORD=$STORE_PW" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$KEY_PW" >> "$GITHUB_ENV"
 
-      - name: Build Release & Debug APKs
+      - name: Build Signed APK from Source
         shell: bash
-        run: |
-          set -euo pipefail
-          gradle :app:assembleRelease :app:assembleDebug -PfastApk=true --parallel --build-cache -x lint -x test --no-daemon
-
-      - name: Stage APKs & Generate Checksums
-        shell: bash
+        env:
+          BUILD_MODE: ${{ inputs.build_mode || 'fast-release' }}
         run: |
           set -euo pipefail
           DIST_DIR="${{ runner.temp }}/release-dist"
           rm -rf "$DIST_DIR"
           mkdir -p "$DIST_DIR"
 
-          RELEASE_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
-          DEBUG_APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)
-
-          if [[ -z "$RELEASE_APK" || ! -f "$RELEASE_APK" ]]; then
-            echo "::error::Signed Release APK was not generated."
-            exit 1
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* || "$BUILD_MODE" == "r8-release" ]]; then
+            echo "==> Building R8-optimized signed Release APK..."
+            gradle :app:assembleRelease --parallel --build-cache -x lint -x test --no-daemon
+            BUILT_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
+            cp "$BUILT_APK" "$DIST_DIR/JARVIS-v1.0.1.apk"
+          elif [[ "$BUILD_MODE" == "debug" ]]; then
+            echo "==> Building signed Debug APK..."
+            gradle :app:fastApk --parallel --build-cache -x lint -x test --no-daemon
+            cp "JARVIS-v1.0.1.apk" "$DIST_DIR/JARVIS-v1.0.1.apk"
+          else
+            echo "==> Building fast signed Release APK (-PfastApk=true)..."
+            gradle :app:assembleRelease -PfastApk=true --parallel --build-cache -x lint -x test --no-daemon
+            BUILT_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
+            cp "$BUILT_APK" "$DIST_DIR/JARVIS-v1.0.1.apk"
           fi
 
-          cp "$RELEASE_APK" "$DIST_DIR/Jarvis-release.apk"
-          if [[ -n "$DEBUG_APK" && -f "$DEBUG_APK" ]]; then
-            cp "$DEBUG_APK" "$DIST_DIR/Jarvis-debug.apk"
-          fi
-
-          (cd "$DIST_DIR" && sha256sum *.apk > SHA256SUMS.txt)
-
+          (cd "$DIST_DIR" && sha256sum JARVIS-v1.0.1.apk > SHA256SUMS.txt)
+          APK_SIZE=$(du -h "$DIST_DIR/JARVIS-v1.0.1.apk" | cut -f1)
           {
-            echo "## J.A.R.V.I.S Android APK Build"
-            echo "### Generated Artifacts"
-            for f in "$DIST_DIR"/*.apk; do
-              fname=$(basename "$f")
-              fsize=$(du -h "$f" | cut -f1)
-              echo "- **$fname** ($fsize)"
-            done
+            echo "## J.A.R.V.I.S v1.0.1 — Signed APK Build Summary"
+            echo "- **Build Mode:** \`${BUILD_MODE}\`"
+            echo "- **APK File:** \`JARVIS-v1.0.1.apk\` (${APK_SIZE})"
             echo ""
-            echo "### SHA-256 Checksums"
+            echo "### SHA-256 Checksum"
             echo '```'
             cat "$DIST_DIR/SHA256SUMS.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Clean Up Temporary Keystore
-        if: always()
-        shell: bash
-        run: rm -f "${{ runner.temp }}/ci-upload-key.jks" "${{ github.workspace }}/debug.keystore"
-
-      - name: Upload APK Artifacts
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jarvis-apks
+          name: JARVIS-v1.0.1-APK
           path: ${{ runner.temp }}/release-dist/*
           retention-days: 30
 
       - name: Resolve Release Tag Name
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_github_release) }}
+        if: ${{ github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_github_release)) }}
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.release_tag }}
@@ -170,7 +182,7 @@ jobs:
           echo "RESOLVED_RELEASE_TAG=$TAG_NAME" >> "$GITHUB_ENV"
 
       - name: Publish APK to GitHub Releases
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_github_release) }}
+        if: ${{ github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_github_release)) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RESOLVED_RELEASE_TAG }}

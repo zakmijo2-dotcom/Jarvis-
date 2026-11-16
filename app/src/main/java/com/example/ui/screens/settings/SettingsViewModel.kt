@@ -8,6 +8,8 @@ import com.example.core.agent.AgentExecutionRecord
 import com.example.core.agent.AgentRoutingMode
 import com.example.core.cloud.CloudProviderKind
 import com.example.core.cloud.CloudUsageStats
+import com.example.core.mcp.McpManager
+import com.example.core.mcp.McpServerConfig
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.MemoryFact
 import com.example.core.memory.MemoryKind
@@ -37,6 +39,7 @@ data class SettingsUiState(
     val memorySearchQuery: String = "",
     val memories: List<MemoryFact> = emptyList(),
     val skills: List<AgentSkill> = emptyList(),
+    val mcpServers: List<McpServerConfig> = emptyList(),
     val cloudUsageStats: CloudUsageStats = CloudUsageStats(),
     val executionHistory: List<AgentExecutionRecord> = emptyList(),
     val statusBannerMessage: String? = null
@@ -48,7 +51,8 @@ class SettingsViewModel(
     private val wakeWordEngine: WakeWordEngine,
     private val localMemory: LocalMemory,
     private val agentCore: AgentCore? = null,
-    private val skillEngine: SkillEngine? = null
+    private val skillEngine: SkillEngine? = null,
+    private val mcpManager: McpManager? = null
 ) : ViewModel() {
 
     private val statusBanner = MutableStateFlow<String?>(null)
@@ -57,6 +61,7 @@ class SettingsViewModel(
     private val cloudUsageFlow = agentCore?.cloudUsageStats ?: flowOf(CloudUsageStats())
     private val executionHistoryFlow = agentCore?.observeExecutionHistory() ?: flowOf(emptyList())
     private val skillsFlow = skillEngine?.observeSkills() ?: flowOf(emptyList())
+    private val mcpServersFlow = mcpManager?.observeServers() ?: flowOf(emptyList())
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.settingsFlow,
@@ -66,6 +71,7 @@ class SettingsViewModel(
         cloudUsageFlow,
         executionHistoryFlow,
         skillsFlow,
+        mcpServersFlow,
         statusBanner
     ) { values ->
         val settings = values[0] as JarvisSettings
@@ -78,7 +84,9 @@ class SettingsViewModel(
         val executions = values[5] as List<AgentExecutionRecord>
         @Suppress("UNCHECKED_CAST")
         val skills = values[6] as List<AgentSkill>
-        val banner = values[7] as String?
+        @Suppress("UNCHECKED_CAST")
+        val mcpServers = values[7] as List<McpServerConfig>
+        val banner = values[8] as String?
 
         val filtered = if (query.isBlank()) {
             allFacts
@@ -99,6 +107,7 @@ class SettingsViewModel(
             memorySearchQuery = query,
             memories = filtered,
             skills = skills,
+            mcpServers = mcpServers,
             cloudUsageStats = usage,
             executionHistory = executions,
             statusBannerMessage = banner
@@ -254,6 +263,108 @@ class SettingsViewModel(
         }
     }
 
+    fun setBraveSearchApiKey(apiKey: String) {
+        viewModelScope.launch {
+            settingsRepository.setBraveSearchApiKey(apiKey)
+            statusBanner.value = if (apiKey.isBlank()) {
+                "Brave Search key cleared."
+            } else {
+                "Brave Search API key encrypted & saved."
+            }
+        }
+    }
+
+    fun setSerpApiKey(apiKey: String) {
+        viewModelScope.launch {
+            settingsRepository.setSerpApiKey(apiKey)
+            statusBanner.value = if (apiKey.isBlank()) {
+                "SerpAPI key cleared."
+            } else {
+                "SerpAPI key encrypted & saved."
+            }
+        }
+    }
+
+    fun setUiAdvancedModeEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setUiAdvancedModeEnabled(enabled)
+            statusBanner.value = if (enabled) {
+                "Advanced Operator Mode active (Home, Chat, Models, More tabs)."
+            } else {
+                "Clean Chat Mode active. Access secondary hubs via drawer or top bar."
+            }
+        }
+    }
+
+    fun setScreenshotVisionEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setScreenshotVisionEnabled(enabled) }
+    }
+
+    fun setFloatingOverlayEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setFloatingOverlayEnabled(enabled) }
+    }
+
+    fun setBlockedPackagesCsv(csv: String) {
+        viewModelScope.launch {
+            settingsRepository.setBlockedPackagesCsv(csv)
+            statusBanner.value = "App blocklist updated."
+        }
+    }
+
+    fun addOrUpdateMcpServer(
+        name: String,
+        endpointUrl: String,
+        bearerToken: String,
+        requireWriteConfirmation: Boolean
+    ) {
+        val manager = mcpManager ?: return
+        viewModelScope.launch {
+            val res = manager.addOrUpdateServer(
+                name = name,
+                endpointUrl = endpointUrl,
+                bearerToken = bearerToken,
+                enabled = true,
+                requireWriteConfirmation = requireWriteConfirmation
+            )
+            statusBanner.value = if (res.isSuccess) {
+                val created = res.getOrThrow()
+                val sync = manager.syncServerTools(created.id)
+                if (sync.isSuccess) {
+                    "MCP server '${created.name}' synced (${sync.getOrThrow().tools.size} tools)."
+                } else {
+                    "Saved '${created.name}'; sync failed: ${sync.exceptionOrNull()?.localizedMessage}"
+                }
+            } else {
+                res.exceptionOrNull()?.localizedMessage ?: "Failed to save MCP server."
+            }
+        }
+    }
+
+    fun setMcpServerEnabled(id: String, enabled: Boolean) {
+        val manager = mcpManager ?: return
+        viewModelScope.launch { manager.setServerEnabled(id, enabled) }
+    }
+
+    fun syncMcpServerTools(id: String) {
+        val manager = mcpManager ?: return
+        viewModelScope.launch {
+            val res = manager.syncServerTools(id)
+            statusBanner.value = if (res.isSuccess) {
+                "Synced ${res.getOrThrow().tools.size} MCP tools."
+            } else {
+                "MCP sync failed: ${res.exceptionOrNull()?.localizedMessage}"
+            }
+        }
+    }
+
+    fun deleteMcpServer(id: String) {
+        val manager = mcpManager ?: return
+        viewModelScope.launch {
+            manager.deleteServer(id)
+            statusBanner.value = "MCP server removed."
+        }
+    }
+
     fun updateMemorySearchQuery(query: String) {
         memorySearchQuery.value = query
     }
@@ -328,7 +439,8 @@ class SettingsViewModel(
             wakeWordEngine: WakeWordEngine,
             localMemory: LocalMemory,
             agentCore: AgentCore? = null,
-            skillEngine: SkillEngine? = null
+            skillEngine: SkillEngine? = null,
+            mcpManager: McpManager? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -338,7 +450,8 @@ class SettingsViewModel(
                     wakeWordEngine = wakeWordEngine,
                     localMemory = localMemory,
                     agentCore = agentCore,
-                    skillEngine = skillEngine
+                    skillEngine = skillEngine,
+                    mcpManager = mcpManager
                 ) as T
             }
         }

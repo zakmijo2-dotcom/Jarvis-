@@ -188,3 +188,53 @@ data class SkillEntity(
     val createdAt: Long,
     val updatedAt: Long
 )
+
+@Entity(
+    tableName = "agent_checkpoints",
+    indices = [Index(value = ["conversationId", "updatedAt"])]
+)
+data class AgentCheckpointEntity(
+    @PrimaryKey val id: String,
+    val conversationId: String,
+    val userGoal: String,
+    val currentStep: Int,
+    val maxSteps: Int,
+    val status: String,
+    val lastPackageName: String?,
+    val lastStabilityHash: String?,
+    val stepsHistoryJson: String,
+    val lastObservationSummary: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+@Entity(
+    tableName = "research_history",
+    indices = [Index(value = ["timestamp"])]
+)
+data class ResearchHistoryEntity(
+    @PrimaryKey val id: String,
+    val query: String,
+    val provider: String,
+    val urlsJson: String,
+    val summarySnippet: String,
+    val timestamp: Long
+)
+
+@Entity(
+    tableName = "mcp_servers",
+    indices = [Index(value = ["name"], unique = true)]
+)
+data class McpServerEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val endpointUrl: String,
+    val enabled: Boolean = false,
+    val requireWriteConfirmation: Boolean = true,
+    val sessionId: String? = null,
+    val cachedToolsJson: String = "[]",
+    val lastStatus: String = "Configured",
+    val lastSyncedAt: Long = 0L,
+    val createdAt: Long = System.currentTimeMillis()
+)
+

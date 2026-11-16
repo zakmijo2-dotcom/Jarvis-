@@ -27,9 +27,12 @@ class JarvisTypeConverters {
         ModelBenchmarkEntity::class,
         MemoryNoteEntity::class,
         AgentExecutionEntity::class,
-        SkillEntity::class
+        SkillEntity::class,
+        AgentCheckpointEntity::class,
+        ResearchHistoryEntity::class,
+        McpServerEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -41,6 +44,9 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun agentExecutionDao(): AgentExecutionDao
     abstract fun skillDao(): SkillDao
+    abstract fun agentCheckpointDao(): AgentCheckpointDao
+    abstract fun researchHistoryDao(): ResearchHistoryDao
+    abstract fun mcpServerDao(): McpServerDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -203,6 +209,68 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_checkpoints (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        conversationId TEXT NOT NULL,
+                        userGoal TEXT NOT NULL,
+                        currentStep INTEGER NOT NULL,
+                        maxSteps INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        lastPackageName TEXT,
+                        lastStabilityHash TEXT,
+                        stepsHistoryJson TEXT NOT NULL,
+                        lastObservationSummary TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_agent_checkpoints_conversationId_updatedAt ON agent_checkpoints (conversationId, updatedAt)"
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS research_history (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        query TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        urlsJson TEXT NOT NULL,
+                        summarySnippet TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_research_history_timestamp ON research_history (timestamp)"
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS mcp_servers (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        endpointUrl TEXT NOT NULL,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        requireWriteConfirmation INTEGER NOT NULL DEFAULT 1,
+                        sessionId TEXT,
+                        cachedToolsJson TEXT NOT NULL DEFAULT '[]',
+                        lastStatus TEXT NOT NULL DEFAULT 'Configured',
+                        lastSyncedAt INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_mcp_servers_name ON mcp_servers (name)"
+                )
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -216,7 +284,8 @@ abstract class JarvisDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
-                    MIGRATION_6_7
+                    MIGRATION_6_7,
+                    MIGRATION_7_8
                 )
                 .build()
     }

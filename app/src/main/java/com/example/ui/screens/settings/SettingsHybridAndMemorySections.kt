@@ -300,11 +300,15 @@ fun WebResearchSettingsCard(
     onSetWebResearchEnabled: (Boolean) -> Unit,
     onSetWebSearchProvider: (WebSearchProviderKind) -> Unit,
     onSetWebCustomUrl: (String) -> Unit,
-    onSetWebApiKey: (String) -> Unit
+    onSetWebApiKey: (String) -> Unit,
+    onSetBraveApiKey: (String) -> Unit = {},
+    onSetSerpApiKey: (String) -> Unit = {}
 ) {
     val settings = uiState.settings
     var customUrlDraft by remember(settings.webSearchCustomUrl) { mutableStateOf(settings.webSearchCustomUrl) }
     var webKeyDraft by remember(settings.webSearchApiKey) { mutableStateOf(settings.webSearchApiKey) }
+    var braveKeyDraft by remember(settings.braveSearchApiKey) { mutableStateOf(settings.braveSearchApiKey) }
+    var serpKeyDraft by remember(settings.serpApiKey) { mutableStateOf(settings.serpApiKey) }
 
     Column(
         modifier = Modifier
@@ -325,7 +329,7 @@ fun WebResearchSettingsCard(
             ) {
                 Text("Web search tool", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Local models are offline by default. Enable this to run live web search queries via the chosen provider.",
+                    "Local models are offline by default. Enable this to run live web search and public webpage extraction.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -371,19 +375,57 @@ fun WebResearchSettingsCard(
                 modifier = Modifier.minimumInteractiveComponentSize()
             ) { Text("Save custom URL") }
         }
-        if (settings.webSearchProvider.requiresApiKey || settings.webSearchProvider == WebSearchProviderKind.CUSTOM_JSON) {
-            OutlinedTextField(
-                value = webKeyDraft,
-                onValueChange = { webKeyDraft = it },
-                label = { Text("Web search API key (encrypted)") },
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            TextButton(
-                onClick = { onSetWebApiKey(webKeyDraft) },
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) { Text("Save web key") }
+        when (settings.webSearchProvider) {
+            WebSearchProviderKind.BRAVE_SEARCH -> {
+                OutlinedTextField(
+                    value = braveKeyDraft,
+                    onValueChange = { braveKeyDraft = it },
+                    label = { Text("Brave Search API key (encrypted)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("brave_api_key_input")
+                )
+                TextButton(
+                    onClick = { onSetBraveApiKey(braveKeyDraft) },
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("save_brave_key_button")
+                ) { Text("Save Brave key") }
+            }
+            WebSearchProviderKind.SERPAPI -> {
+                OutlinedTextField(
+                    value = serpKeyDraft,
+                    onValueChange = { serpKeyDraft = it },
+                    label = { Text("SerpAPI key (encrypted)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("serp_api_key_input")
+                )
+                TextButton(
+                    onClick = { onSetSerpApiKey(serpKeyDraft) },
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("save_serp_key_button")
+                ) { Text("Save SerpAPI key") }
+            }
+            else -> if (settings.webSearchProvider.requiresApiKey || settings.webSearchProvider == WebSearchProviderKind.CUSTOM_JSON) {
+                OutlinedTextField(
+                    value = webKeyDraft,
+                    onValueChange = { webKeyDraft = it },
+                    label = { Text("Web search API key (encrypted)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TextButton(
+                    onClick = { onSetWebApiKey(webKeyDraft) },
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) { Text("Save web key") }
+            }
         }
     }
 }

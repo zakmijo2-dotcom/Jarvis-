@@ -5,7 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,9 +34,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
@@ -45,6 +50,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -131,11 +137,18 @@ fun ChatScreen(
     onOpenDeviceControls: () -> Unit = {},
     onSelectRoutingMode: (AgentRoutingMode) -> Unit = {},
     onSummarizeSession: () -> Unit = {},
-    onRegenerateResponse: () -> Unit = {}
+    onRegenerateResponse: () -> Unit = {},
+    onAttachImageUri: (Uri) -> Unit = {},
+    onClearAttachment: () -> Unit = {},
+    onSubmitSteering: (String) -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val palette = JarvisThemeTokens.palette
     var inputText by rememberSaveable { mutableStateOf("") }
+    var steerExpanded by rememberSaveable { mutableStateOf(false) }
+    var steerInput by rememberSaveable { mutableStateOf("") }
+    val isAdvancedMode = uiState.settings.uiAdvancedModeEnabled
     val listState = rememberLazyListState()
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -143,6 +156,13 @@ fun ChatScreen(
         val perm = uiState.pendingRuntimePermission
         if (perm != null) {
             onRuntimePermissionResult(perm, granted)
+        }
+    }
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            onAttachImageUri(uri)
         }
     }
 
@@ -188,47 +208,95 @@ fun ChatScreen(
                     }
                 },
                 title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.hud_brand_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = uiState.activeConversationTitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    if (isAdvancedMode) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.hud_brand_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = uiState.activeConversationTitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = CircleShape,
+                            color = palette.surface,
+                            border = BorderStroke(hairlineDp(), palette.hairline),
+                            modifier = Modifier
+                                .widthIn(max = 190.dp)
+                                .clickable(onClick = onNavigateToModels)
+                                .testTag("chat_model_selector_chip")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = uiState.activeModel?.displayName ?: stringResource(R.string.hud_brand_title),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.ExpandMore,
+                                    contentDescription = stringResource(R.string.chip_open_models),
+                                    tint = palette.textSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
-                    val privacyTag = when {
-                        uiState.settings.routingMode == AgentRoutingMode.LOCAL_ONLY -> "Local"
-                        uiState.settings.cloudUploadConsentGranted -> "Hybrid"
-                        else -> "Private"
+                    if (isAdvancedMode) {
+                        val privacyTag = when {
+                            uiState.settings.routingMode == AgentRoutingMode.LOCAL_ONLY -> "Local"
+                            uiState.settings.cloudUploadConsentGranted -> "Hybrid"
+                            else -> "Private"
+                        }
+                        HudBadge(
+                            text = privacyTag,
+                            color = if (uiState.settings.cloudUploadConsentGranted && uiState.settings.routingMode != AgentRoutingMode.LOCAL_ONLY) {
+                                palette.skyAccent
+                            } else {
+                                palette.textSecondary
+                            },
+                            containerColor = palette.surfaceHigh,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .testTag("chat_privacy_badge")
+                        )
+                        HudBadge(
+                            text = badgeText,
+                            color = badgeColor,
+                            containerColor = palette.surfaceHigh,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .testTag("chat_engine_badge")
+                        )
+                    } else {
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("topbar_settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = stringResource(R.string.cd_open_settings),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    HudBadge(
-                        text = privacyTag,
-                        color = if (uiState.settings.cloudUploadConsentGranted && uiState.settings.routingMode != AgentRoutingMode.LOCAL_ONLY) {
-                            palette.skyAccent
-                        } else {
-                            palette.textSecondary
-                        },
-                        containerColor = palette.surfaceHigh,
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .testTag("chat_privacy_badge")
-                    )
-                    HudBadge(
-                        text = badgeText,
-                        color = badgeColor,
-                        containerColor = palette.surfaceHigh,
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .testTag("chat_engine_badge")
-                    )
                     IconButton(
                         onClick = onNewSession,
                         modifier = Modifier
@@ -253,7 +321,7 @@ fun ChatScreen(
                 )
             }
 
-            if (uiState.messages.isEmpty() && streamingText == null) {
+            if (isAdvancedMode && uiState.messages.isEmpty() && streamingText == null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 UnifiedAssistantStatusHeader(
                     uiState = uiState,
@@ -261,6 +329,48 @@ fun ChatScreen(
                     onNavigateToModels = onNavigateToModels,
                     onOpenDeviceControls = onOpenDeviceControls
                 )
+            }
+
+            if (uiState.executionHudState.active && uiState.activePlan == null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("live_hud_banner"),
+                    shape = MaterialTheme.shapes.medium,
+                    color = palette.surface,
+                    border = BorderStroke(hairlineDp(), palette.skyAccent.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Step ${uiState.executionHudState.stepIndex}/${uiState.executionHudState.maxSteps}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = palette.skyAccent
+                            )
+                            Text(
+                                text = uiState.executionHudState.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = palette.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        TextButton(
+                            onClick = onCancelActiveTool,
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Text("Stop")
+                        }
+                    }
+                }
             }
 
             if (uiState.activePlan != null) {
@@ -320,6 +430,14 @@ fun ChatScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (inProgress) {
                                     TextButton(
+                                        onClick = { steerExpanded = !steerExpanded },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("chat_steer_toggle")
+                                    ) {
+                                        Text("Steer")
+                                    }
+                                    TextButton(
                                         onClick = onCancelActiveTool,
                                         modifier = Modifier
                                             .minimumInteractiveComponentSize()
@@ -333,6 +451,40 @@ fun ChatScreen(
                                     contentDescription = if (monitorExpanded) "Collapse plan" else "Expand plan",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+
+                        if (inProgress && steerExpanded) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = steerInput,
+                                    onValueChange = { steerInput = it },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("chat_steer_input"),
+                                    singleLine = true,
+                                    placeholder = { Text("Guide or adjust the active plan…") }
+                                )
+                                Button(
+                                    onClick = {
+                                        if (steerInput.isNotBlank()) {
+                                            onSubmitSteering(steerInput)
+                                            steerInput = ""
+                                            steerExpanded = false
+                                        }
+                                    },
+                                    enabled = steerInput.isNotBlank(),
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("chat_steer_send_button")
+                                ) {
+                                    Text("Guide")
+                                }
                             }
                         }
 
@@ -565,149 +717,237 @@ fun ChatScreen(
                 }
             }
 
-            // Quick Actions Row
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 840.dp)
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    val modes = AgentRoutingMode.entries
-                    val nextMode = modes[(modes.indexOf(uiState.settings.routingMode) + 1) % modes.size]
-                    AssistChip(
-                        onClick = { onSelectRoutingMode(nextMode) },
-                        label = {
-                            Text(
-                                text = uiState.settings.routingMode.label,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = when (uiState.settings.routingMode) {
-                                    AgentRoutingMode.LOCAL_ONLY -> Icons.Filled.Lock
-                                    AgentRoutingMode.CLOUD_ONLY -> Icons.Filled.Cloud
-                                    AgentRoutingMode.AUTO_HYBRID -> Icons.Filled.AutoAwesome
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = palette.surface,
-                            labelColor = palette.text,
-                            leadingIconContentColor = palette.skyAccent
-                        ),
-                        modifier = Modifier.testTag("chip_routing_mode")
-                    )
-                }
-                if (uiState.messages.isNotEmpty()) {
-                    item {
-                        AssistChip(
-                            onClick = onSummarizeSession,
-                            label = {
-                                Text(
-                                    text = "Save summary",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.BookmarkAdd,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            modifier = Modifier.testTag("chip_summarize_session")
-                        )
-                    }
-                }
-                if (uiState.engineLoadState !is EngineLoadState.Ready &&
-                    uiState.activeModel?.artifactState == ArtifactState.READY
+            if (isAdvancedMode) {
+                // Quick Actions Row (Full Operator Chip Strip)
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
+                        val modes = AgentRoutingMode.entries
+                        val nextMode = modes[(modes.indexOf(uiState.settings.routingMode) + 1) % modes.size]
                         AssistChip(
-                            onClick = onLoadActiveModel,
+                            onClick = { onSelectRoutingMode(nextMode) },
                             label = {
                                 Text(
-                                    text = "Load ${uiState.activeModel.displayName}",
+                                    text = uiState.settings.routingMode.label,
                                     style = MaterialTheme.typography.labelMedium
                                 )
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Filled.Bolt,
+                                    imageVector = when (uiState.settings.routingMode) {
+                                        AgentRoutingMode.LOCAL_ONLY -> Icons.Filled.Lock
+                                        AgentRoutingMode.CLOUD_ONLY -> Icons.Filled.Cloud
+                                        AgentRoutingMode.AUTO_HYBRID -> Icons.Filled.AutoAwesome
+                                    },
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = palette.skyContainer,
-                                labelColor = palette.onHue,
-                                leadingIconContentColor = palette.onHue
+                                containerColor = palette.surface,
+                                labelColor = palette.text,
+                                leadingIconContentColor = palette.skyAccent
                             ),
-                            modifier = Modifier.testTag("chip_load_model")
+                            modifier = Modifier.testTag("chip_routing_mode")
+                        )
+                    }
+                    if (uiState.messages.isNotEmpty()) {
+                        item {
+                            AssistChip(
+                                onClick = onSummarizeSession,
+                                label = {
+                                    Text(
+                                        text = "Save summary",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.BookmarkAdd,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                modifier = Modifier.testTag("chip_summarize_session")
+                            )
+                        }
+                    }
+                    if (uiState.engineLoadState !is EngineLoadState.Ready &&
+                        uiState.activeModel?.artifactState == ArtifactState.READY
+                    ) {
+                        item {
+                            AssistChip(
+                                onClick = onLoadActiveModel,
+                                label = {
+                                    Text(
+                                        text = "Load ${uiState.activeModel.displayName}",
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Bolt,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = palette.skyContainer,
+                                    labelColor = palette.onHue,
+                                    leadingIconContentColor = palette.onHue
+                                ),
+                                modifier = Modifier.testTag("chip_load_model")
+                            )
+                        }
+                    }
+                    item {
+                        AssistChip(
+                            onClick = onRunSystemSnapshot,
+                            label = {
+                                Text(
+                                    text = stringResource(R.string.chip_telemetry_snapshot),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.MonitorHeart,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("chip_system_snapshot")
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = onRunReadinessAudit,
+                            label = {
+                                Text(
+                                    text = stringResource(R.string.chip_engine_status),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.VerifiedUser,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("chip_engine_audit")
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = onNavigateToModels,
+                            label = {
+                                Text(
+                                    text = stringResource(R.string.chip_open_models),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Memory,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("chip_inspect_models")
                         )
                     }
                 }
-                item {
-                    AssistChip(
-                        onClick = onRunSystemSnapshot,
-                        label = {
-                            Text(
-                                text = stringResource(R.string.chip_telemetry_snapshot),
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.MonitorHeart,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        modifier = Modifier.testTag("chip_system_snapshot")
-                    )
+            } else if (uiState.messages.isEmpty() && streamingText == null) {
+                // Clean Claude-inspired starter prompts in Default Mode
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        AssistChip(
+                            onClick = onRunSystemSnapshot,
+                            label = { Text(stringResource(R.string.chip_telemetry_snapshot)) },
+                            modifier = Modifier.testTag("chip_system_snapshot")
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = { onSendMessage("Inspect current screen text") },
+                            label = { Text(stringResource(R.string.chip_inspect_screen)) },
+                            modifier = Modifier.testTag("chip_inspect_screen")
+                        )
+                    }
+                    item {
+                        val modes = AgentRoutingMode.entries
+                        val nextMode = modes[(modes.indexOf(uiState.settings.routingMode) + 1) % modes.size]
+                        AssistChip(
+                            onClick = { onSelectRoutingMode(nextMode) },
+                            label = { Text(uiState.settings.routingMode.label) },
+                            modifier = Modifier.testTag("chip_routing_mode")
+                        )
+                    }
                 }
-                item {
-                    AssistChip(
-                        onClick = onRunReadinessAudit,
-                        label = {
+            }
+
+            if (uiState.attachedImageLabel != null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("chat_attachment_chip"),
+                    shape = RoundedCornerShape(16.dp),
+                    color = palette.surfaceHigh,
+                    border = BorderStroke(hairlineDp(), palette.skyAccent.copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = stringResource(R.string.chip_engine_status),
-                                style = MaterialTheme.typography.labelMedium
+                                text = uiState.attachedImageLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = palette.skyAccent,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        },
-                        leadingIcon = {
+                            val ocrPreview = uiState.attachedImageOcrPreview
+                            if (!ocrPreview.isNullOrBlank()) {
+                                Text(
+                                    text = "OCR: ${ocrPreview.replace('\n', ' ').take(96)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = palette.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = onClearAttachment,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("clear_attachment_button")
+                        ) {
                             Icon(
-                                imageVector = Icons.Filled.VerifiedUser,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.cd_clear_attachment),
+                                tint = palette.textSecondary
                             )
-                        },
-                        modifier = Modifier.testTag("chip_engine_audit")
-                    )
-                }
-                item {
-                    AssistChip(
-                        onClick = onNavigateToModels,
-                        label = {
-                            Text(
-                                text = stringResource(R.string.chip_open_models),
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.Memory,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        modifier = Modifier.testTag("chip_inspect_models")
-                    )
+                        }
+                    }
                 }
             }
 
@@ -724,10 +964,28 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    IconButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        enabled = !uiState.isGenerating,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("chat_attach_image_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AttachFile,
+                            contentDescription = stringResource(R.string.cd_attach_image),
+                            tint = palette.skyAccent
+                        )
+                    }
+
                     IconButton(
                         onClick = onNavigateToVoice,
                         modifier = Modifier
@@ -792,12 +1050,13 @@ fun ChatScreen(
                     } else {
                         FilledIconButton(
                             onClick = {
-                                if (inputText.isNotBlank()) {
-                                    onSendMessage(inputText)
+                                if (inputText.isNotBlank() || uiState.attachedImageLabel != null) {
+                                    val outgoing = inputText.ifBlank { "Analyze the attached image." }
+                                    onSendMessage(outgoing)
                                     inputText = ""
                                 }
                             },
-                            enabled = inputText.isNotBlank(),
+                            enabled = inputText.isNotBlank() || uiState.attachedImageLabel != null,
                             shape = CircleShape,
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = palette.skyContainer,

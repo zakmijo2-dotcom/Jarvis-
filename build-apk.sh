@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# J.A.R.V.I.S v1.0.0 — Fast One-Click APK Builder (Linux / macOS / WSL)
+# J.A.R.V.I.S v1.0.1 — Fast One-Click APK Builder (Linux / macOS / WSL)
 # Usage:
 #   ./build-apk.sh             -> Fast signed Release APK (auto-creates keystore)
 #   ./build-apk.sh --debug     -> Instant signed Debug APK (fastest incremental)
@@ -12,7 +12,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 MODE="${1:---fast-release}"
-OUTPUT_APK="$ROOT_DIR/JARVIS-v1.0.0.apk"
+OUTPUT_APK="$ROOT_DIR/JARVIS-v1.0.1.apk"
 
 if command -v gradle >/dev/null 2>&1; then
   GRADLE_CMD="gradle"
@@ -29,7 +29,7 @@ if [[ "$MODE" == "--debug" ]]; then
   if [[ ! -f "$ROOT_DIR/debug.keystore" ]]; then
     if [[ -f "$ROOT_DIR/debug.keystore.base64" ]]; then
       echo "==> Restoring debug.keystore from debug.keystore.base64..."
-      tr -d '[:space:]' < "$ROOT_DIR/debug.keystore.base64" | base64 -d > "$ROOT_DIR/debug.keystore"
+      tr -d '[:space:]' < "$ROOT_DIR/debug.keystore.base64" | (base64 -d 2>/dev/null || base64 -D) > "$ROOT_DIR/debug.keystore"
     else
       echo "==> Generating debug.keystore..."
       keytool -genkeypair -noprompt \
@@ -72,7 +72,11 @@ else
     "$GRADLE_CMD" :app:assembleRelease -PfastApk=true "${COMMON_FLAGS[@]}"
   fi
 
-  BUILT_APK="$(find "$ROOT_DIR/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' | head -n 1)"
+  if [[ -f "$ROOT_DIR/app/build/outputs/apk/release/app-release.apk" ]]; then
+    BUILT_APK="$ROOT_DIR/app/build/outputs/apk/release/app-release.apk"
+  else
+    BUILT_APK="$(find "$ROOT_DIR/app/build/outputs/apk/release" -maxdepth 1 -name '*.apk' | head -n 1)"
+  fi
   if [[ -z "$BUILT_APK" || ! -f "$BUILT_APK" ]]; then
     echo "[ERROR] Release APK was not found in app/build/outputs/apk/release/"
     exit 1

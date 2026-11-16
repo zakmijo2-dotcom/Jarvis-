@@ -257,3 +257,67 @@ interface SkillDao {
     @Query("DELETE FROM agent_skills")
     suspend fun clearSkills()
 }
+
+@Dao
+interface AgentCheckpointDao {
+    @Query("SELECT * FROM agent_checkpoints ORDER BY updatedAt DESC LIMIT 30")
+    fun observeCheckpoints(): Flow<List<AgentCheckpointEntity>>
+
+    @Query("SELECT * FROM agent_checkpoints ORDER BY updatedAt DESC LIMIT 30")
+    suspend fun getRecentOnce(): List<AgentCheckpointEntity>
+
+    @Query("SELECT * FROM agent_checkpoints WHERE conversationId = :conversationId AND status IN ('RUNNING', 'PAUSED_FOR_CONFIRMATION') ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getLatestResumableForConversation(conversationId: String): AgentCheckpointEntity?
+
+    @Query("SELECT * FROM agent_checkpoints WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AgentCheckpointEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCheckpoint(checkpoint: AgentCheckpointEntity)
+
+    @Query("DELETE FROM agent_checkpoints WHERE id = :id")
+    suspend fun deleteCheckpoint(id: String)
+
+    @Query("DELETE FROM agent_checkpoints")
+    suspend fun clearCheckpoints()
+}
+
+@Dao
+interface ResearchHistoryDao {
+    @Query("SELECT * FROM research_history ORDER BY timestamp DESC LIMIT 50")
+    fun observeHistory(): Flow<List<ResearchHistoryEntity>>
+
+    @Query("SELECT * FROM research_history ORDER BY timestamp DESC LIMIT 50")
+    suspend fun getRecentOnce(): List<ResearchHistoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecord(record: ResearchHistoryEntity)
+
+    @Query("DELETE FROM research_history")
+    suspend fun clearHistory()
+}
+
+@Dao
+interface McpServerDao {
+    @Query("SELECT * FROM mcp_servers ORDER BY enabled DESC, name ASC")
+    fun observeServers(): Flow<List<McpServerEntity>>
+
+    @Query("SELECT * FROM mcp_servers ORDER BY enabled DESC, name ASC")
+    suspend fun getAllOnce(): List<McpServerEntity>
+
+    @Query("SELECT * FROM mcp_servers WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): McpServerEntity?
+
+    @Query("SELECT * FROM mcp_servers WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun getByName(name: String): McpServerEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertServer(server: McpServerEntity)
+
+    @Query("UPDATE mcp_servers SET enabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: String, enabled: Boolean)
+
+    @Query("DELETE FROM mcp_servers WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+

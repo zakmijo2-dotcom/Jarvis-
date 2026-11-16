@@ -1,113 +1,87 @@
-# J.A.R.V.I.S — Autonomous Hybrid AI Assistant for Android (v1.0.1)
+# J.A.R.V.I.S — Autonomous Hybrid AI & Shizuku-First Assistant for Android (v1.0.0)
 
 <p align="center">
-  <strong>Local-First • Hybrid Cloud &amp; Web • Voice &amp; Wake-Word • Closed-Loop Android Automation • Shizuku &amp; Wireless ADB</strong>
+  <strong>Local-First LiteRT-LM • Shizuku &amp; Wireless ADB Control • Hybrid Cloud &amp; Web • Voice &amp; Wake-Word</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/zakmijo2-dotcom/Jarvis-/releases/latest">
-    <img src="https://img.shields.io/badge/Version-v1.0.1-23252B?style=for-the-badge" alt="Version v1.0.1" />
-  </a>
-  <a href="https://github.com/zakmijo2-dotcom/Jarvis-/releases/latest">
-    <img src="https://img.shields.io/badge/Release-APK%20Available-8FB8DE?style=for-the-badge&logo=android&logoColor=white" alt="APK Available" />
-  </a>
-  <img src="https://img.shields.io/badge/License-GPL--3.0-8FB8DE?style=for-the-badge" alt="GPL-3.0 License" />
-  <img src="https://img.shields.io/badge/Platform-Android%20(SDK%2024--36)-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK 24-36" />
+  <img src="https://img.shields.io/badge/Version-v1.0.0-0E1015?style=for-the-badge" alt="Version v1.0.0" />
+  <img src="https://img.shields.io/badge/License-GPL--3.0-38BDF8?style=for-the-badge" alt="GPL-3.0 License" />
+  <img src="https://img.shields.io/badge/Platform-Android%20(SDK%2024--36)-2DD4BF?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK 24-36" />
   <img src="https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 2.2.10" />
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose Material 3" />
-  <img src="https://img.shields.io/badge/System-Shizuku%20%2B%20Wireless%20ADB-Sand?style=for-the-badge&color=E3CF9E" alt="Shizuku and Wireless ADB" />
-  <img src="https://img.shields.io/badge/Local%20AI-LiteRT--LM%200.10.2-A9CDB0?style=for-the-badge" alt="LiteRT-LM 0.10.2" />
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-60A5FA?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose Material 3" />
+  <img src="https://img.shields.io/badge/Device%20Bridge-Shizuku%2013.1.5%20%2B%20Kadb-818CF8?style=for-the-badge" alt="Shizuku 13.1.5 and Kadb" />
+  <img src="https://img.shields.io/badge/Local%20AI-LiteRT--LM%200.10.2-2DD4BF?style=for-the-badge" alt="LiteRT-LM 0.10.2" />
+  <img src="https://img.shields.io/badge/Tests-55%20JVM%20%2B%204%20Instrumented-2EA043?style=for-the-badge" alt="55 JVM and 4 Instrumented Tests" />
 </p>
-
----
-
-## 📥 Download Ready-to-Install APK
-
-The latest signed APKs are compiled and published automatically via GitHub Actions:
-
-| Package | Direct Download | Description |
-|---|---|---|
-| **Release APK** | [**Jarvis-release.apk**](https://github.com/zakmijo2-dotcom/Jarvis-/releases/download/v1.0.1/Jarvis-release.apk) | Optimized, signed production APK ready for installation |
-| **Debug APK** | [**Jarvis-debug.apk**](https://github.com/zakmijo2-dotcom/Jarvis-/releases/download/v1.0.1/Jarvis-debug.apk) | Debug build with active logging and developer inspection |
-| **Checksums** | [**SHA256SUMS.txt**](https://github.com/zakmijo2-dotcom/Jarvis-/releases/download/v1.0.1/SHA256SUMS.txt) | Official SHA-256 integrity verification file |
-
-> You can also browse all releases and version history on the [**GitHub Releases Page**](https://github.com/zakmijo2-dotcom/Jarvis-/releases).
 
 ---
 
 ## Overview
 
-**J.A.R.V.I.S** (`v1.0.1`) is an open-source (`GPL-3.0`) native Android AI assistant built in **Kotlin** and **Jetpack Compose (Material 3)**. It unifies on-device **LiteRT-LM** inference, optional user-consented Cloud AI providers, live web research, multilingual voice interaction, Shizuku / Wireless ADB privileged automation, and confirmation-gated Android system control inside a privacy-first architecture.
+**J.A.R.V.I.S** (`v1.0.0`, `com.aistudio.jarvis.k8v4mz`) is an open-source (`GPL-3.0`) native Android AI assistant built in **Kotlin** and **Jetpack Compose (Material 3)**. It unifies on-device **LiteRT-LM** inference, a **Shizuku-first + pure-Kotlin Wireless ADB** device-control stack, optional user-consented Cloud AI providers, live web research, and multilingual voice interaction inside a security-hardened, non-simulated architecture.
 
 ### Core Design Principles
-- **Local-First & Offline Capable:** On-device `.litertlm` inference (GPU OpenCL / CPU XNNPACK), Room v7 SQLite persistence (`WRITE_AHEAD_LOGGING`), and local Android tools operate without an internet connection.
-- **Hybrid Orchestration:** Routes dynamically between local tools, local models, web research, and Cloud SSE APIs based on the active routing mode (`LOCAL_ONLY`, `AUTO_HYBRID`, `CLOUD_ONLY`), user consent, network reachability, and RAM/thermal headroom.
-- **Closed-Loop Tool Execution:** Runs an **Observe → Think → Act → Verify → Recover** cycle (bounded to 3 tool iterations with duplicate-call protection) rather than unverified single-turn tool dispatches.
-- **Privileged System Control (Shizuku & Wireless ADB):** Non-root system automation through integrated Shizuku service and native Wireless ADB pairing wizard.
-- **Strict Security & Privacy Boundaries:** High-risk actions require explicit user confirmation, password fields are redacted from screen observations, untrusted external text is sanitized against prompt injection, and API keys/tokens are encrypted at rest via **Android Keystore AES-256-GCM**.
+- **Shizuku-First Privileged Architecture:** Executes allowlisted system operations through an official **Shizuku (`13.1.5`)** `UserService` (`IJarvisShizukuService.aidl`) with binder lifecycle tracking, falling back to **pure-Kotlin Wireless ADB (`kadb:1.3.0`)**, **Native Android APIs**, and **on-demand Accessibility** only when needed.
+- **Honest Local AI Execution:** Bundles verified **LiteRT-LM (`0.10.2`)** `.litertlm` inference (`GPU OpenCL` / `CPU XNNPACK`), while unbundled formats (`GGUF`, `TFLite`, `MediaPipe .task`, `Safetensors`) are explicitly blocked and labeled unsupported—never faked or mislabeled as runnable.
+- **Hardware- & Thermal-Aware Routing (`ModelRouter`):** Selects models and caps context windows dynamically based on available RAM, KV-cache estimates, battery level, `PowerManager` thermal status, and real measured benchmarks (`TTFT`, `tok/s`, peak memory).
+- **Strict Zero-Trust & Privacy Boundaries:** High-risk actions require explicit user confirmation, arbitrary shell execution is blocked, secrets are encrypted via **Android Keystore AES-256-GCM**, logs are scrubbed by `SecurityLogRedactor` (masking API keys, Bearer tokens, and 6-digit ADB pairing codes), and external HTTP redirects strip `Authorization` headers on non-Hugging-Face hosts.
 
 ---
 
 ## Key Capabilities
 
-### 1. Autonomous Agent & Multilingual Routing (`core/agent/`, `core/cloud/`, `core/web/`)
-- **Closed-Loop Agent Core (`Phase2AgentCore`):** Executes direct `/tool` commands and natural-language multi-step plans across local memory, telemetry/screen observation, web research, procedural skills, and AI synthesis.
-- **Multilingual Intent Router (`IntentRouter`):** Classifies intents, matches saved skills, and decomposes tasks across **English**, **Arabic (`ar-SA`)**, **Algerian Darija (`ar-DZ`)**, and **French (`fr-FR`)**.
-- **Cloud AI Streaming & Function Calling (`OkHttpCloudAiClient`):** Supports OpenAI-compatible, OpenRouter, Gemini REST, Anthropic, and custom SSE endpoints with tool schema injection and token/latency tracking.
-- **Live Web Research (`OkHttpWebResearchService`):** Supports Wikipedia OpenSearch, DuckDuckGo, Brave Search, Tavily, and custom JSON endpoints with automatic offline fallback when network requests fail.
+### 1. Shizuku-First & Wireless ADB Device Control (`core/device/`, `aidl/`)
+- **Capability-Based Unified Router (`DeviceCommandRouter`):** Routes every command across `ShizukuController` → `WirelessAdbController` → `AndroidNativeController` → limited `Accessibility` fallback (`AccessibilityController`), verifying actual command outcomes (e.g., `pidof`, `id`, binder/window state checks).
+- **Shizuku Integration (`dev.rikka.shizuku:api/provider:13.1.5`):** Detects Shizuku installation, binder availability, permission grants/denials, and unexpected disconnects (`DeadObjectException`), running allowlisted `argv` arrays inside `JarvisShizukuUserService` without assuming root (`UID 0`).
+- **Pure-Kotlin Wireless ADB (`com.flyfishxu:kadb:1.3.0`):** Dedicated **Shizuku & Wireless ADB Setup** screen supporting Android 11+ SPAKE2 + TLS 1.3 pairing, `NsdManager` mDNS port auto-discovery (`_adb-tls-pairing._tcp.` / `_adb-tls-connect._tcp.`), live `id` probe verification, and instant wiping/redaction of 6-digit pairing codes.
 
-### 2. Privileged Device Bridge: Shizuku & Wireless ADB (`core/device/`, `ui/screens/bridge/`)
-- **Shizuku API Integration (`ShizukuController`, `JarvisShizukuUserService`):** Seamless permission-gated system access without requiring root privileges.
-- **Wireless ADB Bridge (`WirelessAdbController`):** In-app pairing wizard (`DeviceBridgeSetupScreen`) with pairing code and port input to establish local ADB sessions for elevated shell execution.
-- **System Privilege Tools (`SystemPrivilegeTools`):** Executes administrative device commands, package management, process state querying, and advanced automation.
+### 2. Local AI, Model Hub & Performance (`core/ai/`, `core/model/`, `core/hf/`)
+- **LiteRT-LM Runtime & Coordinator (`LiteRtLmAiEngine`, `RuntimeEngineCoordinator`):** Supports streaming generation, immediate coroutine cancellation without waiting for full decode, `ComponentCallbacks2` memory trimming, and single-heavy-model RAM mutual exclusion (requires verified `>= 2 GB` reserve for concurrent weights).
+- **Intelligent `ModelRouter` & `PromptCompressor`:** Estimates weight + KV-cache RAM footprints, enforces an 85% total-RAM load guard, offloads to consented Cloud AI under severe thermal/low-battery states (`AUTO_HYBRID`), and compacts older chat turns into concise factual digests inside local context budgets.
+- **Redesigned Model Hub (`ModelManagerScreen`, `DownloadQueueManager`):** Search Hugging Face repositories, inspect compatibility & hardware-fit badges (`Recommended`, `Suitable`, `Tight RAM`, `Insufficient RAM`, `Unsupported Format`, `Setup Required`), download `.litertlm` files with HTTP `Range` pause/resume/cancel and `SHA-256` verification, view storage/quantization/measured benchmarks, and one-tap load/unload.
 
-### 3. On-Device AI & Model Hub (`core/ai/`, `core/model/`, `core/hf/`)
-- **LiteRT-LM Runtime (`LiteRtLmAiEngine`):** Loads `.litertlm` weights (such as Gemma 3 1B Instruct INT4) off the UI thread with `AUTO_GPU_FALLBACK`, `GPU_ONLY`, or `CPU_ONLY` execution preferences.
-- **Memory & Thermal Guard (`ThermalAndMemoryPolicy`):** Inspects `ActivityManager.MemoryInfo` and `PowerManager` thermal status before model allocation and throttles token budgets under thermal pressure.
-- **Hugging Face Model Hub (`HuggingFaceApiClient`, `ModelDownloadService`):** Searches repositories, downloads `.litertlm` files in a foreground service with HTTP `Range` resume, and validates `SHA-256` checksums before activation.
+### 3. Autonomous Agent, 25 Tools, Skills & Memory (`core/agent/`, `core/tools/`, `core/skills/`, `core/memory/`)
+- **Closed-Loop Agent (`Phase2AgentCore`, `IntentRouter`):** Bounded 3-turn **Observe → Think → Act → Verify → Recover** orchestrator across English, Arabic (`ar-SA`), Algerian Darija (`ar-DZ`), and French (`fr-FR`).
+- **25 Registered Android Tools (`ToolRegistryFactory`):** Covers app/settings control, battery/device telemetry, media volume/playback, contacts, confirmation-gated calls/SMS/reminders, sanitized notifications, local memory, procedural skills, 5-layer on-demand Accessibility actions, and 3 new privileged bridge tools (`check_device_bridge`, `force_stop_app`, `trim_app_caches`).
+- **Persistent Memory & Procedural Skills:** Room v7 WAL database with lifecycle memory (`importanceScore`, access tracking, expiration) and safety-filtered procedural workflows (`RoomSkillEngine`).
 
-### 4. Voice Console & Wake-Word Standby (`core/voice/`, `core/wakeword/`)
-- **Hybrid Voice Console (`VoiceViewModel`):** Routes spoken commands through `Phase2AgentCore` with inline plan status, Approve/Cancel confirmation cards, runtime permission prompts, hold-to-talk + continuous modes, and TTS output sanitized via `TtsSanitizer`.
-- **Multilingual Speech Pipeline (`AndroidVoiceEngine`):** Integrates Android `SpeechRecognizer` and `TextToSpeech` for `auto`, `ar-SA`, `ar-DZ`, `fr-FR`, and `en-US`.
-- **Wake-Word Engine (`ModularWakeWordEngine`, `JarvisVoiceService`):** Integrates Picovoice `porcupine-android:4.0.2` (`"Jarvis"`) with speech-band RMS/ZCR pre-filtering and 2.5s cooldown debouncing; posts a high-priority wake notification when triggered from background standby.
+### 4. Voice Console, Cloud AI & Web Research (`core/voice/`, `core/wakeword/`, `core/cloud/`, `core/web/`)
+- **Multilingual Voice & Wake-Word:** Android `SpeechRecognizer` + `TextToSpeech` (sanitized via `TtsSanitizer`) + Picovoice `porcupine-android:4.0.2` (`"Jarvis"`) with speech-band RMS/ZCR gating and honest `verified = false` reporting until a valid AccessKey is supplied.
+- **Modular Cloud & Live Web (`OkHttpCloudAiClient`, `OkHttpWebResearchService`):** Supports OpenAI-compatible, OpenRouter, Gemini REST, Anthropic, and custom SSE endpoints plus Wikipedia, DuckDuckGo, Brave Search, and Tavily—backed by a shared **16 MB OkHttp disk cache** (`http_api_cache`).
 
-### 5. Android Automation, Procedural Skills & Memory (`core/tools/`, `core/skills/`, `core/memory/`)
-- **22+ Registered Android Tools (`ToolRegistry`):** App launching, screen navigation, system settings, battery/device telemetry, media volume & playback, contacts search, confirmation-gated phone calls & SMS, sanitized notifications, clock timers/reminders, memory read/write, skill save/run, and 5-layer on-demand Accessibility actions.
-- **5-Layer On-Demand Accessibility Stack (`AccessibilityController`):** `JarvisAccessibilityService.onAccessibilityEvent` is a strict **no-op**; screen inspection, tapping, scrolling, and text entry run only on demand after user authorization, redact password nodes, and verify post-action UI state changes.
-- **Procedural Skills (`RoomSkillEngine`):** Stores parameterized multi-step workflows in Room (`agent_skills`) and blocks high-risk or confirmation-gated actions from automatic skill distillation.
-- **Lifecycle Memory (`RoomLocalMemory`):** Stores categorized preferences, facts, summaries, and project notes (`memory_notes`) with duplicate normalization, importance scoring, and expiration pruning.
-
-### 6. Soft Multi-Color Editorial UI & Iridescent Glass Orb (`ui/`)
-- **Palette & Section Hues:** Warm dark (`#15161A` / `#1E2026` / `#272A32`) and light (`#F6F3EE` / `#FBF9F5`) surfaces paired with five low-saturation section accents (`Sky #8FB8DE` Chat, `Peach #F0B49A` Voice, `Sage #A9CDB0` Models & Success, `Sand #E3CF9E` Device & Warning, `Lavender #B8AEE0` Settings, `Muted Coral #E08A7B` Error) and dark `#16171A` ink on hues (`WCAG AA/AAA`).
-- **Home Bento & Navigation:** Bento tiles for **Voice**, **Chat**, **Models**, and **Device**, plus recent **History**. Navigation bar provides **Home**, **Chat**, **Models**, and **More** (`Voice`, `Device`, `Settings`, `Bridge Setup`).
-- **Iridescent 5-Hue Glass Sphere (`JarvisOrb`):** Renders an iridescent sphere using an **AGSL `RuntimeShader`** on Android 13+ (API 33+) with a radial/sweep **Canvas fallback** on API 24–32. Capped at 30fps, throttled to 10fps while a local model is generating, paused when not `RESUMED`, and static under Battery Saver, Thermal Throttling, or `ANIMATOR_DURATION_SCALE = 0`.
+### 5. Dark Graphite & Cyan-Blue UI Across 9 Screens (`ui/`)
+- **Theme System (`DarkGraphite` default + optional `LightAlabaster`):** Deep graphite surfaces (`#0E1015` / `#151922` / `#1C222D`) with restrained cyan-blue (`#38BDF8`), steel-blue (`#60A5FA`), teal (`#2DD4BF`), amber (`#F59E0B`), indigo (`#818CF8`), and crimson (`#F87171`) accents; toggleable between Dark, Light, and System in Settings.
+- **Typography & Orb:** Bundled local **Space Grotesk** (headers), **Plus Jakarta Sans** (body), and **JetBrains Mono** (metrics/code); AGSL `RuntimeShader` iridescent orb (`JarvisOrb`) on API 33+ with Canvas fallback on API 24–32, lifecycle/thermal/battery-saver throttling, and full English / Arabic (RTL) / French strings.
+- **9 Redesigned Screens (4-Tab Bar + Sub-Hubs):**
+  - **Primary Tabs:** `Home` (live telemetry, model/Shizuku/ADB/voice status, quick actions), `Chat` (streaming, tool cards, confirmations, model switch, voice, history drawer), `Models` (discovery, hardware fit, downloads, benchmarks), `More` (sub-hub + startup latency telemetry).
+  - **Dedicated Sub-Screens:** `Voice`, `Device Control Dashboard`, `Shizuku & Wireless ADB Setup`, `Permissions & Security` (with live Keystore AES-256-GCM diagnostic), `Activity & Benchmarks History`, and `Settings`.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                 Jetpack Compose Material 3 UI (v1.0.1)                   │
-│   Home (Bento + History) │ Chat │ Models │ More (Voice, Device, Settings)│
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     │ StateFlow (MVVM)
-┌────────────────────────────────────▼─────────────────────────────────────┐
-│                Phase2AgentCore (Closed-Loop Orchestrator)                │
-│  IntentRouter ─► ToolRegistry ──► DeviceCommandRouter (Shizuku & ADB)    │
-│       │             ├─► AccessibilityController (5-Layer, On-Demand)     │
-│       │             ├─► PromptSecuritySanitizer                          │
-│       ├─► RoomLocalMemory (Ranked + Lifecycle)                           │
-│       ├─► OkHttpWebResearchService                                       │
-│       └─► RuntimeEngineCoordinator (LiteRT-LM) / OkHttpCloudAiClient     │
-└────────────────────────────────────┬─────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│            Jetpack Compose Material 3 UI (Dark Graphite / Light)           │
+│   4 Tabs: Home │ Chat │ Models │ More                                      │
+│   Sub-Screens: Voice │ Device │ Shizuku/ADB Setup │ Security │ Activity    │
+└────────────────────────────────────┬───────────────────────────────────────┘
+                                     │ StateFlow (MVVM + Navigation Compose)
+┌────────────────────────────────────▼───────────────────────────────────────┐
+│                 Phase2AgentCore & Intelligent ModelRouter                  │
+│  PromptCompressor ─► IntentRouter ─► ToolRegistry (25 Tools) ─► Skills/Mem │
+│       │                  └─► DeviceCommandRouter                           │
+│       │                         (Shizuku -> Wireless ADB -> Native -> A11y)│
+│       └─► RuntimeEngineCoordinator (LiteRT-LM) / OkHttpCloudAiClient (SSE) │
+└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
-┌────────────────────────────────────▼─────────────────────────────────────┐
-│          Room v7 WAL Database & Encrypted DataStore (AES-256-GCM)        │
-└──────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────▼───────────────────────────────────────┐
+│   Room v7 WAL DB │ DataStore + Keystore AES-256-GCM │ 16MB OkHttp Cache    │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed module and database schema documentation.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for module contracts, security invariants, and database details.
 
 ---
 
@@ -115,78 +89,94 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed module and database schema
 
 | Component | Implementation |
 | --- | --- |
-| **Language & Concurrency** | Kotlin `2.2.10`, Coroutines & Flow `1.10.2` |
-| **UI Framework** | Jetpack Compose (BOM `2024.09.00`), Material 3, Navigation Compose `2.8.9` |
-| **Local AI Inference** | Google `litertlm-android:0.10.2` (`.litertlm`, GPU OpenCL / CPU XNNPACK) |
-| **System Privileges** | Shizuku API `13.1.5`, Native Wireless ADB Client |
-| **Wake-Word Detection** | Picovoice `porcupine-android:4.0.2` |
-| **Persistence** | Room `2.7.0` (SQLite WAL, DB v7 with migrations `1 → 7`), DataStore Preferences `1.1.7` |
-| **Networking & Serialization** | OkHttp `4.10.0`, `kotlinx-serialization-json:1.8.1` |
-| **Security** | Android Keystore `AES/GCM/NoPadding` (`SecureCredentialStore`) |
-| **Build & Testing** | AGP `9.1.1`, Gradle `9.3.1`, JDK 21, `compileSdk 36`, `minSdk 24`, Robolectric `4.16.1` |
+| Language & Concurrency | Kotlin `2.2.10`, Coroutines & Flow `1.10.2` |
+| UI & Typography | Jetpack Compose (BOM `2024.09.00`), Material 3, Navigation Compose `2.8.9`, Space Grotesk / Plus Jakarta Sans / JetBrains Mono |
+| Device Control Bridges | Shizuku `13.1.5` (`dev.rikka.shizuku:api`, `provider` + AIDL), Kadb `1.3.0` (`com.flyfishxu:kadb`), Android `NsdManager` |
+| Local AI Inference | Google `litertlm-android:0.10.2` (`.litertlm`, GPU OpenCL / CPU XNNPACK) |
+| Wake-Word Detection | Picovoice `porcupine-android:4.0.2` |
+| Persistence & Caching | Room `2.7.0` (SQLite WAL, DB v7 with migrations `1 → 7`), DataStore Preferences `1.1.7`, OkHttp `4.10.0` (16 MB disk cache) |
+| Security & Serialization | Android Keystore `AES/GCM/NoPadding`, `SecurityLogRedactor`, `HttpSecuritySupport`, `kotlinx-serialization-json:1.8.1` |
+| Build & Testing | AGP `9.1.1`, Gradle `9.3.1`, JDK `21`, `compileSdk 36`, `minSdk 24`, Robolectric `4.16.1`, AndroidX Test |
 
 ---
 
 ## Getting Started & Building
 
 ### Prerequisites
-- **JDK:** 21 (Temurin recommended)
-- **Android SDK:** Compile SDK 36 (`minSdk 24`, `targetSdk 36`)
-- **Gradle:** `9.3.1`
+- **JDK:** 21 (Temurin recommended; Java 11 bytecode target)
+- **Android SDK:** Compile SDK `36` (`minSdk 24`, `targetSdk 36`)
+- **Gradle:** `9.3.1` (system `gradle` CLI or Android Studio; `gradle/wrapper/gradle-wrapper.properties` targets `9.3.1` without a bundled `./gradlew` binary)
 
 ### Clone
 ```bash
-gh repo clone zakmijo2-dotcom/Jarvis-
-# or
 git clone https://github.com/zakmijo2-dotcom/Jarvis-.git
 cd Jarvis-
 ```
 
-### Fast Local APK Build
+### One-Click Signed APK Build
 ```bash
-# Linux / macOS / WSL — auto-generates keystore if missing & builds APK
+# Linux / macOS / WSL — builds fast signed Release APK -> ./JARVIS-v1.0.0.apk
 bash build-apk.sh
 
-# Windows
+# Windows — outputs .\JARVIS-v1.0.0.apk
 build-apk.bat
 
-# Standard Debug APK via Gradle
-gradle :app:assembleDebug --parallel --build-cache -x lint -x test
-```
-
-### Full R8-Minified Production Release APK
-```bash
-# Using the build script with full R8 optimization:
+# R8-minified & resource-shrunk Release APK
 bash build-apk.sh --optimize
 
-# Or directly with Gradle:
+# Instant signed Debug APK via :app:fastApk
+bash build-apk.sh --debug
+```
+
+### Gradle Tests, Instrumentation Compile & Packaging
+```bash
+# Run full JVM + Robolectric test suite (55 tests)
+gradle :app:testDebugUnitTest --no-daemon
+
+# Compile Android instrumentation tests (4 tests in androidTest)
+gradle :app:compileDebugAndroidTestKotlin --no-daemon
+
+# Run Android Lint
+gradle :app:lintDebug --no-daemon
+
+# Manual full R8 Release APK & App Bundle (requires keystore env vars)
 export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
 export STORE_PASSWORD="your-keystore-password"
 export KEY_PASSWORD="your-key-password"
-gradle :app:assembleRelease -PfastApk=true --no-daemon
+gradle :app:assembleRelease :app:bundleRelease --no-daemon
 ```
 
 ---
 
-## GitHub Actions CI/CD Release
+## GitHub Actions CI/CD
 
-The automated workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml):
-1. Runs on Ubuntu runners with pre-installed Android SDK and JDK 21.
-2. Automatically generates signing keystores if custom repository secrets are omitted.
-3. Builds signed `Jarvis-release.apk` and `Jarvis-debug.apk` with Gradle build caching.
-4. Generates `SHA256SUMS.txt` integrity checksums.
-5. Uploads artifacts to GitHub Actions and publishes official assets to [GitHub Releases](https://github.com/zakmijo2-dotcom/Jarvis-/releases).
+The single unified workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) provisions **JDK 21**, **Android SDK**, and **Gradle 9.3.1**, runs the **55-test** JVM/Robolectric suite (`:app:testDebugUnitTest`), builds a signed `JARVIS-v1.0.0.apk` **directly from source** (supporting `fast-release`, `r8-release`, and `debug` dispatch modes, with automatic R8 optimization on `v*` tags), generates `SHA256SUMS.txt`, uploads workflow artifacts, and publishes to **GitHub Releases**.
+
+Optional **GitHub Repository Secrets** for consistent release signing:
+- `ANDROID_KEYSTORE_BASE64` — `base64 -w0 my-upload-key.jks` (`alias = upload`)
+- `ANDROID_STORE_PASSWORD`
+- `ANDROID_KEY_PASSWORD`
+
+If signing secrets are omitted, CI generates an ephemeral upload keystore automatically so builds and releases succeed without manual configuration.
+
+---
+
+## Honest Scope & Physical Device Requirements
+- **Verified in Headless CI:** **55 / 55** JVM/Robolectric tests, `androidTest` Kotlin compilation (`4` instrumentation tests), Room migrations `1 → 7`, R8 release rules, and signed APK packaging.
+- **Requires Physical Android Device:** Live `Shizuku` daemon IPC (`moe.shizuku.privileged.api`), Android 11+ Wireless Debugging (`127.0.0.1` SPAKE2/TLS handshake), `.litertlm` GPU OpenCL execution on `arm64-v8a` hardware, Picovoice Wake-Word audio capture (with user-supplied AccessKey), and live AGSL GPU shaders (API 33+).
+- **Unbundled Local Formats:** `GGUF`, `.tflite`, `.task`, and `.safetensors` files are inspected transparently and blocked from execution (`isExecutionSupported = false`) in this APK build because their native C++/JNI runtimes are not bundled.
 
 ---
 
 ## Documentation Index
 - [`LICENSE`](LICENSE) — GNU General Public License v3.0 (`GPL-3.0`)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — System architecture, UI design tokens, 22-tool catalog, and Room v7 schema
-- [`BUILD_AND_INSTALL.md`](BUILD_AND_INSTALL.md) — Step-by-step build, signing, and device installation guide
-- [`CHANGELOG.md`](CHANGELOG.md) — Release notes and changelog history
-- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — Release summary & hardware notes
-- [`TEST_PLAN.md`](TEST_PLAN.md) — Automated and on-device verification matrix
-- [`OPEN_SOURCE_CREDITS.md`](OPEN_SOURCE_CREDITS.md) — Open-source libraries, attributions, and `GPL-3.0` compliance
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Shizuku/ADB bridge, ModelRouter, 25-tool catalog, UI & Room v7 schema
+- [`BUILD_AND_INSTALL.md`](BUILD_AND_INSTALL.md) — Local build scripts, R8 Release signing, CI pipeline & device setup
+- [`CHANGELOG.md`](CHANGELOG.md) — `v1.0.0` release & architecture upgrade changelog
+- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — `v1.0.0` feature highlights and hardware guardrails
+- [`TEST_PLAN.md`](TEST_PLAN.md) — 55 JVM/Robolectric + 4 Android Instrumentation verification matrix
+- [`OPEN_SOURCE_CREDITS.md`](OPEN_SOURCE_CREDITS.md) — Libraries, licenses, bundled fonts, and attributions
+- [`PROGRESS.md`](PROGRESS.md) — Upgrade phase execution and verification log
 
 ---
 

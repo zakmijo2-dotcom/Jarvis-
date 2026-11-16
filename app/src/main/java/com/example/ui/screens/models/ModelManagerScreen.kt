@@ -210,7 +210,8 @@ fun ModelManagerScreen(
                         Text(
                             text = stringResource(R.string.models_title),
                             style = MaterialTheme.typography.headlineSmall,
-                            color = headerPalette.text
+                            color = headerPalette.text,
+                            modifier = Modifier.testTag("models_screen_title")
                         )
                     }
                     OutlinedButton(

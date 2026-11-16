@@ -48,8 +48,31 @@ class JarvisInstrumentationTest {
         assertTrue(health.keystoreAvailable)
     }
 
+    @org.junit.Before
+    fun resetModeBefore() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as JarvisApplication
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+        composeTestRule.waitForIdle()
+    }
+
+    @org.junit.After
+    fun resetModeAfter() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as JarvisApplication
+        runBlocking { app.container.settingsRepository.setUiAdvancedModeEnabled(false) }
+    }
+
     @Test
     fun mainActivityNavigatesAcrossHomeMoreBridgeAndModels() {
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("chat_model_selector_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("topbar_settings_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("switch_advanced_operator_mode").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("nav_tab_home").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("home_greeting_text").assertIsDisplayed()
 
