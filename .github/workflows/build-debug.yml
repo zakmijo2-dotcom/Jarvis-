@@ -9,29 +9,41 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Pre-Built Signed APK or Build via Gradle
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 9.3.1 with Build Cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Debug Keystore
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p app/build/outputs/apk/debug
+          keytool -genkeypair -noprompt \
+            -keystore debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
 
-          if [[ -f "JARVIS-v1.0.0.apk" ]]; then
-            echo "==> Found pre-built signed JARVIS-v1.0.0.apk in repository!"
-            cp "JARVIS-v1.0.0.apk" "app/build/outputs/apk/debug/JARVIS-v1.0.0.apk"
-            ls -lh "app/build/outputs/apk/debug/JARVIS-v1.0.0.apk"
-          else
-            echo "==> No pre-built APK found; building with Gradle..."
-            if [[ ! -f debug.keystore && -f debug.keystore.base64 ]]; then
-              tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
-            fi
-            gradle :app:assembleDebug --parallel --build-cache -x lint -x test --no-daemon
-          fi
+      - name: Build Debug APK
+        run: gradle :app:assembleDebug --parallel --build-cache -x lint -x test --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
