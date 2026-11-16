@@ -5,6 +5,31 @@ License: **GNU General Public License v3.0 (`GPL-3.0`)**
 
 ---
 
+## [1.0.2] — Autonomous Phone Use, MCP & Screen Perception (`versionCode = 3`)
+
+### Added
+- **Autonomous Phone Use Suite (`core/tools/PhoneUseTools.kt`):**
+  - Full mobile action orchestration including smart coordinates tapping, text injection, gestures, and scrolling.
+  - Multi-step phone use workflow execution with state change validation.
+- **Real-Time Screen Perception & Vision (`core/vision/`):**
+  - Integrated `MediaProjectionCaptureController` and foreground service for on-demand screen frames.
+  - On-device text recognition with `OnDeviceOcrEngine`.
+  - Structural UI accessibility tree compression (`ScreenTreeCompressor`) and temporal screen journal (`ScreenJournal`).
+- **Model Context Protocol (MCP) Client (`core/mcp/`):**
+  - Implemented `McpClient` and `McpManager` supporting standard JSON-RPC 2.0 tool discovery and execution.
+- **Execution Overlay (`core/overlay/ExecutionOverlayManager`):**
+  - High-visibility system overlay indicating active AI phone use with instant stop control.
+- **Web Content Extraction & HTTP Security (`core/web/`):**
+  - Implemented `WebPageExtractor` for clean HTML-to-Markdown processing.
+  - Added `PublicHttpSafetyGuard` with strict SSRF protection blocking private and local IP ranges.
+- **Security App Blocklist & Risk Classification (`core/security/`):**
+  - Sensitive application protection via `AppBlocklistPolicy`.
+  - Visual and input field risk assessment with `ScreenRiskClassifier`.
+- **Automated CI/CD Release Pipeline:**
+  - Fast signed compilation for `Jarvis-release.apk` and `Jarvis-debug.apk` with automatic GitHub Releases asset deployment.
+
+---
+
 ## [1.0.0] — Major Architecture Upgrade & Release (`versionCode = 1`)
 
 ### Added & Upgraded

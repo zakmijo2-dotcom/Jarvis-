@@ -21,12 +21,12 @@ on:
         description: 'Run JVM & Robolectric unit tests before packaging'
         required: false
         type: boolean
-        default: true
+        default: false
       release_tag:
-        description: 'Tag name for GitHub Release (e.g. v1.0.1)'
+        description: 'Tag name for GitHub Release (e.g. v1.0.2)'
         required: false
         type: string
-        default: 'v1.0.1'
+        default: 'v1.0.2'
       publish_github_release:
         description: 'Publish APK to GitHub Releases'
         required: false
@@ -55,9 +55,6 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK & Licenses
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle 9.3.1 & Build Cache
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -84,7 +81,7 @@ jobs:
           fi
 
       - name: Run JVM & Robolectric Test Suite
-        if: ${{ inputs.run_tests != false }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tests == true }}
         shell: bash
         run: gradle :app:testDebugUnitTest --no-daemon
 
@@ -130,39 +127,49 @@ jobs:
           rm -rf "$DIST_DIR"
           mkdir -p "$DIST_DIR"
 
-          if [[ "${GITHUB_REF:-}" == refs/tags/v* || "$BUILD_MODE" == "r8-release" ]]; then
+          if [[ "$BUILD_MODE" == "r8-release" ]]; then
             echo "==> Building R8-optimized signed Release APK..."
             gradle :app:assembleRelease --parallel --build-cache -x lint -x test --no-daemon
-            BUILT_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
-            cp "$BUILT_APK" "$DIST_DIR/JARVIS-v1.0.1.apk"
-          elif [[ "$BUILD_MODE" == "debug" ]]; then
-            echo "==> Building signed Debug APK..."
-            gradle :app:fastApk --parallel --build-cache -x lint -x test --no-daemon
-            cp "JARVIS-v1.0.1.apk" "$DIST_DIR/JARVIS-v1.0.1.apk"
           else
-            echo "==> Building fast signed Release APK (-PfastApk=true)..."
-            gradle :app:assembleRelease -PfastApk=true --parallel --build-cache -x lint -x test --no-daemon
-            BUILT_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
-            cp "$BUILT_APK" "$DIST_DIR/JARVIS-v1.0.1.apk"
+            echo "==> Building fast signed Release APK (-PfastApk=true) and Debug APK..."
+            gradle :app:assembleRelease :app:assembleDebug -PfastApk=true --parallel --build-cache -x lint -x test --no-daemon
           fi
 
-          (cd "$DIST_DIR" && sha256sum JARVIS-v1.0.1.apk > SHA256SUMS.txt)
-          APK_SIZE=$(du -h "$DIST_DIR/JARVIS-v1.0.1.apk" | cut -f1)
+          RELEASE_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
+          DEBUG_APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)
+
+          if [[ -n "$RELEASE_APK" && -f "$RELEASE_APK" ]]; then
+            cp "$RELEASE_APK" "$DIST_DIR/Jarvis-release.apk"
+          fi
+          if [[ -n "$DEBUG_APK" && -f "$DEBUG_APK" ]]; then
+            cp "$DEBUG_APK" "$DIST_DIR/Jarvis-debug.apk"
+          fi
+
+          (cd "$DIST_DIR" && sha256sum *.apk > SHA256SUMS.txt)
           {
-            echo "## J.A.R.V.I.S v1.0.1 — Signed APK Build Summary"
+            echo "## J.A.R.V.I.S v1.0.2 — Signed APK Build Summary"
             echo "- **Build Mode:** \`${BUILD_MODE}\`"
-            echo "- **APK File:** \`JARVIS-v1.0.1.apk\` (${APK_SIZE})"
+            for f in "$DIST_DIR"/*.apk; do
+              fname=$(basename "$f")
+              fsize=$(du -h "$f" | cut -f1)
+              echo "- **$fname** ($fsize)"
+            done
             echo ""
-            echo "### SHA-256 Checksum"
+            echo "### SHA-256 Checksums"
             echo '```'
             cat "$DIST_DIR/SHA256SUMS.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Clean Up Temporary Keystore
+        if: always()
+        shell: bash
+        run: rm -f "${{ runner.temp }}/my-upload-key.jks" "${{ github.workspace }}/debug.keystore"
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JARVIS-v1.0.1-APK
+          name: jarvis-apks
           path: ${{ runner.temp }}/release-dist/*
           retention-days: 30
 
@@ -177,7 +184,7 @@ jobs:
           elif [[ -n "$INPUT_TAG" ]]; then
             TAG_NAME="$INPUT_TAG"
           else
-            TAG_NAME="v1.0.1"
+            TAG_NAME="v1.0.2"
           fi
           echo "RESOLVED_RELEASE_TAG=$TAG_NAME" >> "$GITHUB_ENV"
 
