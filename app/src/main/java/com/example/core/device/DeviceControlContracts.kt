@@ -121,6 +121,46 @@ enum class PrivilegedActionId(
         requiresUserConfirmation = true,
         requiredPermissionLabel = "Accessibility Automation Opt-in + System Accessibility Service",
         verificationMethod = "Captures before/after UI hierarchy hash and verifies state transition."
+    ),
+    INPUT_TAP(
+        wireId = "input_tap",
+        title = "Inject Screen Tap",
+        description = "Dispatch a bounded screen tap (x,y) via Shizuku or Wireless ADB shell input.",
+        supportedBackends = listOf(DeviceControlBackend.SHIZUKU, DeviceControlBackend.WIRELESS_ADB),
+        riskLevel = ToolRiskLevel.MEDIUM,
+        requiresUserConfirmation = false,
+        requiredPermissionLabel = "Shizuku API or Paired Wireless ADB",
+        verificationMethod = "Verifies input tap exit code 0 and post-action screen transition."
+    ),
+    INPUT_SWIPE(
+        wireId = "input_swipe",
+        title = "Inject Screen Swipe / Long-Press",
+        description = "Dispatch a bounded swipe gesture (x1,y1,x2,y2,durationMs) via Shizuku or Wireless ADB.",
+        supportedBackends = listOf(DeviceControlBackend.SHIZUKU, DeviceControlBackend.WIRELESS_ADB),
+        riskLevel = ToolRiskLevel.MEDIUM,
+        requiresUserConfirmation = false,
+        requiredPermissionLabel = "Shizuku API or Paired Wireless ADB",
+        verificationMethod = "Verifies input swipe exit code 0 and post-action screen transition."
+    ),
+    INPUT_TEXT(
+        wireId = "input_text",
+        title = "Inject ASCII Text Input",
+        description = "Type sanitized non-shell text into the currently focused field via Shizuku or Wireless ADB.",
+        supportedBackends = listOf(DeviceControlBackend.SHIZUKU, DeviceControlBackend.WIRELESS_ADB),
+        riskLevel = ToolRiskLevel.MEDIUM,
+        requiresUserConfirmation = false,
+        requiredPermissionLabel = "Shizuku API or Paired Wireless ADB",
+        verificationMethod = "Verifies input text exit code 0."
+    ),
+    QUERY_TOP_APP(
+        wireId = "query_top_app",
+        title = "Inspect Active Foreground App",
+        description = "Read current resumed activity / top package via dumpsys activity top/window.",
+        supportedBackends = listOf(DeviceControlBackend.SHIZUKU, DeviceControlBackend.WIRELESS_ADB),
+        riskLevel = ToolRiskLevel.LOW,
+        requiresUserConfirmation = false,
+        requiredPermissionLabel = "Shizuku API or Paired Wireless ADB",
+        verificationMethod = "Parses foreground package name from Android WindowManager output."
     )
 }
 

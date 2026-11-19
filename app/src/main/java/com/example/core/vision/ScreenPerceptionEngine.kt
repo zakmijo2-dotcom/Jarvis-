@@ -8,26 +8,45 @@ import com.example.core.security.AppBlocklistPolicy
 import com.example.core.tools.AccessibilityBridge
 import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
+import java.util.LinkedHashMap
+
+data class FrameCacheEntry(
+    val stabilityHash: String,
+    val capturedAtMs: Long,
+    val base64Jpeg: String,
+    val width: Int,
+    val height: Int
+)
 
 /**
  * Unified non-root screen perception engine combining:
  * 1) AppBlocklistPolicy safeguard
  * 2) Pruned/compressed Accessibility UI tree with (cx, cy) bounds & password redaction
- * 3) API 30+ AccessibilityService.takeScreenshot -> MediaProjection fallback bitmap capture
- * 4) Offline ML Kit OCR (always local, zero cloud upload required)
- * 5) Downscaled JPEG Base64 encoding for consented multimodal cloud vision turns
+ * 3) Screen classification (loading, dialogs, search, feed, media player, forms)
+ * 4) API 30+ AccessibilityService.takeScreenshot -> MediaProjection fallback bitmap capture
+ * 5) Offline ML Kit OCR (always local, zero cloud upload required)
+ * 6) LRU frame cache + stability-hash diffing + context-aware cloud image selection
  */
 class ScreenPerceptionEngine(
     private val context: Context,
     private val ocrEngine: OnDeviceOcrEngine = OnDeviceOcrEngine(),
     private val overlayManager: ExecutionOverlayManager? = null
 ) {
+    private val frameCacheLock = Any()
+    private val frameCache = object : LinkedHashMap<String, FrameCacheEntry>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FrameCacheEntry>?): Boolean =
+            size > MAX_CACHED_FRAMES
+    }
+
+    @Volatile
+    private var lastStabilityHash: String? = null
 
     suspend fun observeScreen(
         includeScreenshot: Boolean = false,
         includeOcr: Boolean = true,
         customBlockedPackagesCsv: String? = null,
-        maxElements: Int = 35
+        maxElements: Int = 35,
+        forceFreshScreenshot: Boolean = false
     ): ScreenObservation {
         val a11yAuthorized = AccessibilityBridge.isAccessibilityAuthorized(context)
         val rawElements = if (a11yAuthorized) {
@@ -60,10 +79,20 @@ class ScreenPerceptionEngine(
             maxElements = maxElements
         )
 
+        val now = System.currentTimeMillis()
+        val cachedFrame = if (includeScreenshot && !forceFreshScreenshot && compressedNodes.isNotEmpty()) {
+            getCachedFrame(stabilityHash, now)
+        } else {
+            null
+        }
+
         var bitmap: Bitmap? = null
         var captureSource = ScreenCaptureSource.NONE
 
-        if (includeScreenshot || (includeOcr && compressedNodes.isEmpty())) {
+        val needsBitmapCapture = (includeScreenshot && cachedFrame == null) ||
+            (includeOcr && compressedNodes.isEmpty())
+
+        if (needsBitmapCapture) {
             overlayManager?.setHiddenForCapture(true)
             delay(40L)
             try {
@@ -90,10 +119,25 @@ class ScreenPerceptionEngine(
             null
         }
 
-        val encoded = if (includeScreenshot && bitmap != null) {
-            encodeDownscaledJpegBase64(bitmap)
-        } else {
-            null
+        val encoded: Triple<String, Int, Int>? = when {
+            includeScreenshot && cachedFrame != null -> {
+                captureSource = ScreenCaptureSource.ACCESSIBILITY_API30
+                Triple(cachedFrame.base64Jpeg, cachedFrame.width, cachedFrame.height)
+            }
+            includeScreenshot && bitmap != null -> {
+                encodeDownscaledJpegBase64(bitmap)?.also { (b64, w, h) ->
+                    putCachedFrame(
+                        FrameCacheEntry(
+                            stabilityHash = stabilityHash,
+                            capturedAtMs = now,
+                            base64Jpeg = b64,
+                            width = w,
+                            height = h
+                        )
+                    )
+                }
+            }
+            else -> null
         }
 
         if (bitmap != null && !bitmap.isRecycled) {
@@ -105,9 +149,10 @@ class ScreenPerceptionEngine(
         } else {
             stabilityHash
         }
+        lastStabilityHash = effectiveHash
 
         return ScreenObservation(
-            capturedAtMs = System.currentTimeMillis(),
+            capturedAtMs = now,
             activePackageName = activePkg,
             screenWidth = screenW,
             screenHeight = screenH,
@@ -120,6 +165,73 @@ class ScreenPerceptionEngine(
             stabilityHash = effectiveHash,
             blockedByPolicy = false
         )
+    }
+
+    /**
+     * Context-aware image selection policy:
+     * Avoids sending screenshots to cloud models unless visual inspection adds real value
+     * (sparse UI tree, visual reasoning requested, previous action failed/stalled, or screen changed
+     * into a media/browser/dialog surface) AND the model supports vision.
+     */
+    fun shouldAttachScreenshotToCloud(
+        observation: ScreenObservation?,
+        previousSentHash: String?,
+        userPrompt: String,
+        previousActionFailed: Boolean,
+        modelSupportsVision: Boolean
+    ): Boolean {
+        if (!modelSupportsVision || observation == null || observation.blockedByPolicy) return false
+        if (observation.screenshotBase64Jpeg.isNullOrBlank()) return false
+
+        // Skip re-sending identical unchanged frames unless recovering from a failure
+        if (!previousActionFailed && previousSentHash != null && previousSentHash == observation.stabilityHash) {
+            return false
+        }
+
+        if (previousActionFailed) return true
+        if (observation.elements.size < 5) return true
+
+        val lower = userPrompt.lowercase()
+        val explicitlyVisual = lower.contains("screenshot") ||
+            lower.contains("look at") ||
+            lower.contains("what is on") ||
+            lower.contains("image") ||
+            lower.contains("video") ||
+            lower.contains("chart") ||
+            lower.contains("شوف الشاشة") ||
+            lower.contains("صورة")
+        if (explicitlyVisual) return true
+
+        val classification = ScreenClassifier.classify(observation)
+        return classification.screenType == ScreenType.MEDIA_PLAYER ||
+            classification.screenType == ScreenType.BROWSER ||
+            classification.screenType == ScreenType.DIALOG_PERMISSION ||
+            classification.screenType == ScreenType.UNKNOWN
+    }
+
+    fun getCachedFrameCount(): Int = synchronized(frameCacheLock) { frameCache.size }
+
+    fun clearFrameCache() {
+        synchronized(frameCacheLock) {
+            frameCache.clear()
+        }
+        lastStabilityHash = null
+    }
+
+    internal fun putCachedFrame(entry: FrameCacheEntry) {
+        synchronized(frameCacheLock) {
+            frameCache[entry.stabilityHash] = entry
+        }
+    }
+
+    internal fun getCachedFrame(hash: String, nowMs: Long = System.currentTimeMillis()): FrameCacheEntry? {
+        synchronized(frameCacheLock) {
+            val existing = frameCache[hash] ?: return null
+            return if (nowMs - existing.capturedAtMs <= FRAME_CACHE_TTL_MS) existing else {
+                frameCache.remove(hash)
+                null
+            }
+        }
     }
 
     fun encodeDownscaledJpegBase64(
@@ -149,5 +261,10 @@ class ScreenPerceptionEngine(
         if (!compressedOk) return null
         val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         return Triple(b64, finalW, finalH)
+    }
+
+    companion object {
+        private const val MAX_CACHED_FRAMES = 6
+        private const val FRAME_CACHE_TTL_MS = 12_000L
     }
 }

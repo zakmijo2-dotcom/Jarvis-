@@ -16,6 +16,13 @@ sealed interface PublicHttpValidationResult {
  */
 object PublicHttpSafetyGuard {
 
+    fun requireSafePublicUrl(rawUrl: String, allowLoopback: Boolean = false): String {
+        return when (val result = validateUrl(rawUrl, allowLoopback = allowLoopback)) {
+            is PublicHttpValidationResult.Safe -> result.normalizedUrl
+            is PublicHttpValidationResult.Blocked -> throw SecurityException(result.reason)
+        }
+    }
+
     fun validateUrl(
         rawUrl: String,
         allowLoopback: Boolean = false,

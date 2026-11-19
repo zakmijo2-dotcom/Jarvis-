@@ -24,6 +24,64 @@ enum class ExecutionRoute(val label: String, val isExternalCloud: Boolean) {
     HYBRID_WEB_AND_AI("Web + AI Synthesis", true)
 }
 
+/**
+ * Explicit runtime execution phase of the autonomous agent.
+ * Driven strictly by real agent state transitions — never fake timers.
+ */
+enum class AgentExecutionPhase(val label: String, val isTerminal: Boolean = false) {
+    IDLE("Idle", false),
+    THINKING("Thinking", false),
+    OBSERVING("Observing", false),
+    EXECUTING("Executing", false),
+    WAITING_PERMISSION("Waiting for permission", false),
+    WAITING_CONFIRMATION("Waiting for approval", false),
+    VERIFYING("Verifying", false),
+    PAUSED("Paused", false),
+    RECOVERING("Recovering", false),
+    COMPLETED("Completed", true),
+    FAILED("Failed", true),
+    CANCELLED("Cancelled", true)
+}
+
+data class AgentTimelineEntry(
+    val id: String,
+    val timestampMs: Long,
+    val phase: AgentExecutionPhase,
+    val title: String,
+    val detail: String,
+    val toolName: String? = null,
+    val succeeded: Boolean? = null
+)
+
+data class ObservationPreviewSnapshot(
+    val packageName: String?,
+    val screenTypeLabel: String,
+    val elementCount: Int,
+    val clickableCount: Int,
+    val isLoading: Boolean,
+    val hasDialog: Boolean,
+    val summary: String,
+    val screenshotBase64Preview: String? = null,
+    val capturedAtMs: Long = System.currentTimeMillis()
+)
+
+data class DynamicReplanRecord(
+    val failedStepTitle: String,
+    val failureReason: String,
+    val recoveryStrategy: String,
+    val addedStepsCount: Int
+)
+
+data class StopSummary(
+    val planId: String,
+    val goal: String,
+    val reason: String,
+    val completedSteps: Int,
+    val totalSteps: Int,
+    val lastObservedPackage: String?,
+    val canResumeFromCheckpoint: Boolean
+)
+
 data class RoutingDecision(
     val route: ExecutionRoute,
     val reason: String,
@@ -34,7 +92,8 @@ data class RoutingDecision(
     val useCloudModel: Boolean = false,
     val privacyBlockedReason: String? = null,
     val capabilitySummary: String = "",
-    val matchedSkillName: String? = null
+    val matchedSkillName: String? = null,
+    val recommendedModelTier: String = "BALANCED"
 )
 
 enum class PlanStepType(val label: String) {
@@ -64,7 +123,8 @@ data class AgentPlanStep(
     val title: String,
     val detail: String,
     val status: PlanStepStatus = PlanStepStatus.PENDING,
-    val resultSummary: String? = null
+    val resultSummary: String? = null,
+    val verificationNote: String? = null
 )
 
 data class AgentPlanState(
@@ -72,7 +132,10 @@ data class AgentPlanState(
     val goal: String,
     val routeDecision: RoutingDecision,
     val steps: List<AgentPlanStep>,
-    val isCancelled: Boolean = false
+    val isCancelled: Boolean = false,
+    val isPaused: Boolean = false,
+    val currentPhase: AgentExecutionPhase = AgentExecutionPhase.THINKING,
+    val replanCount: Int = 0
 )
 
 data class AgentExecutionRecord(
@@ -89,7 +152,29 @@ data class AgentExecutionRecord(
 )
 
 sealed interface HybridAgentEvent {
+    data class PhaseChanged(
+        val phase: AgentExecutionPhase,
+        val detail: String
+    ) : HybridAgentEvent
+
+    data class TimelineRecorded(
+        val entry: AgentTimelineEntry
+    ) : HybridAgentEvent
+
+    data class ObservationCaptured(
+        val preview: ObservationPreviewSnapshot
+    ) : HybridAgentEvent
+
+    data class ReplanTriggered(
+        val record: DynamicReplanRecord
+    ) : HybridAgentEvent
+
+    data class TaskStopped(
+        val summary: StopSummary
+    ) : HybridAgentEvent
+
     data class PlanUpdated(val plan: AgentPlanState) : HybridAgentEvent
+
     data class ToolSnapshotEmitted(
         val label: String,
         val content: String

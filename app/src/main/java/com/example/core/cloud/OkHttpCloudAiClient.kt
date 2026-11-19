@@ -9,6 +9,7 @@ import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -103,156 +104,203 @@ class OkHttpCloudAiClient(
         var firstTokenNs: Long? = null
         val accumulated = StringBuilder()
 
-        val call = client.newCall(request)
-        activeCall = call
+        val maxAttempts = (config.maxRetries.coerceIn(0, 3)) + 1
+        var lastErrorMsg: String? = null
+        var succeeded = false
 
-        try {
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errorBody = runCatching {
-                        HttpSecuritySupport.readBoundedUtf8Body(response.body, 256L * 1024L)
-                    }.getOrDefault("")
-                    val cleanErr = SecurityLogRedactor.redact(extractApiError(response.code, response.message, errorBody))
-                    val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-                    recordFailure(backendLabel, cleanErr, latencyMs)
-                    emit(AiStreamEvent.Error(cleanErr))
-                    return@flow
-                }
+        for (attempt in 1..maxAttempts) {
+            if (cancelRequested.get()) {
+                emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
+                return@flow
+            }
+            val call = client.newCall(request)
+            activeCall = call
+            var shouldRetry = false
 
-                val body = response.body
-                if (body == null) {
-                    val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-                    recordFailure(backendLabel, "Cloud provider returned empty response body.", latencyMs)
-                    emit(AiStreamEvent.Error("Cloud provider returned an empty response body."))
-                    return@flow
-                }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = runCatching {
+                            HttpSecuritySupport.readBoundedUtf8Body(response.body, 256L * 1024L)
+                        }.getOrDefault("")
+                        val cleanErr = SecurityLogRedactor.redact(extractApiError(response.code, response.message, errorBody))
+                        lastErrorMsg = cleanErr
+                        if (isRetryableHttpCode(response.code) && attempt < maxAttempts && accumulated.isEmpty()) {
+                            shouldRetry = true
+                        } else {
+                            val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                            recordFailure(backendLabel, cleanErr, latencyMs)
+                        }
+                        return@use
+                    }
 
-                val contentType = response.header("Content-Type").orEmpty().lowercase()
-                if (contentType.contains("application/json") && !contentType.contains("event-stream")) {
-                    val rawJson = HttpSecuritySupport.readBoundedUtf8Body(body)
-                    val fullText = parseNonStreamingJson(config.providerKind, rawJson)
-                    firstTokenNs = System.nanoTime()
-                    accumulated.append(fullText)
-                    val outTok = estimateTokens(fullText)
-                    emit(AiStreamEvent.Delta(fullText, fullText, outTok))
-                } else {
-                    val toolCallNames = linkedMapOf<Int, String>()
-                    val toolCallArgs = linkedMapOf<Int, StringBuilder>()
-                    BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8)).use { reader ->
-                        while (true) {
-                            if (cancelRequested.get()) break
-                            val line = reader.readLine() ?: break
-                            if (!line.startsWith("data:")) continue
-                            val data = line.removePrefix("data:").trim()
-                            if (data.isEmpty() || data == "[DONE]") {
-                                if (data == "[DONE]") break
-                                continue
+                    val body = response.body
+                    if (body == null) {
+                        lastErrorMsg = "Cloud provider returned an empty response body."
+                        val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                        recordFailure(backendLabel, lastErrorMsg!!, latencyMs)
+                        return@use
+                    }
+
+                    val contentType = response.header("Content-Type").orEmpty().lowercase()
+                    if (contentType.contains("application/json") && !contentType.contains("event-stream")) {
+                        val rawJson = HttpSecuritySupport.readBoundedUtf8Body(body)
+                        val fullText = parseNonStreamingJson(config.providerKind, rawJson)
+                        firstTokenNs = System.nanoTime()
+                        accumulated.append(fullText)
+                        val outTok = estimateTokens(fullText)
+                        emit(AiStreamEvent.Delta(fullText, fullText, outTok))
+                    } else {
+                        val toolCallNames = linkedMapOf<Int, String>()
+                        val toolCallArgs = linkedMapOf<Int, StringBuilder>()
+                        BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8)).use { reader ->
+                            while (true) {
+                                if (cancelRequested.get()) break
+                                val line = reader.readLine() ?: break
+                                if (!line.startsWith("data:")) continue
+                                val data = line.removePrefix("data:").trim()
+                                if (data.isEmpty() || data == "[DONE]") {
+                                    if (data == "[DONE]") break
+                                    continue
+                                }
+                                accumulateStreamingToolCalls(
+                                    provider = config.providerKind,
+                                    jsonData = data,
+                                    namesByIndex = toolCallNames,
+                                    argsByIndex = toolCallArgs
+                                )
+                                val delta = extractSseDelta(config.providerKind, data, includeOpenAiToolCalls = false)
+                                if (!delta.isNullOrEmpty()) {
+                                    if (firstTokenNs == null) {
+                                        firstTokenNs = System.nanoTime()
+                                    }
+                                    accumulated.append(delta)
+                                    val currentText = accumulated.toString()
+                                    emit(
+                                        AiStreamEvent.Delta(
+                                            accumulatedText = currentText,
+                                            deltaText = delta,
+                                            estimatedTokens = estimateTokens(currentText)
+                                        )
+                                    )
+                                }
                             }
-                            accumulateOpenAiStreamingToolCalls(
-                                provider = config.providerKind,
-                                jsonData = data,
-                                namesByIndex = toolCallNames,
-                                argsByIndex = toolCallArgs
-                            )
-                            val delta = extractSseDelta(config.providerKind, data, includeOpenAiToolCalls = false)
-                            if (!delta.isNullOrEmpty()) {
+                        }
+                        if (toolCallNames.isNotEmpty() && !accumulated.contains("[TOOL_CALL]")) {
+                            for ((idx, fnName) in toolCallNames) {
+                                if (fnName.isBlank()) continue
+                                val rawArgs = toolCallArgs[idx]?.toString().orEmpty().trim().ifEmpty { "{}" }
+                                val tag = formatCanonicalToolCallTag(fnName, rawArgs)
                                 if (firstTokenNs == null) {
                                     firstTokenNs = System.nanoTime()
                                 }
-                                accumulated.append(delta)
+                                if (accumulated.isNotEmpty() && !accumulated.endsWith("\n")) {
+                                    accumulated.append("\n")
+                                }
+                                accumulated.append(tag)
                                 val currentText = accumulated.toString()
                                 emit(
                                     AiStreamEvent.Delta(
                                         accumulatedText = currentText,
-                                        deltaText = delta,
+                                        deltaText = tag,
                                         estimatedTokens = estimateTokens(currentText)
                                     )
                                 )
                             }
                         }
                     }
-                    if (toolCallNames.isNotEmpty() && !accumulated.contains("[TOOL_CALL]")) {
-                        for ((idx, fnName) in toolCallNames) {
-                            if (fnName.isBlank()) continue
-                            val rawArgs = toolCallArgs[idx]?.toString().orEmpty().trim().ifEmpty { "{}" }
-                            val tag = formatCanonicalToolCallTag(fnName, rawArgs)
-                            if (firstTokenNs == null) {
-                                firstTokenNs = System.nanoTime()
-                            }
-                            if (accumulated.isNotEmpty() && !accumulated.endsWith("\n")) {
-                                accumulated.append("\n")
-                            }
-                            accumulated.append(tag)
-                            val currentText = accumulated.toString()
-                            emit(
-                                AiStreamEvent.Delta(
-                                    accumulatedText = currentText,
-                                    deltaText = tag,
-                                    estimatedTokens = estimateTokens(currentText)
-                                )
-                            )
-                        }
-                    }
+                    succeeded = true
+                }
+            } catch (ce: CancellationException) {
+                emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
+                throw ce
+            } catch (te: SocketTimeoutException) {
+                lastErrorMsg = SecurityLogRedactor.redact("Cloud request timed out after ${timeoutSec}s (${te.localizedMessage ?: "timeout"}).")
+                if (attempt < maxAttempts && accumulated.isEmpty()) {
+                    shouldRetry = true
+                } else {
+                    val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                    recordFailure(backendLabel, lastErrorMsg!!, latencyMs)
+                }
+            } catch (io: IOException) {
+                if (cancelRequested.get()) {
+                    emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
+                    return@flow
+                }
+                lastErrorMsg = SecurityLogRedactor.redact("Cloud network failure: ${io.localizedMessage ?: io.javaClass.simpleName}")
+                if (attempt < maxAttempts && accumulated.isEmpty()) {
+                    shouldRetry = true
+                } else {
+                    val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                    recordFailure(backendLabel, lastErrorMsg!!, latencyMs)
+                }
+            } catch (t: Throwable) {
+                val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
+                lastErrorMsg = SecurityLogRedactor.redact("Cloud inference error: ${t.localizedMessage ?: t.javaClass.simpleName}")
+                recordFailure(backendLabel, lastErrorMsg!!, latencyMs)
+            } finally {
+                if (activeCall === call) {
+                    activeCall = null
                 }
             }
 
-            val endNs = System.nanoTime()
-            val totalLatencyMs = ((endNs - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val ttftMs = (((firstTokenNs ?: endNs) - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val finalText = accumulated.toString()
-            val outTokens = estimateTokens(finalText)
-            val decodeSec = ((endNs - (firstTokenNs ?: startNs)).coerceAtLeast(1_000_000L)) / 1_000_000_000f
-            val tps = (outTokens / decodeSec).coerceAtLeast(0.1f)
-
-            val benchmark = GenerationBenchmark(
-                ttftMs = ttftMs,
-                tokensPerSecond = tps,
-                outputTokens = outTokens,
-                prefillTokens = prefillEst,
-                backendUsed = backendLabel,
-                nativeHeapMb = 0f
-            )
-
-            if (cancelRequested.get()) {
-                emit(AiStreamEvent.Cancelled(finalText, benchmark))
+            if (succeeded) break
+            if (shouldRetry) {
+                val backoffMs = (config.retryBaseDelayMs.coerceIn(50L, 2_000L)) * (1L shl (attempt - 1))
+                delay(backoffMs)
             } else {
-                _usageStats.value = _usageStats.value.copy(
-                    successfulRequests = _usageStats.value.successfulRequests + 1,
-                    totalCompletionTokensEst = _usageStats.value.totalCompletionTokensEst + outTokens,
-                    lastLatencyMs = totalLatencyMs,
-                    lastProviderUsed = backendLabel,
-                    lastErrorMessage = null
-                )
-                emit(AiStreamEvent.Completed(finalText, benchmark))
-            }
-        } catch (ce: CancellationException) {
-            emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
-            throw ce
-        } catch (te: SocketTimeoutException) {
-            val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val msg = SecurityLogRedactor.redact("Cloud request timed out after ${timeoutSec}s (${te.localizedMessage ?: "timeout"}).")
-            recordFailure(backendLabel, msg, latencyMs)
-            emit(AiStreamEvent.Error(msg))
-        } catch (io: IOException) {
-            val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            if (cancelRequested.get()) {
-                emit(AiStreamEvent.Cancelled(accumulated.toString(), null))
-            } else {
-                val msg = SecurityLogRedactor.redact("Cloud network failure: ${io.localizedMessage ?: io.javaClass.simpleName}")
-                recordFailure(backendLabel, msg, latencyMs)
-                emit(AiStreamEvent.Error(msg))
-            }
-        } catch (t: Throwable) {
-            val latencyMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            val msg = SecurityLogRedactor.redact("Cloud inference error: ${t.localizedMessage ?: t.javaClass.simpleName}")
-            recordFailure(backendLabel, msg, latencyMs)
-            emit(AiStreamEvent.Error(msg))
-        } finally {
-            if (activeCall === call) {
-                activeCall = null
+                break
             }
         }
+
+        if (!succeeded) {
+            val fallback = config.fallbackConfig
+            if (fallback != null && !cancelRequested.get()) {
+                streamChat(
+                    config = fallback.copy(fallbackConfig = null),
+                    systemInstruction = systemInstruction,
+                    prompt = prompt,
+                    history = history
+                ).collect { ev -> emit(ev) }
+                return@flow
+            }
+            emit(AiStreamEvent.Error(lastErrorMsg ?: "Cloud provider request failed."))
+            return@flow
+        }
+
+        val endNs = System.nanoTime()
+        val totalLatencyMs = ((endNs - startNs) / 1_000_000L).coerceAtLeast(1L)
+        val ttftMs = (((firstTokenNs ?: endNs) - startNs) / 1_000_000L).coerceAtLeast(1L)
+        val finalText = accumulated.toString()
+        val outTokens = estimateTokens(finalText)
+        val decodeSec = ((endNs - (firstTokenNs ?: startNs)).coerceAtLeast(1_000_000L)) / 1_000_000_000f
+        val tps = (outTokens / decodeSec).coerceAtLeast(0.1f)
+
+        val benchmark = GenerationBenchmark(
+            ttftMs = ttftMs,
+            tokensPerSecond = tps,
+            outputTokens = outTokens,
+            prefillTokens = prefillEst,
+            backendUsed = backendLabel,
+            nativeHeapMb = 0f
+        )
+
+        if (cancelRequested.get()) {
+            emit(AiStreamEvent.Cancelled(finalText, benchmark))
+        } else {
+            _usageStats.value = _usageStats.value.copy(
+                successfulRequests = _usageStats.value.successfulRequests + 1,
+                totalCompletionTokensEst = _usageStats.value.totalCompletionTokensEst + outTokens,
+                lastLatencyMs = totalLatencyMs,
+                lastProviderUsed = backendLabel,
+                lastErrorMessage = null
+            )
+            emit(AiStreamEvent.Completed(finalText, benchmark))
+        }
     }.flowOn(Dispatchers.IO)
+
+    internal fun isRetryableHttpCode(code: Int): Boolean =
+        code == 429 || code == 500 || code == 502 || code == 503 || code == 504
 
     private fun recordFailure(provider: String, message: String, latencyMs: Long) {
         _usageStats.value = _usageStats.value.copy(
@@ -388,6 +436,14 @@ class OkHttpCloudAiClient(
                         put("system", systemInstruction)
                     }
                     put("messages", messages)
+                    if (!config.toolsSchemaJson.isNullOrBlank()) {
+                        runCatching { JSONArray(config.toolsSchemaJson) }.getOrNull()?.let { toolsArr ->
+                            if (toolsArr.length() > 0) {
+                                put("tools", toolsArr)
+                                put("tool_choice", JSONObject().put("type", "auto"))
+                            }
+                        }
+                    }
                 }
                 Request.Builder()
                     .url(config.endpointUrl)
@@ -519,14 +575,42 @@ class OkHttpCloudAiClient(
         }
     }
 
-    private fun accumulateOpenAiStreamingToolCalls(
+    private fun accumulateStreamingToolCalls(
         provider: CloudProviderKind,
         jsonData: String,
         namesByIndex: MutableMap<Int, String>,
         argsByIndex: MutableMap<Int, StringBuilder>
     ) {
-        if (provider == CloudProviderKind.GEMINI_REST || provider == CloudProviderKind.ANTHROPIC) return
+        if (provider == CloudProviderKind.GEMINI_REST) return
         val obj = runCatching { JSONObject(jsonData) }.getOrNull() ?: return
+
+        if (provider == CloudProviderKind.ANTHROPIC) {
+            val type = obj.optString("type")
+            val idx = obj.optInt("index", 0)
+            if (type == "content_block_start") {
+                val block = obj.optJSONObject("content_block") ?: return
+                if (block.optString("type") == "tool_use") {
+                    val fnName = block.optString("name").trim()
+                    if (fnName.isNotEmpty()) {
+                        namesByIndex[idx] = fnName
+                    }
+                    val initialInput = block.optJSONObject("input")
+                    if (initialInput != null && initialInput.length() > 0) {
+                        argsByIndex.getOrPut(idx) { StringBuilder() }.append(initialInput.toString())
+                    }
+                }
+            } else if (type == "content_block_delta") {
+                val delta = obj.optJSONObject("delta") ?: return
+                if (delta.optString("type") == "input_json_delta") {
+                    val partial = delta.optString("partial_json")
+                    if (partial.isNotEmpty()) {
+                        argsByIndex.getOrPut(idx) { StringBuilder() }.append(partial)
+                    }
+                }
+            }
+            return
+        }
+
         val delta = obj.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta") ?: return
         val toolCalls = delta.optJSONArray("tool_calls")
         if (toolCalls != null) {
@@ -585,10 +669,26 @@ class OkHttpCloudAiClient(
             }
 
             CloudProviderKind.ANTHROPIC -> {
-                obj.optJSONArray("content")
-                    ?.optJSONObject(0)
-                    ?.optString("text")
-                    .orEmpty()
+                val contentArr = obj.optJSONArray("content") ?: return ""
+                val sb = StringBuilder()
+                for (i in 0 until contentArr.length()) {
+                    val block = contentArr.optJSONObject(i) ?: continue
+                    when (block.optString("type")) {
+                        "text" -> {
+                            val txt = block.optString("text")
+                            if (txt.isNotEmpty()) sb.append(txt)
+                        }
+                        "tool_use" -> {
+                            val fnName = block.optString("name").trim()
+                            if (fnName.isNotEmpty()) {
+                                val inputObj = block.optJSONObject("input") ?: JSONObject()
+                                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                                sb.append(formatCanonicalToolCallTag(fnName, inputObj.toString()))
+                            }
+                        }
+                    }
+                }
+                sb.toString()
             }
 
             else -> {

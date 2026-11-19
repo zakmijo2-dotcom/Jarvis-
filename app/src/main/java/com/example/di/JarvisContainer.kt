@@ -9,6 +9,10 @@ import com.example.core.ai.AiEngine
 import com.example.core.ai.LiteRtLmAiEngine
 import com.example.core.ai.ModelRouter
 import com.example.core.ai.RuntimeEngineCoordinator
+import com.example.core.automation.PhoneAutomationEngine
+import com.example.core.background.AgentBackgroundCoordinator
+import com.example.core.browser.BrowserAutomationEngine
+import com.example.core.browser.OkHttpBrowserFetcher
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudProviderRegistry
 import com.example.core.cloud.OkHttpCloudAiClient
@@ -22,6 +26,7 @@ import com.example.core.device.WirelessAdbController
 import com.example.core.hf.HuggingFaceApiClient
 import com.example.core.mcp.McpClient
 import com.example.core.mcp.McpManager
+import com.example.core.memory.AppKnowledgeRepository
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.RoomLocalMemory
 import com.example.core.model.DownloadQueueManager
@@ -241,8 +246,31 @@ open class JarvisContainer(context: Context) {
         RoomLocalMemory(database.memoryDao())
     }
 
+    open val appKnowledgeRepository: AppKnowledgeRepository by lazy {
+        AppKnowledgeRepository(database.appKnowledgeDao())
+    }
+
     open val skillEngine: SkillEngine by lazy {
         RoomSkillEngine(database.skillDao())
+    }
+
+    open val phoneAutomationEngine: PhoneAutomationEngine by lazy {
+        PhoneAutomationEngine(
+            context = appContext,
+            deviceCommandRouter = deviceCommandRouter,
+            screenPerceptionEngine = screenPerceptionEngine
+        )
+    }
+
+    open val browserAutomationEngine: BrowserAutomationEngine by lazy {
+        BrowserAutomationEngine(fetcher = OkHttpBrowserFetcher(client = sharedOkHttpClient))
+    }
+
+    open val backgroundCoordinator: AgentBackgroundCoordinator by lazy {
+        AgentBackgroundCoordinator(
+            appContext = appContext,
+            checkpointDao = agentCheckpointDao
+        )
     }
 
     open val toolRegistry: ToolRegistry by lazy {
@@ -254,7 +282,9 @@ open class JarvisContainer(context: Context) {
             perceptionEngineProvider = { screenPerceptionEngine },
             webResearchProvider = { webResearchService },
             webPageExtractorProvider = { webPageExtractor },
-            mcpManagerProvider = { mcpManager }
+            mcpManagerProvider = { mcpManager },
+            phoneAutomationEngineProvider = { phoneAutomationEngine },
+            browserEngineProvider = { browserAutomationEngine }
         )
     }
 
@@ -287,7 +317,11 @@ open class JarvisContainer(context: Context) {
             screenPerceptionEngine = screenPerceptionEngine,
             executionOverlayManager = executionOverlayManager,
             checkpointDao = agentCheckpointDao,
-            mcpManager = mcpManager
+            mcpManager = mcpManager,
+            phoneAutomationEngine = phoneAutomationEngine,
+            appKnowledgeRepository = appKnowledgeRepository,
+            backgroundCoordinator = backgroundCoordinator,
+            browserAutomationEngine = browserAutomationEngine
         )
     }
 }

@@ -343,6 +343,40 @@ class ToolRegistry(
         ).toString()
     }
 
+    fun buildAnthropicToolsJsonString(): String {
+        val arr = org.json.JSONArray()
+        for (tool in toolsByName.values) {
+            val props = org.json.JSONObject()
+            val req = org.json.JSONArray()
+            for (spec in tool.parameters) {
+                val p = org.json.JSONObject().apply {
+                    put("type", if (spec.type == ToolParameterType.INTEGER) "integer" else "string")
+                    put("description", spec.description)
+                    if (spec.allowedValues.isNotEmpty()) {
+                        put("enum", org.json.JSONArray(spec.allowedValues))
+                    }
+                }
+                props.put(spec.name, p)
+                if (spec.required) req.put(spec.name)
+            }
+            arr.put(
+                org.json.JSONObject().apply {
+                    put("name", tool.name)
+                    put("description", tool.description)
+                    put(
+                        "input_schema",
+                        org.json.JSONObject().apply {
+                            put("type", "object")
+                            put("properties", props)
+                            put("required", req)
+                        }
+                    )
+                }
+            )
+        }
+        return arr.toString()
+    }
+
     companion object {
         private val SHELL_BLOCKLIST_REGEX = Regex("([;&|`$]|\\$\\(|&&|\\|\\||\\bsu\\b|/system/bin/)")
         private val URL_SHELL_BLOCKLIST_REGEX = Regex("([;|`$]|\\$\\(|&&|\\|\\||\\bsu\\b|/system/bin/)")
@@ -434,6 +468,19 @@ class ToolRegistry(
                         return@runCatching ToolCallRequest(
                             toolName = fnName,
                             arguments = jsonObjectToStringMap(argsObj),
+                            source = source
+                        )
+                    }
+                }
+
+                // 4. Anthropic native {"type":"tool_use","name":"...","input":{...}}
+                if (obj.optString("type").equals("tool_use", ignoreCase = true)) {
+                    val fnName = obj.optString("name").trim().lowercase()
+                    if (fnName.isNotEmpty()) {
+                        val inputObj = obj.optJSONObject("input") ?: JSONObject()
+                        return@runCatching ToolCallRequest(
+                            toolName = fnName,
+                            arguments = jsonObjectToStringMap(inputObj),
                             source = source
                         )
                     }

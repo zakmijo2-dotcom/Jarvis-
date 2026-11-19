@@ -10,7 +10,11 @@ import java.util.Locale
 import java.util.UUID
 
 enum class MemoryKind(val label: String) {
-    PREFERENCE("Preference"),
+    PREFERENCE("User Preference"),
+    APP_KNOWLEDGE("Application Knowledge"),
+    TASK_HISTORY("Task History"),
+    REUSABLE_SKILL("Reusable Skill"),
+    TEMP_CONTEXT("Temporary Execution Context"),
     SUMMARY("Conversation Summary"),
     FACT("Fact"),
     PROJECT("Project Context"),

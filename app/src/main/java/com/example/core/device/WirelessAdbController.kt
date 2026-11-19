@@ -372,6 +372,57 @@ class WirelessAdbController(
                 val mb = request.arg1.trim().toIntOrNull()?.coerceIn(64, 4096) ?: 512
                 listOf("pm", "trim-caches", (mb.toLong() * 1024L * 1024L).toString())
             }
+            PrivilegedActionId.INPUT_TAP -> {
+                val x = request.arg1.trim().toIntOrNull()?.coerceIn(0, 8192)
+                val y = request.arg2.trim().toIntOrNull()?.coerceIn(0, 8192)
+                if (x == null || y == null) {
+                    return@withContext DeviceCommandResult(
+                        actionId = request.actionId,
+                        success = false,
+                        backendUsed = DeviceControlBackend.WIRELESS_ADB,
+                        verified = false,
+                        verificationEvidence = "Invalid tap coordinates.",
+                        summary = "Blocked invalid tap coordinates.",
+                        errorReason = "Invalid coordinates"
+                    )
+                }
+                listOf("input", "tap", x.toString(), y.toString())
+            }
+            PrivilegedActionId.INPUT_SWIPE -> {
+                val parts = request.arg1.split(",")
+                val x1 = parts.getOrNull(0)?.trim()?.toIntOrNull()?.coerceIn(0, 8192)
+                val y1 = parts.getOrNull(1)?.trim()?.toIntOrNull()?.coerceIn(0, 8192)
+                val x2 = parts.getOrNull(2)?.trim()?.toIntOrNull()?.coerceIn(0, 8192)
+                val y2 = parts.getOrNull(3)?.trim()?.toIntOrNull()?.coerceIn(0, 8192)
+                val dur = request.arg2.trim().toIntOrNull()?.coerceIn(50, 3000) ?: 320
+                if (x1 == null || y1 == null || x2 == null || y2 == null) {
+                    return@withContext DeviceCommandResult(
+                        actionId = request.actionId,
+                        success = false,
+                        backendUsed = DeviceControlBackend.WIRELESS_ADB,
+                        verified = false,
+                        verificationEvidence = "Invalid swipe coordinates.",
+                        summary = "Blocked invalid swipe coordinates.",
+                        errorReason = "Invalid coordinates"
+                    )
+                }
+                listOf("input", "swipe", x1.toString(), y1.toString(), x2.toString(), y2.toString(), dur.toString())
+            }
+            PrivilegedActionId.INPUT_TEXT -> {
+                val safe = AllowlistedCommandValidator.sanitizeInputText(request.arg1)
+                    ?: return@withContext DeviceCommandResult(
+                        actionId = request.actionId,
+                        success = false,
+                        backendUsed = DeviceControlBackend.WIRELESS_ADB,
+                        verified = false,
+                        verificationEvidence = "Text requires Accessibility input (non-ASCII or restricted punctuation).",
+                        summary = "Text unsupported on ADB shell input.",
+                        errorReason = "Unsupported text for shell input"
+                    )
+                listOf("input", "text", safe)
+            }
+            PrivilegedActionId.QUERY_TOP_APP ->
+                listOf("dumpsys", "window", "displays")
             else -> return@withContext DeviceCommandResult(
                 actionId = request.actionId,
                 success = false,

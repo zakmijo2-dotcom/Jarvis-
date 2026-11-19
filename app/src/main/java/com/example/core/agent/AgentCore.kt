@@ -5,9 +5,23 @@ import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.BatteryThermalSnapshot
 import com.example.core.ai.EngineLoadState
+import com.example.core.ai.ModelCapabilityDetector
 import com.example.core.ai.ModelRouter
 import com.example.core.ai.RuntimeEngineCoordinator
 import com.example.core.ai.ThermalAndMemoryPolicy
+import com.example.core.automation.LocateAndTapVisualTool
+import com.example.core.automation.NavigateDeviceTool
+import com.example.core.automation.PhoneAutomationEngine
+import com.example.core.automation.WaitForScreenTool
+import com.example.core.background.AgentBackgroundCoordinator
+import com.example.core.background.VirtualDisplayFeasibilityProbe
+import com.example.core.browser.BrowserAutomationEngine
+import com.example.core.browser.BrowserBackTool
+import com.example.core.browser.BrowserClickLinkTool
+import com.example.core.browser.BrowserFillFormTool
+import com.example.core.browser.BrowserOpenTool
+import com.example.core.browser.BrowserReadPageTool
+import com.example.core.browser.BrowserTabsTool
 import com.example.core.cloud.CloudAiClient
 import com.example.core.cloud.CloudImageAttachment
 import com.example.core.cloud.CloudInferenceConfig
@@ -17,6 +31,7 @@ import com.example.core.cloud.CloudUsageStats
 import com.example.core.cloud.OkHttpCloudAiClient
 import com.example.core.device.DeviceCommandRouter
 import com.example.core.mcp.McpManager
+import com.example.core.memory.AppKnowledgeRepository
 import com.example.core.memory.LocalMemory
 import com.example.core.model.ArtifactState
 import com.example.core.model.ModelManager
@@ -69,6 +84,7 @@ import com.example.core.tools.ToolRegistry
 import com.example.core.tools.TrimAppCachesTool
 import com.example.core.tools.UiObservationSnapshot
 import com.example.core.tools.WebSearchTool
+import com.example.core.vision.ScreenClassifier
 import com.example.core.vision.ScreenJournal
 import com.example.core.vision.ScreenObservation
 import com.example.core.vision.ScreenPerceptionEngine
@@ -85,6 +101,7 @@ import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.ModelBenchmarkDao
 import com.example.data.repository.JarvisSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
@@ -114,7 +131,9 @@ object ToolRegistryFactory {
         perceptionEngineProvider: () -> ScreenPerceptionEngine? = { null },
         webResearchProvider: () -> WebResearchService? = { null },
         webPageExtractorProvider: () -> WebPageExtractor? = { null },
-        mcpManagerProvider: () -> McpManager? = { null }
+        mcpManagerProvider: () -> McpManager? = { null },
+        phoneAutomationEngineProvider: () -> PhoneAutomationEngine? = { null },
+        browserEngineProvider: () -> BrowserAutomationEngine? = { null }
     ): ToolRegistry {
         var registryRef: ToolRegistry? = null
         val registry = ToolRegistry(
@@ -146,13 +165,22 @@ object ToolRegistryFactory {
                 RunSkillTool(skillEngineProvider) { registryRef },
                 CaptureScreenOcrTool(perceptionEngineProvider),
                 CaptureScreenVisualTool(perceptionEngineProvider),
-                TapCoordinatesTool(),
-                LongPressCoordinatesTool(),
-                SwipeScreenTool(),
+                TapCoordinatesTool(phoneAutomationEngineProvider),
+                LongPressCoordinatesTool(phoneAutomationEngineProvider),
+                SwipeScreenTool(phoneAutomationEngineProvider),
                 OpenUrlTool(),
                 WebSearchTool(webResearchProvider),
                 FetchWebpageTool(webPageExtractorProvider),
-                McpCallTool(mcpManagerProvider)
+                McpCallTool(mcpManagerProvider),
+                WaitForScreenTool(phoneAutomationEngineProvider),
+                LocateAndTapVisualTool(phoneAutomationEngineProvider),
+                NavigateDeviceTool(phoneAutomationEngineProvider),
+                BrowserOpenTool(browserEngineProvider),
+                BrowserReadPageTool(browserEngineProvider),
+                BrowserClickLinkTool(browserEngineProvider),
+                BrowserFillFormTool(browserEngineProvider),
+                BrowserBackTool(browserEngineProvider),
+                BrowserTabsTool(browserEngineProvider)
             )
         )
         registryRef = registry
@@ -190,6 +218,8 @@ interface AgentCore {
     fun listRegisteredTools(): List<JarvisTool>
     fun cancelActiveTool()
     fun cancelAutonomousTask()
+    fun pauseAutonomousTask() {}
+    fun resumeAutonomousTask() {}
 
     fun observeExecutionHistory(): Flow<List<AgentExecutionRecord>>
     val cloudUsageStats: StateFlow<CloudUsageStats>
@@ -226,10 +256,16 @@ class Phase2AgentCore(
     private val screenPerceptionEngine: ScreenPerceptionEngine? = null,
     private val executionOverlayManager: ExecutionOverlayManager? = null,
     private val checkpointDao: AgentCheckpointDao? = null,
-    private val mcpManager: McpManager? = null
+    private val mcpManager: McpManager? = null,
+    private val goalTaskPlanner: GoalTaskPlanner = GoalTaskPlanner(intentRouter),
+    private val phoneAutomationEngine: PhoneAutomationEngine? = null,
+    private val appKnowledgeRepository: AppKnowledgeRepository? = null,
+    private val backgroundCoordinator: AgentBackgroundCoordinator? = null,
+    private val browserAutomationEngine: BrowserAutomationEngine? = null
 ) : AgentCore {
 
     private val cancelPlanFlag = AtomicBoolean(false)
+    private val pausedFlag = AtomicBoolean(false)
     private val steeringQueue = ConcurrentLinkedQueue<String>()
     private val screenJournal = ScreenJournal()
 
@@ -289,9 +325,19 @@ class Phase2AgentCore(
         resumeCheckpointId: String?
     ): Flow<HybridAgentEvent> = flow {
         cancelPlanFlag.set(false)
+        pausedFlag.set(false)
         steeringQueue.clear()
         screenJournal.clear()
         val startedMs = System.currentTimeMillis()
+        backgroundCoordinator?.bindControlCallbacks(
+            onPause = { pauseAutonomousTask() },
+            onResume = { resumeAutonomousTask() },
+            onStop = { cancelAutonomousTask() }
+        )
+        emitPhaseAndTimeline(
+            phase = AgentExecutionPhase.THINKING,
+            detail = "Analyzing goal, device capabilities, and model routing"
+        )
         val resumedCheckpoint = resumeCheckpointId?.let { runCatching { checkpointDao?.getById(it) }.getOrNull() }
         val effectivePrompt = if (prompt.isBlank() && resumedCheckpoint != null) resumedCheckpoint.userGoal else prompt
         val planId = resumedCheckpoint?.id ?: UUID.randomUUID().toString()
@@ -418,8 +464,16 @@ class Phase2AgentCore(
             return@flow
         }
 
-        val steps = (existingSteps ?: intentRouter.decomposeTasks(effectivePrompt, decision)).toMutableList()
-        var currentPlan = AgentPlanState(planId, effectivePrompt, decision, steps.toList())
+        val plannedBreakdown = goalTaskPlanner.buildGoalPlan(effectivePrompt, decision)
+        val steps = (existingSteps ?: plannedBreakdown.steps).toMutableList()
+        var currentPlan = AgentPlanState(
+            planId = planId,
+            goal = effectivePrompt,
+            routeDecision = decision,
+            steps = steps.toList(),
+            currentPhase = AgentExecutionPhase.THINKING
+        )
+        backgroundCoordinator?.beginTask(planId, effectivePrompt, steps.size)
         emit(HybridAgentEvent.PlanUpdated(currentPlan))
 
         if (decision.privacyBlockedReason != null) {
@@ -442,6 +496,7 @@ class Phase2AgentCore(
         var webContextBlock = ""
         var finalAiText = ""
         var overallStatus = "COMPLETED"
+        var dynamicReplanAttempts = 0
 
         if (resumedCheckpoint != null) {
             toolOutputs.add("[RESUMED_CHECKPOINT step=${resumedCheckpoint.currentStep}/${resumedCheckpoint.maxSteps}] ${resumedCheckpoint.lastObservationSummary}")
@@ -455,9 +510,10 @@ class Phase2AgentCore(
 
         try {
             for (i in steps.indices) {
+                awaitIfPaused(currentPlan, steps)
                 if (cancelPlanFlag.get()) {
                     markRemainingCancelled(steps, i)
-                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), isCancelled = true)))
+                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), isCancelled = true, currentPhase = AgentExecutionPhase.CANCELLED)))
                     overallStatus = "CANCELLED"
                     break
                 }
@@ -486,15 +542,37 @@ class Phase2AgentCore(
 
                 when (step.type) {
                     PlanStepType.MEMORY_LOOKUP -> {
+                        emitPhaseAndTimeline(
+                            phase = AgentExecutionPhase.THINKING,
+                            detail = "Loading local memory & learned app knowledge",
+                            completedSteps = i,
+                            totalSteps = steps.size
+                        )
                         runCatching { localMemory.purgeExpiredMemories() }
                         val matches = localMemory.retrieveRelevantContext(effectivePrompt, maxItems = 4)
                         matches.forEach { memorySnippets.add("[${it.kind.label} / ${it.category}] ${it.content}") }
-                        val summary = if (matches.isEmpty()) "No matching local memory items." else "Retrieved ${matches.size} ranked memory item(s)."
+                        val activePkg = runCatching { phoneAutomationEngine?.detectActiveAppPackage() }.getOrNull()
+                        val appKnowledge = runCatching {
+                            appKnowledgeRepository?.retrieveRelevantForPrompt(effectivePrompt, activePackage = activePkg, maxItems = 3).orEmpty()
+                        }.getOrDefault(emptyList())
+                        if (appKnowledge.isNotEmpty() && appKnowledgeRepository != null) {
+                            memorySnippets.add(appKnowledgeRepository.formatForPrompt(appKnowledge))
+                        }
+                        val summary = when {
+                            matches.isEmpty() && appKnowledge.isEmpty() -> "No matching local memory or app knowledge."
+                            else -> "Retrieved ${matches.size} memory item(s) and ${appKnowledge.size} learned app hint(s)."
+                        }
                         steps[i] = steps[i].copy(status = PlanStepStatus.COMPLETED, resultSummary = summary)
-                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.THINKING)))
                     }
 
                     PlanStepType.CONTEXT_OBSERVE -> {
+                        emitPhaseAndTimeline(
+                            phase = AgentExecutionPhase.OBSERVING,
+                            detail = step.title,
+                            completedSteps = i,
+                            totalSteps = steps.size
+                        )
                         latestScreenObservation = runContextObserveStep(
                             stepIndex = i,
                             steps = steps,
@@ -586,14 +664,21 @@ class Phase2AgentCore(
                     }
 
                     PlanStepType.ANDROID_TOOL -> {
-                        val toolRequest = decision.detectedTools.firstOrNull {
-                            "Execute ${it.toolName}" == step.title
-                        }
+                        val toolRequest = plannedBreakdown.plannedToolRequests[step.index]
+                            ?: decision.detectedTools.firstOrNull { "Execute ${it.toolName}" == step.title }
                         if (toolRequest == null) {
                             steps[i] = steps[i].copy(status = PlanStepStatus.FAILED, resultSummary = "Tool call could not be matched.")
                             emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
                             continue
                         }
+
+                        emitPhaseAndTimeline(
+                            phase = AgentExecutionPhase.EXECUTING,
+                            detail = "Executing ${toolRequest.toolName}",
+                            toolName = toolRequest.toolName,
+                            completedSteps = i,
+                            totalSteps = steps.size
+                        )
 
                         val preUiSnapshot: UiObservationSnapshot? =
                             if (toolRequest.toolName in UI_VERIFIED_TOOLS &&
@@ -619,16 +704,31 @@ class Phase2AgentCore(
 
                         when (toolRes.status) {
                             ToolExecutionStatus.CONFIRMATION_REQUIRED -> {
+                                emitPhaseAndTimeline(
+                                    phase = AgentExecutionPhase.WAITING_CONFIRMATION,
+                                    detail = "Awaiting user approval for ${toolRequest.toolName}",
+                                    toolName = toolRequest.toolName,
+                                    completedSteps = i,
+                                    totalSteps = steps.size
+                                )
                                 steps[i] = steps[i].copy(status = PlanStepStatus.WAITING_CONFIRMATION, resultSummary = toolRes.summary)
-                                emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                                emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.WAITING_CONFIRMATION)))
                                 emit(HybridAgentEvent.ConfirmationRequired(toolRequest, i))
                                 overallStatus = "AWAITING_CONFIRMATION"
                                 return@flow
                             }
 
                             ToolExecutionStatus.PERMISSION_DENIED -> {
+                                emitPhaseAndTimeline(
+                                    phase = AgentExecutionPhase.WAITING_PERMISSION,
+                                    detail = "Permission required for ${toolRequest.toolName}",
+                                    toolName = toolRequest.toolName,
+                                    succeeded = false,
+                                    completedSteps = i,
+                                    totalSteps = steps.size
+                                )
                                 steps[i] = steps[i].copy(status = PlanStepStatus.WAITING_PERMISSION, resultSummary = toolRes.summary)
-                                emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                                emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.WAITING_PERMISSION)))
                                 emit(
                                     HybridAgentEvent.PermissionRequired(
                                         request = toolRequest,
@@ -644,25 +744,75 @@ class Phase2AgentCore(
 
                             ToolExecutionStatus.SUCCESS -> {
                                 var finalSummary = toolRes.summary
+                                var verifyNote: String? = null
                                 if (preUiSnapshot != null && accessibilityController != null) {
+                                    emitPhaseAndTimeline(
+                                        phase = AgentExecutionPhase.VERIFYING,
+                                        detail = "Verifying UI transition after ${toolRes.toolName}",
+                                        toolName = toolRes.toolName,
+                                        completedSteps = i,
+                                        totalSteps = steps.size
+                                    )
                                     val verification = accessibilityController.verifyExternalTransition(
                                         actionName = toolRes.toolName,
                                         dispatched = true,
                                         before = preUiSnapshot,
                                         maxElements = 20
                                     )
+                                    verifyNote = verification.evidence
                                     finalSummary = "${toolRes.summary}\nUI Verification: ${verification.evidence}"
                                 }
                                 executedSafeRequests.add(toolRequest)
                                 toolOutputs.add("${toolRes.toolName}: $finalSummary")
                                 steps[i] = steps[i].copy(
                                     status = if (recoveredByRetry) PlanStepStatus.RECOVERED else PlanStepStatus.COMPLETED,
-                                    resultSummary = finalSummary
+                                    resultSummary = finalSummary,
+                                    verificationNote = verifyNote
+                                )
+                                emitTimelineEntry(
+                                    phase = AgentExecutionPhase.EXECUTING,
+                                    title = "Verified ${toolRes.toolName}",
+                                    detail = toolRes.summary.take(140),
+                                    toolName = toolRes.toolName,
+                                    succeeded = true
                                 )
                                 emit(HybridAgentEvent.ToolSnapshotEmitted("Tool // ${toolRes.toolName} (VERIFIED)", formatToolResult(toolRes)))
                             }
 
                             else -> {
+                                val replan = goalTaskPlanner.planRecoveryAfterFailure(
+                                    failedToolName = toolRequest.toolName,
+                                    failureReason = toolRes.summary,
+                                    activePackage = latestScreenObservation?.activePackageName,
+                                    attemptCount = dynamicReplanAttempts
+                                )
+                                if (replan.shouldReplan) {
+                                    dynamicReplanAttempts++
+                                    currentPlan = currentPlan.copy(replanCount = dynamicReplanAttempts, currentPhase = AgentExecutionPhase.RECOVERING)
+                                    emitPhaseAndTimeline(
+                                        phase = AgentExecutionPhase.RECOVERING,
+                                        detail = replan.strategyDescription,
+                                        toolName = toolRequest.toolName,
+                                        succeeded = false,
+                                        completedSteps = i,
+                                        totalSteps = steps.size
+                                    )
+                                    emit(
+                                        HybridAgentEvent.ReplanTriggered(
+                                            DynamicReplanRecord(
+                                                failedStepTitle = step.title,
+                                                failureReason = toolRes.summary.take(140),
+                                                recoveryStrategy = replan.strategyDescription,
+                                                addedStepsCount = if (replan.recoveryToolRequest != null) 1 else 0
+                                            )
+                                        )
+                                    )
+                                    replan.recoveryToolRequest?.let { recReq ->
+                                        val recRes = executeTool(recReq, settings, userConfirmed = false)
+                                        toolOutputs.add("[RECOVERY_TOOL tool=${recReq.toolName} status=${recRes.status.name}] ${recRes.summary}")
+                                    }
+                                }
+                                toolOutputs.add(replan.modelGuidanceNote)
                                 steps[i] = steps[i].copy(status = PlanStepStatus.RECOVERED, resultSummary = "Tool failed: ${toolRes.summary}")
                                 toolOutputs.add("${toolRes.toolName} error: ${toolRes.summary}")
                                 emit(HybridAgentEvent.ToolSnapshotEmitted("Tool // ${toolRes.toolName} (${toolRes.status.name})", formatToolResult(toolRes)))
@@ -708,6 +858,12 @@ class Phase2AgentCore(
                     }
 
                     PlanStepType.RESULT_VERIFY -> {
+                        emitPhaseAndTimeline(
+                            phase = AgentExecutionPhase.VERIFYING,
+                            detail = "Verifying step outcomes & distilling safe workflows",
+                            completedSteps = i,
+                            totalSteps = steps.size
+                        )
                         val failedCount = steps.take(i).count { it.status == PlanStepStatus.FAILED }
                         val recoveredCount = steps.take(i).count { it.status == PlanStepStatus.RECOVERED }
                         var distilledNote = ""
@@ -754,8 +910,12 @@ class Phase2AgentCore(
                             recoveredCount > 0 -> "Verified completion with $recoveredCount recovered step(s)$distilledNote."
                             else -> "All executed steps verified cleanly$distilledNote."
                         }
-                        steps[i] = steps[i].copy(status = verifyStatus, resultSummary = verifySummary)
-                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                        steps[i] = steps[i].copy(
+                            status = verifyStatus,
+                            resultSummary = verifySummary,
+                            verificationNote = verifySummary
+                        )
+                        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.VERIFYING)))
                     }
                 }
             }
@@ -763,11 +923,48 @@ class Phase2AgentCore(
             if (overallStatus == "COMPLETED" && steps.any { it.status == PlanStepStatus.FAILED }) {
                 overallStatus = "PARTIAL_OR_FAILED"
             }
+            if (overallStatus == "CANCELLED") {
+                val stopSummary = StopSummary(
+                    planId = planId,
+                    goal = effectivePrompt,
+                    reason = "Cancelled by user.",
+                    completedSteps = steps.count { it.status == PlanStepStatus.COMPLETED || it.status == PlanStepStatus.RECOVERED },
+                    totalSteps = steps.size,
+                    lastObservedPackage = latestScreenObservation?.activePackageName,
+                    canResumeFromCheckpoint = checkpointDao != null
+                )
+                emit(HybridAgentEvent.TaskStopped(stopSummary))
+                emitPhaseAndTimeline(AgentExecutionPhase.CANCELLED, "Task stopped by user.")
+            } else {
+                val finalPhase = when (overallStatus) {
+                    "COMPLETED" -> AgentExecutionPhase.COMPLETED
+                    "AWAITING_CONFIRMATION" -> AgentExecutionPhase.WAITING_CONFIRMATION
+                    "PERMISSION_DENIED" -> AgentExecutionPhase.WAITING_PERMISSION
+                    else -> AgentExecutionPhase.FAILED
+                }
+                emitPhaseAndTimeline(
+                    phase = finalPhase,
+                    detail = steps.lastOrNull()?.resultSummary ?: overallStatus,
+                    completedSteps = steps.count { it.status == PlanStepStatus.COMPLETED || it.status == PlanStepStatus.RECOVERED },
+                    totalSteps = steps.size
+                )
+            }
         } catch (ce: CancellationException) {
             overallStatus = "CANCELLED"
             throw ce
         } finally {
             executionOverlayManager?.hide()
+            val finalCoordPhase = when (overallStatus) {
+                "COMPLETED" -> AgentExecutionPhase.COMPLETED
+                "CANCELLED" -> AgentExecutionPhase.CANCELLED
+                "AWAITING_CONFIRMATION" -> AgentExecutionPhase.WAITING_CONFIRMATION
+                "PERMISSION_DENIED" -> AgentExecutionPhase.WAITING_PERMISSION
+                else -> AgentExecutionPhase.FAILED
+            }
+            backgroundCoordinator?.finishTask(
+                finalPhase = finalCoordPhase,
+                detail = finalAiText.take(120).ifBlank { steps.lastOrNull()?.resultSummary ?: overallStatus }
+            )
             saveCheckpoint(
                 id = planId,
                 conversationId = conversationId,
@@ -832,7 +1029,9 @@ class Phase2AgentCore(
                     a11yNote = "blocked=${obs.activePackageName}"
                     observedParts.add(obs.blockReason ?: "Blocked sensitive app.")
                 } else {
-                    a11yNote = "pkg=${obs.activePackageName ?: "none"}, nodes=${obs.elements.size}, hash=${obs.stabilityHash}"
+                    val classification = ScreenClassifier.classify(obs)
+                    a11yNote = "pkg=${obs.activePackageName ?: "none"}, type=${classification.screenType.label}, nodes=${obs.elements.size}, hash=${obs.stabilityHash}"
+                    observedParts.add("ScreenType=${classification.screenType.label} (loading=${classification.isLoading}, dialog=${classification.hasPermissionOrSystemDialog})")
                     observedParts.add(obs.toPromptContextSummary(includeOcr = true))
                     screenJournal.record(
                         stepNumber = 0,
@@ -841,6 +1040,8 @@ class Phase2AgentCore(
                         actionTaken = "initial_observe",
                         stateChanged = true
                     )
+                    emitObservationSnapshot(obs, classification)
+                    runCatching { appKnowledgeRepository?.recordVerifiedObservation(obs) }
                 }
             } else {
                 val snap = accessibilityController.observeCurrentScreen(15)
@@ -890,7 +1091,12 @@ class Phase2AgentCore(
         var latestScreenObservation = initialScreenObservation
         val enabledMcpTools = runCatching { mcpManager?.listEnabledTools().orEmpty() }.getOrDefault(emptyList())
 
+        var lastSentScreenshotHash: String? = null
+        var previousToolFailed = false
+        var loopReplanAttempts = 0
+
         for (loopIteration in 1..MAX_CLOSED_LOOP_TOOL_ITERATIONS) {
+            awaitIfPaused(currentPlan, steps)
             if (cancelPlanFlag.get()) {
                 overrideStatus = "CANCELLED"
                 break
@@ -900,6 +1106,14 @@ class Phase2AgentCore(
                 val steer = steeringQueue.poll() ?: break
                 toolOutputs.add("[USER_STEERING_UPDATE] $steer")
             }
+
+            emitPhaseAndTimeline(
+                phase = AgentExecutionPhase.THINKING,
+                detail = "Reasoning step $loopIteration/$MAX_CLOSED_LOOP_TOOL_ITERATIONS",
+                completedSteps = stepIndex,
+                totalSteps = steps.size,
+                activePackage = latestScreenObservation?.activePackageName
+            )
 
             executionOverlayManager?.showStep(
                 stepIndex = loopIteration,
@@ -924,15 +1138,40 @@ class Phase2AgentCore(
             synthesisFailed = false
             synthesisError = ""
 
+            val configuredCloudModel = settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+            val needsVision = attachments.isNotEmpty() ||
+                (settings.screenshotVisionEnabled && latestScreenObservation?.screenshotBase64Jpeg != null)
+            val effectiveModel = decision.explicitModelOverride
+                ?.takeIf { it != "cloud" && it != "local" }
+                ?: ModelCapabilityDetector.selectTieredCloudModel(
+                    provider = settings.cloudProviderKind,
+                    configuredModelId = configuredCloudModel,
+                    complexityScore = decision.complexityScore,
+                    needsVision = needsVision
+                ).first
+            val cloudCaps = ModelCapabilityDetector.detectCloudModel(settings.cloudProviderKind, effectiveModel)
+
             val combinedAttachments = buildList {
                 if (settings.cloudUploadConsentGranted) {
                     addAll(attachments)
                     val screenImg = latestScreenObservation
-                    if (settings.screenshotVisionEnabled &&
-                        screenImg != null &&
-                        !screenImg.blockedByPolicy &&
-                        !screenImg.screenshotBase64Jpeg.isNullOrBlank()
-                    ) {
+                    val shouldAttachScreen = if (screenPerceptionEngine != null) {
+                        settings.screenshotVisionEnabled &&
+                            screenPerceptionEngine.shouldAttachScreenshotToCloud(
+                                observation = screenImg,
+                                previousSentHash = lastSentScreenshotHash,
+                                userPrompt = effectivePrompt,
+                                previousActionFailed = previousToolFailed,
+                                modelSupportsVision = cloudCaps.supportsVision
+                            )
+                    } else {
+                        settings.screenshotVisionEnabled &&
+                            cloudCaps.supportsVision &&
+                            screenImg != null &&
+                            !screenImg.blockedByPolicy &&
+                            !screenImg.screenshotBase64Jpeg.isNullOrBlank()
+                    }
+                    if (shouldAttachScreen && screenImg != null && !screenImg.screenshotBase64Jpeg.isNullOrBlank()) {
                         add(
                             CloudImageAttachment(
                                 base64Data = screenImg.screenshotBase64Jpeg,
@@ -940,20 +1179,22 @@ class Phase2AgentCore(
                                 label = screenImg.activePackageName ?: "screen"
                             )
                         )
+                        lastSentScreenshotHash = screenImg.stabilityHash
                     }
                 }
             }
 
             val streamSource: Flow<AiStreamEvent> = if (usedCloud) {
-                val effectiveModel = decision.explicitModelOverride
-                    ?.takeIf { it != "cloud" && it != "local" }
-                    ?: settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
-                val toolsSchema = when (settings.cloudProviderKind) {
-                    CloudProviderKind.GEMINI_REST -> toolRegistry.buildGeminiToolsJsonString()
-                    CloudProviderKind.OPENAI_COMPATIBLE,
-                    CloudProviderKind.OPENROUTER,
-                    CloudProviderKind.CUSTOM_ENDPOINT -> toolRegistry.buildOpenAiToolsJsonString()
-                    CloudProviderKind.ANTHROPIC -> null
+                val toolsSchema = if (!cloudCaps.supportsTools) {
+                    null
+                } else {
+                    when (settings.cloudProviderKind) {
+                        CloudProviderKind.GEMINI_REST -> toolRegistry.buildGeminiToolsJsonString()
+                        CloudProviderKind.OPENAI_COMPATIBLE,
+                        CloudProviderKind.OPENROUTER,
+                        CloudProviderKind.CUSTOM_ENDPOINT -> toolRegistry.buildOpenAiToolsJsonString()
+                        CloudProviderKind.ANTHROPIC -> toolRegistry.buildAnthropicToolsJsonString()
+                    }
                 }
                 val cloudConfig = CloudInferenceConfig(
                     providerKind = settings.cloudProviderKind,
@@ -1137,6 +1378,28 @@ class Phase2AgentCore(
                 )
             }
 
+            if (inlineToolCall.toolName in UI_VERIFIED_TOOLS &&
+                backgroundCoordinator?.isDeviceKeyguardLocked() == true
+            ) {
+                toolOutputs.add("[LOCKSCREEN_GUARD] Device screen is locked. Cannot dispatch UI gesture '${inlineToolCall.toolName}' until unlocked.")
+                emit(HybridAgentEvent.Notice("Lockscreen Safety Guard", "Device is locked — unlock screen to continue UI automation."))
+                pauseAutonomousTask()
+                awaitIfPaused(currentPlan, steps)
+                if (cancelPlanFlag.get()) {
+                    overrideStatus = "CANCELLED"
+                    break
+                }
+            }
+
+            emitPhaseAndTimeline(
+                phase = AgentExecutionPhase.EXECUTING,
+                detail = "Executing ${inlineToolCall.toolName}",
+                toolName = inlineToolCall.toolName,
+                completedSteps = stepIndex,
+                totalSteps = steps.size,
+                activePackage = latestScreenObservation?.activePackageName
+            )
+
             val preLoopHash = latestScreenObservation?.stabilityHash
             val loopToolResult = executeTool(
                 request = inlineToolCall,
@@ -1157,11 +1420,16 @@ class Phase2AgentCore(
                         steps = steps,
                         startedAtMs = startedMs
                     )
+                    emitPhaseAndTimeline(
+                        phase = AgentExecutionPhase.WAITING_CONFIRMATION,
+                        detail = "Awaiting user approval for ${inlineToolCall.toolName}",
+                        toolName = inlineToolCall.toolName
+                    )
                     steps[stepIndex] = steps[stepIndex].copy(
                         status = PlanStepStatus.WAITING_CONFIRMATION,
                         resultSummary = loopToolResult.summary
                     )
-                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.WAITING_CONFIRMATION)))
                     emit(HybridAgentEvent.ConfirmationRequired(inlineToolCall, stepIndex))
                     return AiSynthesisStepOutcome(
                         finalAiText = finalAiText,
@@ -1172,11 +1440,17 @@ class Phase2AgentCore(
                 }
 
                 ToolExecutionStatus.PERMISSION_DENIED -> {
+                    emitPhaseAndTimeline(
+                        phase = AgentExecutionPhase.WAITING_PERMISSION,
+                        detail = "Permission required for ${inlineToolCall.toolName}",
+                        toolName = inlineToolCall.toolName,
+                        succeeded = false
+                    )
                     steps[stepIndex] = steps[stepIndex].copy(
                         status = PlanStepStatus.WAITING_PERMISSION,
                         resultSummary = loopToolResult.summary
                     )
-                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList())))
+                    emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), currentPhase = AgentExecutionPhase.WAITING_PERMISSION)))
                     emit(
                         HybridAgentEvent.PermissionRequired(
                             request = inlineToolCall,
@@ -1200,9 +1474,45 @@ class Phase2AgentCore(
                 }
 
                 else -> {
-                    if (loopToolResult.status == ToolExecutionStatus.SUCCESS) {
+                    val toolSucceeded = loopToolResult.status == ToolExecutionStatus.SUCCESS
+                    previousToolFailed = !toolSucceeded
+                    if (toolSucceeded) {
                         executedSafeRequests.add(inlineToolCall)
+                    } else {
+                        val replan = goalTaskPlanner.planRecoveryAfterFailure(
+                            failedToolName = inlineToolCall.toolName,
+                            failureReason = loopToolResult.summary,
+                            activePackage = latestScreenObservation?.activePackageName,
+                            attemptCount = loopReplanAttempts
+                        )
+                        if (replan.shouldReplan) {
+                            loopReplanAttempts++
+                            emitPhaseAndTimeline(
+                                phase = AgentExecutionPhase.RECOVERING,
+                                detail = replan.strategyDescription,
+                                toolName = inlineToolCall.toolName,
+                                succeeded = false
+                            )
+                            emit(
+                                HybridAgentEvent.ReplanTriggered(
+                                    DynamicReplanRecord(
+                                        failedStepTitle = "Closed-Loop ${inlineToolCall.toolName}",
+                                        failureReason = loopToolResult.summary.take(140),
+                                        recoveryStrategy = replan.strategyDescription,
+                                        addedStepsCount = if (replan.recoveryToolRequest != null) 1 else 0
+                                    )
+                                )
+                            )
+                        }
+                        toolOutputs.add(replan.modelGuidanceNote)
                     }
+                    emitTimelineEntry(
+                        phase = AgentExecutionPhase.EXECUTING,
+                        title = "${loopToolResult.toolName} (${loopToolResult.status.name})",
+                        detail = loopToolResult.summary.take(140),
+                        toolName = loopToolResult.toolName,
+                        succeeded = toolSucceeded
+                    )
                     emit(
                         HybridAgentEvent.ToolSnapshotEmitted(
                             label = "Closed-Loop Tool // ${loopToolResult.toolName} (${loopToolResult.status.name})",
@@ -1218,6 +1528,11 @@ class Phase2AgentCore(
                         settings.accessibilityAutomationEnabled &&
                         accessibilityController?.isAuthorized() == true
                     ) {
+                        emitPhaseAndTimeline(
+                            phase = AgentExecutionPhase.OBSERVING,
+                            detail = "Observing screen after ${inlineToolCall.toolName}",
+                            toolName = inlineToolCall.toolName
+                        )
                         val postObs = screenPerceptionEngine.observeScreen(
                             includeScreenshot = settings.screenshotVisionEnabled && settings.cloudUploadConsentGranted,
                             includeOcr = true,
@@ -1227,6 +1542,7 @@ class Phase2AgentCore(
                         if (postObs.blockedByPolicy) {
                             toolOutputs.add("[RISK_BLOCKED] ${postObs.blockReason}")
                         } else {
+                            val classification = ScreenClassifier.classify(postObs)
                             val changed = preLoopHash == null || preLoopHash != postObs.stabilityHash
                             screenJournal.record(
                                 stepNumber = loopIteration,
@@ -1235,7 +1551,15 @@ class Phase2AgentCore(
                                 actionTaken = inlineToolCall.toolName,
                                 stateChanged = changed
                             )
-                            toolOutputs.add("[POST_ACTION_SCREEN] ${postObs.toPromptContextSummary(includeOcr = true)}")
+                            emitObservationSnapshot(postObs, classification)
+                            runCatching {
+                                appKnowledgeRepository?.recordVerifiedObservation(
+                                    observation = postObs,
+                                    workflowHint = "${inlineToolCall.toolName} -> ${classification.screenType.label}",
+                                    succeeded = toolSucceeded
+                                )
+                            }
+                            toolOutputs.add("[POST_ACTION_SCREEN type=${classification.screenType.label} loading=${classification.isLoading} dialog=${classification.hasPermissionOrSystemDialog}] ${postObs.toPromptContextSummary(includeOcr = true)}")
                             if (screenJournal.isStalledOrOscillating(postObs.stabilityHash)) {
                                 toolOutputs.add("[RECOVERY_SIGNAL] Screen state stalled or oscillating. Try scrolling, navigating back, or concluding cleanly.")
                             }
@@ -1477,9 +1801,11 @@ class Phase2AgentCore(
         }
         val usage = cloudUsageStats.value
         val skillsCount = runCatching { skillEngine?.listSkillsOnce()?.size ?: 0 }.getOrDefault(0)
+        val knowledgeCount = runCatching { appKnowledgeRepository?.getAllOnce()?.size ?: 0 }.getOrDefault(0)
         val mcpCount = runCatching { mcpManager?.listServersOnce()?.count { it.enabled } ?: 0 }.getOrDefault(0)
         val a11yStatus = if (accessibilityController?.isAuthorized() == true) "Authorized" else "Inactive"
         val caps = deviceCommandRouter?.capabilityManager?.capabilities?.value
+        val vdProbe = VirtualDisplayFeasibilityProbe.evaluate(caps)
         val summary = buildString {
             appendLine("JARVIS SYSTEM READINESS")
             appendLine("• Local AI Engine: $engineStatus")
@@ -1488,11 +1814,12 @@ class Phase2AgentCore(
             appendLine("• Privileged Bridge: ${caps?.privilegedBridgeSummary ?: "Native Android APIs"}")
             appendLine("• Shizuku Status: ${caps?.shizuku?.availability?.label ?: "Unavailable"}")
             appendLine("• Wireless ADB Status: ${caps?.wirelessAdb?.connectionState?.label ?: "Unconfigured"}")
+            appendLine("• Background & Virtual Display: ${vdProbe.feasibility.label}")
             appendLine("• Wake Word Interface: ${wakeWordEngine.state.value.label} (\"${wakeWordEngine.keyword}\", verified=${wakeWordEngine.isPhraseDetectionVerified})")
             appendLine("• Android Tool Registry: ${toolRegistry.listTools().size} verified tools online")
             appendLine("• Cloud Providers: ${providers.joinToString { it.name }} (reqs=${usage.totalRequests})")
-            appendLine("• Local Memory Store: Room v8 Persistence Active (WAL) • Skills=$skillsCount • MCP Servers=$mcpCount")
-            appendLine("• Screen Perception & Accessibility: OCR + UI Tree ($a11yStatus)")
+            appendLine("• Local Memory Store: Room v9 Persistence Active (WAL) • Skills=$skillsCount • App Knowledge=$knowledgeCount • MCP Servers=$mcpCount")
+            appendLine("• Screen Perception & Accessibility: OCR + Classifier + UI Tree ($a11yStatus)")
         }.trim()
         return AgentDispatchResult.ToolSnapshot(
             label = "AgentCore // Readiness Audit",
@@ -1526,8 +1853,98 @@ class Phase2AgentCore(
 
     override fun cancelAutonomousTask() {
         cancelPlanFlag.set(true)
+        pausedFlag.set(false)
         toolRegistry.cancelActiveExecution()
         cloudAiClient.cancelActiveRequest()
+    }
+
+    override fun pauseAutonomousTask() {
+        pausedFlag.set(true)
+    }
+
+    override fun resumeAutonomousTask() {
+        pausedFlag.set(false)
+    }
+
+    private suspend fun FlowCollector<HybridAgentEvent>.awaitIfPaused(
+        currentPlan: AgentPlanState,
+        steps: List<AgentPlanStep>
+    ) {
+        if (!pausedFlag.get() || cancelPlanFlag.get()) return
+        emitPhaseAndTimeline(AgentExecutionPhase.PAUSED, "Paused by user — waiting for Resume or Stop")
+        emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), isPaused = true, currentPhase = AgentExecutionPhase.PAUSED)))
+        while (pausedFlag.get() && !cancelPlanFlag.get()) {
+            delay(180L)
+        }
+        if (!cancelPlanFlag.get()) {
+            emitPhaseAndTimeline(AgentExecutionPhase.EXECUTING, "Resumed execution")
+            emit(HybridAgentEvent.PlanUpdated(currentPlan.copy(steps = steps.toList(), isPaused = false, currentPhase = AgentExecutionPhase.EXECUTING)))
+        }
+    }
+
+    private suspend fun FlowCollector<HybridAgentEvent>.emitPhaseAndTimeline(
+        phase: AgentExecutionPhase,
+        detail: String,
+        toolName: String? = null,
+        succeeded: Boolean? = null,
+        completedSteps: Int? = null,
+        totalSteps: Int? = null,
+        activePackage: String? = null
+    ) {
+        backgroundCoordinator?.updatePhase(
+            phase = phase,
+            detail = detail,
+            completedSteps = completedSteps,
+            totalSteps = totalSteps,
+            activePackage = activePackage
+        )
+        emit(HybridAgentEvent.PhaseChanged(phase, detail))
+        emitTimelineEntry(
+            phase = phase,
+            title = phase.label,
+            detail = detail,
+            toolName = toolName,
+            succeeded = succeeded
+        )
+    }
+
+    private suspend fun FlowCollector<HybridAgentEvent>.emitTimelineEntry(
+        phase: AgentExecutionPhase,
+        title: String,
+        detail: String,
+        toolName: String? = null,
+        succeeded: Boolean? = null
+    ) {
+        val entry = AgentTimelineEntry(
+            id = UUID.randomUUID().toString(),
+            timestampMs = System.currentTimeMillis(),
+            phase = phase,
+            title = title,
+            detail = detail.take(180),
+            toolName = toolName,
+            succeeded = succeeded
+        )
+        backgroundCoordinator?.appendTimeline(entry)
+        emit(HybridAgentEvent.TimelineRecorded(entry))
+    }
+
+    private suspend fun FlowCollector<HybridAgentEvent>.emitObservationSnapshot(
+        obs: ScreenObservation,
+        classification: com.example.core.vision.ScreenClassification
+    ) {
+        val preview = ObservationPreviewSnapshot(
+            packageName = obs.activePackageName,
+            screenTypeLabel = classification.screenType.label,
+            elementCount = obs.elements.size,
+            clickableCount = classification.clickableCount,
+            isLoading = classification.isLoading,
+            hasDialog = classification.hasPermissionOrSystemDialog,
+            summary = obs.toPromptContextSummary(includeOcr = false).take(260),
+            screenshotBase64Preview = obs.screenshotBase64Jpeg,
+            capturedAtMs = obs.capturedAtMs
+        )
+        backgroundCoordinator?.updateObservation(preview)
+        emit(HybridAgentEvent.ObservationCaptured(preview))
     }
 
     override suspend fun executeTool(
@@ -1599,14 +2016,17 @@ class Phase2AgentCore(
             "input_ui_text",
             "tap_coordinates",
             "long_press_coordinates",
-            "swipe_screen"
+            "swipe_screen",
+            "locate_and_tap_visual",
+            "navigate_device"
         )
         private val SCREEN_TRANSITION_TOOLS = UI_VERIFIED_TOOLS + setOf(
             "launch_installed_app",
             "open_app_screen",
             "go_home_screen",
             "open_android_settings",
-            "accessibility_action"
+            "accessibility_action",
+            "wait_for_screen"
         )
         private val SAFE_RETRYABLE_READ_TOOLS = setOf(
             "read_battery_status",

@@ -186,7 +186,12 @@ data class SkillEntity(
     val riskLevel: String = "LOW",
     val usageCount: Int = 0,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    @ColumnInfo(defaultValue = "") val preconditions: String = "",
+    @ColumnInfo(defaultValue = "") val expectedOutcomes: String = "",
+    @ColumnInfo(defaultValue = "") val verificationConditions: String = "",
+    @ColumnInfo(defaultValue = "") val targetPackage: String = "",
+    @ColumnInfo(defaultValue = "24") val minAndroidSdk: Int = 24
 )
 
 @Entity(
@@ -237,4 +242,22 @@ data class McpServerEntity(
     val lastSyncedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(
+    tableName = "app_knowledge",
+    indices = [Index(value = ["packageName", "screenSignature"], unique = true)]
+)
+data class AppKnowledgeEntity(
+    @PrimaryKey val id: String,
+    val packageName: String,
+    val appName: String,
+    val screenSignature: String,
+    val screenType: String,
+    val knownElementsJson: String,
+    val verifiedWorkflowHints: String,
+    val successCount: Int = 1,
+    val failureCount: Int = 0,
+    val lastVerifiedAt: Long
+)
+
 

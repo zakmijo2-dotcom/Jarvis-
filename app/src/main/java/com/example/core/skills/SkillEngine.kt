@@ -1,6 +1,7 @@
 package com.example.core.skills
 
 import android.content.Context
+import android.os.Build
 import com.example.core.tools.ToolCallRequest
 import com.example.core.tools.ToolExecutionResult
 import com.example.core.tools.ToolExecutionStatus
@@ -37,7 +38,12 @@ data class AgentSkill(
     val riskLevel: ToolRiskLevel = ToolRiskLevel.LOW,
     val usageCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val preconditions: String = "",
+    val expectedOutcomes: String = "",
+    val verificationConditions: String = "",
+    val targetPackage: String = "",
+    val minAndroidSdk: Int = 24
 )
 
 data class SkillExecutionReport(
@@ -56,6 +62,11 @@ interface SkillEngine {
     suspend fun findMatchingSkill(prompt: String): AgentSkill?
     fun extractParameters(prompt: String, skill: AgentSkill): Map<String, String> = emptyMap()
     suspend fun saveSkill(skill: AgentSkill, allowHighRiskManualSave: Boolean = false): Result<AgentSkill>
+    suspend fun updateSkill(skill: AgentSkill, allowHighRiskManualSave: Boolean = false): Result<AgentSkill> =
+        saveSkill(skill, allowHighRiskManualSave)
+    suspend fun exportSkillsJson(): String = "[]"
+    suspend fun importSkillsJson(rawJson: String, allowHighRiskManualImport: Boolean = false): Result<Int> =
+        Result.success(0)
     suspend fun distillWorkflowIfSafe(
         name: String,
         description: String,
@@ -130,7 +141,6 @@ class RoomSkillEngine(
         val extracted = linkedMapOf<String, String>()
         val trimmedPrompt = prompt.trim()
 
-        // 1. Explicit key=value or key="value" or key: "value" in prompt
         for (param in requiredParams) {
             val kvRegex = Regex(
                 """\b${Regex.escape(param)}\s*(?:=|:)\s*(?:"([^"]+)"|'([^']+)'|([^\s,;]+))""",
@@ -143,7 +153,6 @@ class RoomSkillEngine(
             }
         }
 
-        // 2. Match parameterized trigger templates (e.g. "open {{app_query}} and check" or "افتح {{app_query}}")
         val triggerCandidates = skill.triggerPattern
             .split(',', '|')
             .map { it.trim() }
@@ -163,7 +172,6 @@ class RoomSkillEngine(
             }
         }
 
-        // 3. Single-parameter positional / quoted fallback
         if (requiredParams.size == 1) {
             val singleParam = requiredParams.first()
             if (extracted[singleParam].isNullOrBlank()) {
@@ -203,7 +211,6 @@ class RoomSkillEngine(
             }
         }
 
-        // 4. Contextual numeric fallback for 'minutes' or 'limit'
         for (param in requiredParams) {
             if (!extracted[param].isNullOrBlank()) continue
             if (param.equals("minutes", ignoreCase = true) || param.equals("limit", ignoreCase = true)) {
@@ -279,10 +286,102 @@ class RoomSkillEngine(
             name = cleanName,
             version = nextVersion,
             createdAt = finalCreated,
-            updatedAt = now
+            updatedAt = now,
+            minAndroidSdk = skill.minAndroidSdk.coerceIn(24, 36)
         )
         skillDao.upsertSkill(toEntity(normalized))
         return Result.success(normalized)
+    }
+
+    override suspend fun updateSkill(skill: AgentSkill, allowHighRiskManualSave: Boolean): Result<AgentSkill> =
+        saveSkill(skill, allowHighRiskManualSave)
+
+    override suspend fun exportSkillsJson(): String {
+        val all = listSkillsOnce()
+        val root = JSONObject().apply {
+            put("schemaVersion", 2)
+            put("exportedAtMs", System.currentTimeMillis())
+            val arr = JSONArray()
+            all.forEach { skill ->
+                val stepsArr = JSONArray()
+                skill.steps.forEach { st ->
+                    val argsObj = JSONObject()
+                    st.arguments.forEach { (k, v) -> argsObj.put(k, v) }
+                    stepsArr.put(
+                        JSONObject().apply {
+                            put("toolName", st.toolName)
+                            put("arguments", argsObj)
+                            put("expectedOutcomeHint", st.expectedOutcomeHint)
+                        }
+                    )
+                }
+                arr.put(
+                    JSONObject().apply {
+                        put("name", skill.name)
+                        put("description", skill.description)
+                        put("triggerPattern", skill.triggerPattern)
+                        put("requiredPermissions", JSONArray(skill.requiredPermissions))
+                        put("parameters", JSONArray(skill.parameters))
+                        put("steps", stepsArr)
+                        put("validationRules", skill.validationRules)
+                        put("failureHandling", skill.failureHandling)
+                        put("preconditions", skill.preconditions)
+                        put("expectedOutcomes", skill.expectedOutcomes)
+                        put("verificationConditions", skill.verificationConditions)
+                        put("targetPackage", skill.targetPackage)
+                        put("minAndroidSdk", skill.minAndroidSdk)
+                        put("version", skill.version)
+                        put("provenance", skill.provenance)
+                        put("riskLevel", skill.riskLevel.name)
+                    }
+                )
+            }
+            put("skills", arr)
+        }
+        return root.toString(2)
+    }
+
+    override suspend fun importSkillsJson(
+        rawJson: String,
+        allowHighRiskManualImport: Boolean
+    ): Result<Int> = runCatching {
+        val trimmed = rawJson.trim()
+        val arr = if (trimmed.startsWith("[")) {
+            JSONArray(trimmed)
+        } else {
+            JSONObject(trimmed).optJSONArray("skills")
+                ?: error("JSON must contain a 'skills' array or be a top-level array.")
+        }
+
+        var importedCount = 0
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val stepsArr = obj.optJSONArray("steps") ?: continue
+            val steps = parseStepsArray(stepsArr.toString())
+            if (steps.isEmpty()) continue
+            val skill = AgentSkill(
+                id = UUID.randomUUID().toString(),
+                name = obj.optString("name"),
+                description = obj.optString("description", "Imported skill"),
+                triggerPattern = obj.optString("triggerPattern", obj.optString("name")),
+                requiredPermissions = parseStringArray(obj.optJSONArray("requiredPermissions")?.toString() ?: "[]"),
+                parameters = parseStringArray(obj.optJSONArray("parameters")?.toString() ?: "[]"),
+                steps = steps,
+                validationRules = obj.optString("validationRules", "All step tool calls must return ToolExecutionStatus.SUCCESS."),
+                failureHandling = obj.optString("failureHandling", "Abort cleanly and report exact error."),
+                version = obj.optInt("version", 1).coerceAtLeast(1),
+                provenance = obj.optString("provenance", "Imported JSON"),
+                riskLevel = runCatching { ToolRiskLevel.valueOf(obj.optString("riskLevel", "LOW")) }.getOrDefault(ToolRiskLevel.LOW),
+                preconditions = obj.optString("preconditions", ""),
+                expectedOutcomes = obj.optString("expectedOutcomes", ""),
+                verificationConditions = obj.optString("verificationConditions", ""),
+                targetPackage = obj.optString("targetPackage", ""),
+                minAndroidSdk = obj.optInt("minAndroidSdk", 24).coerceIn(24, 36)
+            )
+            val saved = saveSkill(skill, allowHighRiskManualSave = allowHighRiskManualImport)
+            if (saved.isSuccess) importedCount++
+        }
+        importedCount
     }
 
     override suspend fun distillWorkflowIfSafe(
@@ -301,7 +400,6 @@ class RoomSkillEngine(
         if (resolvedTools.size != executedRequests.size) {
             return Result.failure(IllegalArgumentException("Unknown tool in workflow; cannot distill skill."))
         }
-        // Policy rule: Never automatically save dangerous actions as reusable skills.
         val hasDangerous = resolvedTools.any { (req, tool) ->
             tool.requiresUserConfirmation ||
                 tool.riskLevel == ToolRiskLevel.HIGH ||
@@ -334,7 +432,10 @@ class RoomSkillEngine(
                 parameters = emptyList(),
                 steps = steps,
                 provenance = "Auto-Distilled Safe Workflow",
-                riskLevel = ToolRiskLevel.LOW
+                riskLevel = ToolRiskLevel.LOW,
+                preconditions = "Required Android tools available without high-risk confirmation.",
+                expectedOutcomes = "Sequential completion of ${steps.joinToString(" -> ") { it.toolName }}.",
+                verificationConditions = "Every tool step returns ToolExecutionStatus.SUCCESS with verified facts."
             ),
             allowHighRiskManualSave = false
         )
@@ -352,6 +453,17 @@ class RoomSkillEngine(
         settings: JarvisSettings,
         userConfirmed: Boolean
     ): SkillExecutionReport {
+        if (Build.VERSION.SDK_INT < skill.minAndroidSdk) {
+            return SkillExecutionReport(
+                skill = skill,
+                overallSuccess = false,
+                completedSteps = 0,
+                totalSteps = skill.steps.size,
+                stepResults = emptyList(),
+                summary = "Skill '${skill.name}' requires Android SDK ${skill.minAndroidSdk}+ (device is SDK ${Build.VERSION.SDK_INT})."
+            )
+        }
+
         val missingParams = skill.parameters.filter { param ->
             providedParams[param].isNullOrBlank()
         }
@@ -437,7 +549,12 @@ class RoomSkillEngine(
             riskLevel = model.riskLevel.name,
             usageCount = model.usageCount,
             createdAt = model.createdAt,
-            updatedAt = model.updatedAt
+            updatedAt = model.updatedAt,
+            preconditions = model.preconditions,
+            expectedOutcomes = model.expectedOutcomes,
+            verificationConditions = model.verificationConditions,
+            targetPackage = model.targetPackage,
+            minAndroidSdk = model.minAndroidSdk
         )
     }
 
@@ -461,7 +578,12 @@ class RoomSkillEngine(
             riskLevel = risk,
             usageCount = entity.usageCount,
             createdAt = entity.createdAt,
-            updatedAt = entity.updatedAt
+            updatedAt = entity.updatedAt,
+            preconditions = entity.preconditions,
+            expectedOutcomes = entity.expectedOutcomes,
+            verificationConditions = entity.verificationConditions,
+            targetPackage = entity.targetPackage,
+            minAndroidSdk = entity.minAndroidSdk
         )
     }
 
@@ -504,7 +626,8 @@ class RoomSkillEngine(
             "mcp_call",
             "input_ui_text",
             "scroll_screen",
-            "create_reminder"
+            "create_reminder",
+            "browser_fill_form"
         )
     }
 }

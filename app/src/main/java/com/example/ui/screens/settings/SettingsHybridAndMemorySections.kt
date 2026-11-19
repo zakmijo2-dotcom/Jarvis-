@@ -1,5 +1,9 @@
 package com.example.ui.screens.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,23 +13,35 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,23 +50,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.core.agent.AgentRoutingMode
 import com.example.core.cloud.CloudProviderKind
 import com.example.core.memory.MemoryFact
 import com.example.core.memory.MemoryKind
 import com.example.core.web.WebSearchProviderKind
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChipDefaults
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
+import com.example.ui.theme.JarvisMonoCodeStyle
 import com.example.ui.theme.JarvisMonoTelemetryStyle
 import com.example.ui.theme.JarvisThemeTokens
 import java.text.SimpleDateFormat
@@ -570,22 +587,90 @@ fun LocalMemoryManagerCard(
 @Composable
 fun SkillsLibraryCard(
     uiState: SettingsUiState,
-    onDeleteSkill: (String) -> Unit
+    onDeleteSkill: (String) -> Unit,
+    onExportSkillsJson: () -> Unit = {},
+    onImportSkillsJson: (String) -> Unit = {},
+    onClearExportedSkillsJson: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val palette = JarvisThemeTokens.palette
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var showImportDialog by rememberSaveable { mutableStateOf(false) }
+    var importDraft by rememberSaveable { mutableStateOf("") }
+
+    val filteredSkills = remember(uiState.skills, searchQuery) {
+        val needle = searchQuery.trim().lowercase(Locale.US)
+        if (needle.isEmpty()) {
+            uiState.skills
+        } else {
+            uiState.skills.filter { skill ->
+                skill.name.lowercase(Locale.US).contains(needle) ||
+                    skill.description.lowercase(Locale.US).contains(needle) ||
+                    skill.triggerPattern.lowercase(Locale.US).contains(needle) ||
+                    skill.targetPackage.lowercase(Locale.US).contains(needle) ||
+                    skill.steps.any { it.toolName.lowercase(Locale.US).contains(needle) }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("settings_skills_library_card"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (uiState.skills.isEmpty()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("Filter skills by name, trigger, or tool") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("skills_search_input")
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onExportSkillsJson,
+                enabled = uiState.skills.isNotEmpty(),
+                modifier = Modifier
+                    .weight(1f)
+                    .minimumInteractiveComponentSize()
+                    .testTag("btn_export_skills_json")
+            ) {
+                Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Export JSON")
+            }
+            OutlinedButton(
+                onClick = { showImportDialog = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .minimumInteractiveComponentSize()
+                    .testTag("btn_import_skills_json")
+            ) {
+                Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Import JSON")
+            }
+        }
+
+        if (filteredSkills.isEmpty()) {
             Text(
-                text = "No saved skills yet. Safe multi-step workflows (excluding confirmation-gated actions) can be saved via /tool save_skill or distilled after verified runs.",
+                text = if (uiState.skills.isEmpty()) {
+                    "No saved skills yet. Safe multi-step workflows (excluding confirmation-gated actions) can be saved via /tool save_skill or distilled after verified runs."
+                } else {
+                    "No skills match \"$searchQuery\"."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            val skills = uiState.skills.take(12)
+            val skills = filteredSkills.take(16)
             Column(modifier = Modifier.fillMaxWidth()) {
                 skills.forEachIndexed { idx, skill ->
                     Row(
@@ -608,9 +693,10 @@ fun SkillsLibraryCard(
                                 Text(
                                     text = "${skill.name} v${skill.version}",
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                val palette = JarvisThemeTokens.palette
                                 HudBadge(
                                     text = "${skill.usageCount} runs",
                                     color = palette.onHue,
@@ -637,7 +723,7 @@ fun SkillsLibraryCard(
                             Icon(
                                 imageVector = Icons.Filled.Delete,
                                 contentDescription = "Delete skill",
-                                tint = JarvisThemeTokens.palette.errorAccent
+                                tint = palette.errorAccent
                             )
                         }
                     }
@@ -648,10 +734,241 @@ fun SkillsLibraryCard(
             }
         }
     }
+
+    val exportedJson = uiState.exportedSkillsJson
+    if (exportedJson != null) {
+        AlertDialog(
+            onDismissRequest = onClearExportedSkillsJson,
+            title = { Text("Exported skills JSON") },
+            text = {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = palette.surfaceHigh,
+                    border = BorderStroke(1.dp, palette.hairline),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp)
+                ) {
+                    Text(
+                        text = exportedJson,
+                        style = JarvisMonoCodeStyle,
+                        color = palette.text,
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("JARVIS Skills JSON", exportedJson))
+                        onClearExportedSkillsJson()
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.lavenderContainer,
+                        contentColor = palette.onHue
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("btn_copy_exported_skills")
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy JSON")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onClearExportedSkillsJson,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) { Text("Close") }
+            }
+        )
+    }
+
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Import skills JSON") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Paste an exported JARVIS skill JSON payload. Confirmation-gated or unsafe skills are rejected automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = importDraft,
+                        onValueChange = { importDraft = it },
+                        label = { Text("Skills JSON") },
+                        minLines = 4,
+                        maxLines = 8,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("skills_import_json_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onImportSkillsJson(importDraft)
+                        importDraft = ""
+                        showImportDialog = false
+                    },
+                    enabled = importDraft.isNotBlank(),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.lavenderContainer,
+                        contentColor = palette.onHue
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("btn_confirm_import_skills")
+                ) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showImportDialog = false },
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun AppKnowledgeBaseCard(
+    uiState: SettingsUiState,
+    onDeleteKnowledge: (String) -> Unit,
+    onClearAll: () -> Unit
+) {
+    val palette = JarvisThemeTokens.palette
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("settings_app_knowledge_card"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (uiState.appKnowledge.isEmpty()) {
+            Text(
+                text = "No learned app screens yet. JARVIS automatically records verified non-sensitive UI element patterns and workflow hints as it completes Android automation tasks.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${uiState.appKnowledge.size} verified screen profiles stored locally",
+                    style = JarvisMonoTelemetryStyle,
+                    color = palette.textSecondary
+                )
+                TextButton(
+                    onClick = onClearAll,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("btn_clear_app_knowledge")
+                ) {
+                    Text("Clear all", color = palette.errorAccent)
+                }
+            }
+
+            val entries = uiState.appKnowledge.take(15)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                entries.forEachIndexed { idx, record ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = record.appName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                HudBadge(
+                                    text = record.screenType,
+                                    color = palette.onHue,
+                                    containerColor = palette.lavenderContainer
+                                )
+                                HudBadge(
+                                    text = "${record.successCount} ok",
+                                    color = palette.onHue,
+                                    containerColor = palette.successContainer
+                                )
+                            }
+                            Text(
+                                text = record.packageName,
+                                style = JarvisMonoTelemetryStyle,
+                                color = palette.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (record.knownElements.isNotEmpty()) {
+                                Text(
+                                    text = "Elements: ${record.knownElements.take(6).joinToString(", ")}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (record.verifiedWorkflowHints.isNotBlank()) {
+                                Text(
+                                    text = "Hints: ${record.verifiedWorkflowHints}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = palette.textSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { onDeleteKnowledge(record.id) },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("delete_app_knowledge_${record.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Delete learned app screen",
+                                tint = palette.errorAccent
+                            )
+                        }
+                    }
+                    if (idx < entries.lastIndex) {
+                        EditorialHairlineDivider()
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 fun ExecutionHistoryCard(uiState: SettingsUiState) {
+    val fmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -665,7 +982,6 @@ fun ExecutionHistoryCard(uiState: SettingsUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
             val records = uiState.executionHistory.take(8)
             Column(modifier = Modifier.fillMaxWidth()) {
                 records.forEachIndexed { idx, rec ->

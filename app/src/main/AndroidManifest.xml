@@ -56,6 +56,10 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <service
+            android:name=".core.background.AgentExecutionForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
             android:name=".core.voice.JarvisVoiceService"
             android:exported="false"
             android:foregroundServiceType="microphone" />

@@ -30,9 +30,10 @@ class JarvisTypeConverters {
         SkillEntity::class,
         AgentCheckpointEntity::class,
         ResearchHistoryEntity::class,
-        McpServerEntity::class
+        McpServerEntity::class,
+        AppKnowledgeEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(JarvisTypeConverters::class)
@@ -47,6 +48,7 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun agentCheckpointDao(): AgentCheckpointDao
     abstract fun researchHistoryDao(): ResearchHistoryDao
     abstract fun mcpServerDao(): McpServerDao
+    abstract fun appKnowledgeDao(): AppKnowledgeDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -271,6 +273,36 @@ abstract class JarvisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE agent_skills ADD COLUMN preconditions TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE agent_skills ADD COLUMN expectedOutcomes TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE agent_skills ADD COLUMN verificationConditions TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE agent_skills ADD COLUMN targetPackage TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE agent_skills ADD COLUMN minAndroidSdk INTEGER NOT NULL DEFAULT 24")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_knowledge (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        packageName TEXT NOT NULL,
+                        appName TEXT NOT NULL,
+                        screenSignature TEXT NOT NULL,
+                        screenType TEXT NOT NULL,
+                        knownElementsJson TEXT NOT NULL,
+                        verifiedWorkflowHints TEXT NOT NULL,
+                        successCount INTEGER NOT NULL,
+                        failureCount INTEGER NOT NULL,
+                        lastVerifiedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_app_knowledge_packageName_screenSignature ON app_knowledge (packageName, screenSignature)"
+                )
+            }
+        }
+
         fun create(context: Context): JarvisDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -285,7 +317,8 @@ abstract class JarvisDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
-                    MIGRATION_7_8
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                 .build()
     }

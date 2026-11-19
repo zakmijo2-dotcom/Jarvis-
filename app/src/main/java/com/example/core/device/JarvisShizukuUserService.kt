@@ -75,6 +75,54 @@ class JarvisShizukuUserService : IJarvisShizukuService.Stub() {
                 }
             }
 
+            PrivilegedActionId.INPUT_TAP.wireId -> {
+                val x = cleanArg1.toIntOrNull()?.coerceIn(0, 8192)
+                val y = cleanArg2.toIntOrNull()?.coerceIn(0, 8192)
+                if (x == null || y == null) {
+                    return "ERR|Invalid tap coordinates ($cleanArg1, $cleanArg2)."
+                }
+                val (code, out) = runArgvWithCode(listOf("/system/bin/input", "tap", x.toString(), y.toString()))
+                if (code == 0) "OK|Tapped ($x,$y) via Shizuku input." else "ERR|input tap failed (exit=$code): ${out.trim()}"
+            }
+
+            PrivilegedActionId.INPUT_SWIPE.wireId -> {
+                val parts = cleanArg1.split(",")
+                if (parts.size < 4) {
+                    return "ERR|Invalid swipe coordinates '$cleanArg1'. Expected x1,y1,x2,y2."
+                }
+                val x1 = parts[0].trim().toIntOrNull()?.coerceIn(0, 8192)
+                val y1 = parts[1].trim().toIntOrNull()?.coerceIn(0, 8192)
+                val x2 = parts[2].trim().toIntOrNull()?.coerceIn(0, 8192)
+                val y2 = parts[3].trim().toIntOrNull()?.coerceIn(0, 8192)
+                val dur = cleanArg2.toIntOrNull()?.coerceIn(50, 3000) ?: 320
+                if (x1 == null || y1 == null || x2 == null || y2 == null) {
+                    return "ERR|Non-numeric swipe coordinates."
+                }
+                val (code, out) = runArgvWithCode(
+                    listOf("/system/bin/input", "swipe", x1.toString(), y1.toString(), x2.toString(), y2.toString(), dur.toString())
+                )
+                if (code == 0) "OK|Swiped ($x1,$y1)->($x2,$y2) in ${dur}ms via Shizuku." else "ERR|input swipe failed (exit=$code): ${out.trim()}"
+            }
+
+            PrivilegedActionId.INPUT_TEXT.wireId -> {
+                val safe = AllowlistedCommandValidator.sanitizeInputText(cleanArg1)
+                    ?: return "ERR|Text contains unsupported characters for shell input; use Accessibility text input instead."
+                val (code, out) = runArgvWithCode(listOf("/system/bin/input", "text", safe))
+                if (code == 0) "OK|Injected ${safe.length} character(s) via Shizuku input." else "ERR|input text failed (exit=$code): ${out.trim()}"
+            }
+
+            PrivilegedActionId.QUERY_TOP_APP.wireId -> {
+                val (code, out) = runArgvWithCode(listOf("/system/bin/dumpsys", "window", "displays"))
+                if (code == 0) {
+                    val pkg = Regex("""mCurrentFocus=Window\{[^\n}]*\s([a-zA-Z0-9._]+)/""").find(out)?.groupValues?.getOrNull(1)
+                        ?: Regex("""mFocusedApp=ActivityRecord\{[^\n}]*\s([a-zA-Z0-9._]+)/""").find(out)?.groupValues?.getOrNull(1)
+                        ?: "unknown"
+                    "OK|package=$pkg"
+                } else {
+                    "ERR|dumpsys window failed (exit=$code): ${out.trim()}"
+                }
+            }
+
             else -> "ERR|Unsupported allowlisted Shizuku action: '$cleanAction'."
         }
     }
@@ -132,5 +180,16 @@ object AllowlistedCommandValidator {
         val trimmed = packageName.trim()
         if (!isValidPackageName(trimmed)) return false
         return trimmed !in PROTECTED_PACKAGES && !trimmed.startsWith("com.android.internal")
+    }
+
+    /**
+     * Allows only safe printable ASCII text (converted to Android `input text` %s spaces).
+     * Non-ASCII (Arabic/Unicode) returns null so PhoneAutomationEngine routes to Accessibility ACTION_SET_TEXT.
+     */
+    fun sanitizeInputText(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.length > 240) return null
+        if (!trimmed.matches(Regex("^[a-zA-Z0-9 ._@:/?+=,-]+$"))) return null
+        return trimmed.replace(" ", "%s")
     }
 }

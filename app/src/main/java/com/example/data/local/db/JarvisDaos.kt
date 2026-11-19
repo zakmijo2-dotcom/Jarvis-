@@ -321,3 +321,31 @@ interface McpServerDao {
     suspend fun deleteById(id: String)
 }
 
+@Dao
+interface AppKnowledgeDao {
+    @Query("SELECT * FROM app_knowledge ORDER BY successCount DESC, lastVerifiedAt DESC LIMIT 100")
+    fun observeAll(): Flow<List<AppKnowledgeEntity>>
+
+    @Query("SELECT * FROM app_knowledge ORDER BY successCount DESC, lastVerifiedAt DESC LIMIT 100")
+    suspend fun getAllOnce(): List<AppKnowledgeEntity>
+
+    @Query("SELECT * FROM app_knowledge WHERE LOWER(packageName) = LOWER(:packageName) ORDER BY successCount DESC, lastVerifiedAt DESC")
+    suspend fun getByPackage(packageName: String): List<AppKnowledgeEntity>
+
+    @Query("SELECT * FROM app_knowledge WHERE LOWER(packageName) = LOWER(:packageName) AND screenSignature = :screenSignature LIMIT 1")
+    suspend fun findByPackageAndScreen(packageName: String, screenSignature: String): AppKnowledgeEntity?
+
+    @Query("SELECT * FROM app_knowledge WHERE LOWER(appName) LIKE LOWER(:pattern) OR LOWER(packageName) LIKE LOWER(:pattern) OR LOWER(verifiedWorkflowHints) LIKE LOWER(:pattern) ORDER BY successCount DESC, lastVerifiedAt DESC LIMIT 20")
+    suspend fun search(pattern: String): List<AppKnowledgeEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: AppKnowledgeEntity)
+
+    @Query("DELETE FROM app_knowledge WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM app_knowledge")
+    suspend fun clearAll()
+}
+
+

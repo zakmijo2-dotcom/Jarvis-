@@ -49,6 +49,7 @@ class JarvisApplication : Application(), ComponentCallbacks2 {
                 )
                 container.modelManager.ensureSeeded()
                 container.conversationRepository.ensureDefaultConversation()
+                container.backgroundCoordinator.recoverInterruptedCheckpoints()
                 container.settingsRepository.settingsFlow
                     .onEach { settings ->
                         val hasMic = runCatching {

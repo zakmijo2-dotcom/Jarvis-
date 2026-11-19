@@ -77,7 +77,10 @@ data class CloudInferenceConfig(
     val maxOutputTokens: Int = 512,
     val temperature: Float = 0.7f,
     val toolsSchemaJson: String? = null,
-    val attachments: List<CloudImageAttachment> = emptyList()
+    val attachments: List<CloudImageAttachment> = emptyList(),
+    val maxRetries: Int = 2,
+    val retryBaseDelayMs: Long = 350L,
+    val fallbackConfig: CloudInferenceConfig? = null
 )
 
 data class CloudUsageStats(

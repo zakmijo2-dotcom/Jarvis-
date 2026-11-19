@@ -628,6 +628,12 @@ class VoiceViewModel(
                 existingSteps = existingSteps
             ).collect { hybridEvent ->
                 when (hybridEvent) {
+                    is HybridAgentEvent.PhaseChanged,
+                    is HybridAgentEvent.TimelineRecorded,
+                    is HybridAgentEvent.ObservationCaptured,
+                    is HybridAgentEvent.ReplanTriggered,
+                    is HybridAgentEvent.TaskStopped -> Unit
+
                     is HybridAgentEvent.PlanUpdated -> {
                         overlayState.value = overlayState.value.copy(activePlan = hybridEvent.plan)
                     }

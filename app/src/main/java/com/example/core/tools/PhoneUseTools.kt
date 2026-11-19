@@ -3,6 +3,7 @@ package com.example.core.tools
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.example.core.automation.PhoneAutomationEngine
 import com.example.core.mcp.McpManager
 import com.example.core.security.ActionRiskTier
 import com.example.core.security.AppBlocklistPolicy
@@ -133,10 +134,12 @@ class CaptureScreenVisualTool(
     }
 }
 
-class TapCoordinatesTool : JarvisTool {
+class TapCoordinatesTool(
+    private val automationEngineProvider: () -> PhoneAutomationEngine? = { null }
+) : JarvisTool {
     override val name = "tap_coordinates"
     override val category = ToolCategory.ACCESSIBILITY
-    override val description = "Tap exact screen coordinates (x, y) via Accessibility gesture dispatch after verifying active window safety."
+    override val description = "Tap exact screen coordinates (x, y) via Shizuku -> Wireless ADB -> Accessibility gesture dispatch after verifying active window safety."
     override val parameters = listOf(
         ToolParameterSpec("x", ToolParameterType.INTEGER, "Horizontal pixel coordinate (>=0)", required = true, minInt = 0, maxInt = 10000),
         ToolParameterSpec("y", ToolParameterType.INTEGER, "Vertical pixel coordinate (>=0)", required = true, minInt = 0, maxInt = 10000)
@@ -159,7 +162,7 @@ class TapCoordinatesTool : JarvisTool {
 
     override fun describeConfirmation(args: Map<String, String>) =
         "Tap screen at (${args["x"]}, ${args["y"]})?" to
-            "Dispatches an Accessibility tap gesture at the specified screen coordinate."
+            "Dispatches a verified tap gesture at the specified screen coordinate."
 
     override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult =
         execute(context, args, JarvisSettings())
@@ -189,6 +192,22 @@ class TapCoordinatesTool : JarvisTool {
         if (risk.tier == ActionRiskTier.BLOCKED) {
             return ToolExecutionResult(name, ToolExecutionStatus.FAILED, risk.reason)
         }
+        val automationEngine = automationEngineProvider()
+        if (automationEngine != null) {
+            val res = automationEngine.tap(x, y, settings)
+            return ToolExecutionResult(
+                toolName = name,
+                status = if (res.success) ToolExecutionStatus.SUCCESS else ToolExecutionStatus.FAILED,
+                summary = res.summary,
+                verifiedFacts = mapOf(
+                    "x" to x.toString(),
+                    "y" to y.toString(),
+                    "backend" to res.backendUsed.label,
+                    "stateChangedVerified" to res.screenChanged.toString()
+                ),
+                requestArgs = args
+            )
+        }
         val controller = AccessibilityController(context)
         val verification = controller.executeCoordinateTapWithVerification(x, y, longPress = false)
         return ToolExecutionResult(
@@ -209,10 +228,12 @@ class TapCoordinatesTool : JarvisTool {
     }
 }
 
-class LongPressCoordinatesTool : JarvisTool {
+class LongPressCoordinatesTool(
+    private val automationEngineProvider: () -> PhoneAutomationEngine? = { null }
+) : JarvisTool {
     override val name = "long_press_coordinates"
     override val category = ToolCategory.ACCESSIBILITY
-    override val description = "Long-press at screen coordinates (x, y) via Accessibility gesture dispatch."
+    override val description = "Long-press at screen coordinates (x, y) via Shizuku -> Wireless ADB -> Accessibility gesture dispatch."
     override val parameters = listOf(
         ToolParameterSpec("x", ToolParameterType.INTEGER, "Horizontal pixel coordinate (>=0)", required = true, minInt = 0, maxInt = 10000),
         ToolParameterSpec("y", ToolParameterType.INTEGER, "Vertical pixel coordinate (>=0)", required = true, minInt = 0, maxInt = 10000)
@@ -235,7 +256,7 @@ class LongPressCoordinatesTool : JarvisTool {
 
     override fun describeConfirmation(args: Map<String, String>) =
         "Long-press at (${args["x"]}, ${args["y"]})?" to
-            "Dispatches a sustained Accessibility long-press gesture at the specified point."
+            "Dispatches a sustained long-press gesture at the specified point."
 
     override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult =
         execute(context, args, JarvisSettings())
@@ -251,6 +272,17 @@ class LongPressCoordinatesTool : JarvisTool {
         if (AppBlocklistPolicy.isPackageBlocked(activePkg, settings.blockedPackagesCsv)) {
             return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "Blocked by AppBlocklistPolicy in '$activePkg'.")
         }
+        val automationEngine = automationEngineProvider()
+        if (automationEngine != null) {
+            val res = automationEngine.longPress(x, y, settings = settings)
+            return ToolExecutionResult(
+                toolName = name,
+                status = if (res.success) ToolExecutionStatus.SUCCESS else ToolExecutionStatus.FAILED,
+                summary = res.summary,
+                verifiedFacts = mapOf("backend" to res.backendUsed.label, "verified" to res.verified.toString()),
+                requestArgs = args
+            )
+        }
         val verification = AccessibilityController(context).executeCoordinateTapWithVerification(x, y, longPress = true)
         return ToolExecutionResult(
             toolName = name,
@@ -265,10 +297,12 @@ class LongPressCoordinatesTool : JarvisTool {
     }
 }
 
-class SwipeScreenTool : JarvisTool {
+class SwipeScreenTool(
+    private val automationEngineProvider: () -> PhoneAutomationEngine? = { null }
+) : JarvisTool {
     override val name = "swipe_screen"
     override val category = ToolCategory.ACCESSIBILITY
-    override val description = "Swipe from (start_x, start_y) to (end_x, end_y) over duration_ms via Accessibility gesture."
+    override val description = "Swipe from (start_x, start_y) to (end_x, end_y) over duration_ms via Shizuku -> Wireless ADB -> Accessibility."
     override val parameters = listOf(
         ToolParameterSpec("start_x", ToolParameterType.INTEGER, "Start X coordinate", required = true, minInt = 0, maxInt = 10000),
         ToolParameterSpec("start_y", ToolParameterType.INTEGER, "Start Y coordinate", required = true, minInt = 0, maxInt = 10000),
@@ -305,7 +339,7 @@ class SwipeScreenTool : JarvisTool {
 
     override fun describeConfirmation(args: Map<String, String>) =
         "Swipe from (${args["start_x"]},${args["start_y"]}) to (${args["end_x"]},${args["end_y"]})?" to
-            "Dispatches a custom Accessibility swipe gesture on screen."
+            "Dispatches a custom swipe gesture on screen."
 
     override suspend fun execute(context: Context, args: Map<String, String>): ToolExecutionResult =
         execute(context, args, JarvisSettings())
@@ -323,6 +357,17 @@ class SwipeScreenTool : JarvisTool {
         val activePkg = AccessibilityBridge.getLastObservedPackageName()
         if (AppBlocklistPolicy.isPackageBlocked(activePkg, settings.blockedPackagesCsv)) {
             return ToolExecutionResult(name, ToolExecutionStatus.FAILED, "Blocked by AppBlocklistPolicy in '$activePkg'.")
+        }
+        val automationEngine = automationEngineProvider()
+        if (automationEngine != null) {
+            val res = automationEngine.swipe(sx, sy, ex, ey, dur, settings)
+            return ToolExecutionResult(
+                toolName = name,
+                status = if (res.success) ToolExecutionStatus.SUCCESS else ToolExecutionStatus.FAILED,
+                summary = res.summary,
+                verifiedFacts = mapOf("backend" to res.backendUsed.label, "verified" to res.verified.toString()),
+                requestArgs = args
+            )
         }
         val verification = AccessibilityController(context).executeSwipeWithVerification(sx, sy, ex, ey, dur)
         return ToolExecutionResult(

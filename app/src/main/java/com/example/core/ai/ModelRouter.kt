@@ -374,13 +374,18 @@ class ModelRouter(
         measured: MeasuredModelMetrics?
     ): ModelHardwareRecommendation {
         val readyCloud = settings.cloudUploadConsentGranted && settings.cloudApiKey.isNotBlank()
-        val supportsTools = settings.cloudProviderKind != CloudProviderKind.ANTHROPIC
+        val detected = ModelCapabilityDetector.detectCloudModel(
+            provider = settings.cloudProviderKind,
+            modelId = settings.cloudModelId.ifBlank { settings.cloudProviderKind.defaultModel }
+        )
+        val supportsTools = detected.supportsTools
 
         var score = 40
         if (!readyCloud) score -= 35
         if (!telemetry.isNetworkConnected) score -= 30
         if (readyCloud && telemetry.isNetworkConnected && thermalConstrained) score += 35
         if (supportsTools) score += 5
+        if (detected.supportsVision) score += 4
         if (measured != null && measured.avgTtftMs in 1L..1500L) score += 4
 
         val badge = when {
@@ -394,8 +399,9 @@ class ModelRouter(
             settings.cloudApiKey.isBlank() -> "API key not configured for ${settings.cloudProviderKind.label}."
             !telemetry.isNetworkConnected -> "Device offline — cloud model unreachable."
             else -> buildString {
-                append("${settings.cloudProviderKind.label} • 0 MB local RAM • ")
-                append(if (supportsTools) "Tool calling enabled" else "Text streaming")
+                append("${settings.cloudProviderKind.label} (${detected.tier.label}) • 0 MB local RAM • ")
+                append(if (supportsTools) "Tools" else "Text")
+                if (detected.supportsVision) append(" + Vision")
                 if (measured != null) {
                     append(String.format(Locale.US, " • %.1f tok/s", measured.avgTokensPerSecond))
                 }

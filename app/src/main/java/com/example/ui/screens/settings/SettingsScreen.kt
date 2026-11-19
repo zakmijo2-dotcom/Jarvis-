@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
@@ -145,7 +146,12 @@ fun SettingsScreen(
     onAddMcpServer: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onSetMcpServerEnabled: (String, Boolean) -> Unit = { _, _ -> },
     onSyncMcpServer: (String) -> Unit = {},
-    onDeleteMcpServer: (String) -> Unit = {}
+    onDeleteMcpServer: (String) -> Unit = {},
+    onExportSkillsJson: () -> Unit = {},
+    onImportSkillsJson: (String) -> Unit = {},
+    onClearExportedSkillsJson: () -> Unit = {},
+    onDeleteAppKnowledge: (String) -> Unit = {},
+    onClearAppKnowledge: () -> Unit = {}
 ) {
     var showPurgeDialog by remember { mutableStateOf(false) }
     val settings = uiState.settings
@@ -163,6 +169,7 @@ fun SettingsScreen(
     var mcpExpanded by rememberSaveable { mutableStateOf(false) }
     var memoryExpanded by rememberSaveable { mutableStateOf(false) }
     var skillsExpanded by rememberSaveable { mutableStateOf(false) }
+    var appKnowledgeExpanded by rememberSaveable { mutableStateOf(false) }
     var historyExpanded by rememberSaveable { mutableStateOf(false) }
     var voiceExpanded by rememberSaveable { mutableStateOf(false) }
     var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
@@ -678,7 +685,28 @@ fun SettingsScreen(
                 ) {
                     SkillsLibraryCard(
                         uiState = uiState,
-                        onDeleteSkill = onDeleteSkill
+                        onDeleteSkill = onDeleteSkill,
+                        onExportSkillsJson = onExportSkillsJson,
+                        onImportSkillsJson = onImportSkillsJson,
+                        onClearExportedSkillsJson = onClearExportedSkillsJson
+                    )
+                }
+            }
+
+            // 5b. App knowledge base
+            item {
+                CollapsibleSettingsSection(
+                    title = "App knowledge base",
+                    summary = "${uiState.appKnowledge.size} learned",
+                    icon = Icons.Filled.Apps,
+                    expanded = appKnowledgeExpanded,
+                    onToggle = { appKnowledgeExpanded = !appKnowledgeExpanded },
+                    headerTestTag = "settings_section_app_knowledge"
+                ) {
+                    AppKnowledgeBaseCard(
+                        uiState = uiState,
+                        onDeleteKnowledge = onDeleteAppKnowledge,
+                        onClearAll = onClearAppKnowledge
                     )
                 }
             }
