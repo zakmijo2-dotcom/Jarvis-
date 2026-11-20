@@ -1,183 +1,269 @@
-# J.A.R.V.I.S — Autonomous Hybrid AI & Phone-Use Assistant for Android (v1.0.1)
+<div align="center">
 
-<p align="center">
-  <strong>Autonomous Non-Root Phone-Use • Offline LiteRT-LM &amp; ML Kit OCR • Shizuku &amp; Wireless ADB • MCP &amp; SSRF-Safe Web Research • Dual-Mode Jetpack Compose UI</strong>
+<img src="docs/assets/jarvis-banner.png" alt="J.A.R.V.I.S Android Autonomous AI Agent Banner" width="100%" />
+
+<br />
+<br />
+
+<img src="docs/assets/jarvis-logo.png" alt="J.A.R.V.I.S Emblem" width="96" height="96" />
+
+# J.A.R.V.I.S
+
+**Autonomous Local-First Android AI Agent**
+
+*Goal-oriented multi-step planning, unified non-root phone control, offline vision & OCR, stateful browser automation, MCP tool interoperability, and on-device LiteRT-LM inference.*
+
+<p>
+  <img src="https://img.shields.io/badge/Version-1.0.2-38BDF8?style=flat-square" alt="Version 1.0.2" />
+  <img src="https://img.shields.io/badge/License-GPL--3.0-22C55E?style=flat-square" alt="License GPL-3.0" />
+  <img src="https://img.shields.io/badge/Android-7.0--16%20(API%2024--36)-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 24-36" />
+  <img src="https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 2.2.10" />
+  <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose Material 3" />
+  <img src="https://img.shields.io/badge/Tools-43%20Registered-60A5FA?style=flat-square" alt="43 Registered Tools" />
+  <img src="https://img.shields.io/badge/Tests-72%20Passing%20(8%20Suites)-10B981?style=flat-square" alt="72 JVM & Robolectric Tests Passing" />
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.0.1-0E1015?style=for-the-badge" alt="Version v1.0.1" />
-  <img src="https://img.shields.io/badge/License-GPL--3.0-38BDF8?style=for-the-badge" alt="GPL-3.0 License" />
-  <img src="https://img.shields.io/badge/Platform-Android%20(SDK%2024--36)-2DD4BF?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK 24-36" />
-  <img src="https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 2.2.10" />
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-60A5FA?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose Material 3" />
-  <img src="https://img.shields.io/badge/Device%20Bridge-Shizuku%2013.1.5%20%2B%20Kadb-818CF8?style=for-the-badge" alt="Shizuku 13.1.5 and Kadb" />
-  <img src="https://img.shields.io/badge/Local%20AI-LiteRT--LM%200.10.2%20%2B%20ML%20Kit%20OCR-2DD4BF?style=for-the-badge" alt="LiteRT-LM and ML Kit OCR" />
-  <img src="https://img.shields.io/badge/Tests-61%20JVM%20%2B%204%20Instrumented-2EA043?style=for-the-badge" alt="61 JVM and 4 Instrumented Tests" />
-</p>
+[Architecture](docs/ARCHITECTURE.md) · [Build & Install](docs/BUILD_AND_INSTALL.md) · [Release Notes](docs/RELEASE_NOTES.md) · [Test Plan](docs/TEST_PLAN.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+
+</div>
 
 ---
 
 ## Overview
 
-**J.A.R.V.I.S** (`v1.0.1`, `versionCode = 2`, `com.aistudio.jarvis.k8v4mz`) is an open-source (`GPL-3.0`) native Android AI assistant built in **Kotlin** and **Jetpack Compose (Material 3)**. It unifies on-device **LiteRT-LM** inference, **non-root autonomous screen perception + offline ML Kit OCR**, a **Shizuku-first + pure-Kotlin Wireless ADB** device-control bridge, an **SSRF-guarded multi-provider web research engine**, a **Streamable HTTP/SSE MCP client**, and **clean vs. operator dual UI modes** inside a strict zero-trust security model.
+**J.A.R.V.I.S** (`com.aistudio.jarvis.k8v4mz`) is an open-source, privacy-first autonomous Android AI agent engineered in **Kotlin** and **Jetpack Compose (Material 3)**. Designed to run locally on-device with **Google LiteRT-LM** and optionally route complex reasoning or vision turns to user-configured cloud providers (**Gemini**, **OpenAI-compatible**, **OpenRouter**, **Anthropic**), J.A.R.V.I.S bridges natural-language goals and real Android device execution without requiring root access.
 
-### Core Design Principles
-- **Autonomous Non-Root Phone-Use (`core/vision/`, `core/overlay/`):** Combines depth-first Accessibility UI tree compression (`ScreenTreeCompressor`), loop/stagnation detection (`ScreenJournal`), API 30+ `AccessibilityService.takeScreenshot()` + Android 14+ `MediaProjection` fallback capture, offline Google ML Kit OCR (`16.0.1`), coordinate/element gesture verification, non-blocking floating HUD overlays (`ExecutionOverlayManager`), and mandatory banking/authenticator package blocklists (`AppBlocklistPolicy`).
-- **Shizuku-First Privileged Architecture (`core/device/`, `aidl/`):** Executes allowlisted system operations through an official **Shizuku (`13.1.5`)** `UserService` (`IJarvisShizukuService.aidl`) with binder lifecycle tracking, falling back to **pure-Kotlin Wireless ADB (`kadb:1.3.0`)**, **Native Android APIs**, and **on-demand Accessibility** only when needed.
-- **Honest Local AI Execution (`core/ai/`, `core/model/`):** Bundles verified **LiteRT-LM (`0.10.2`)** `.litertlm` inference (`GPU OpenCL` / `CPU XNNPACK`), while unbundled formats (`GGUF`, `TFLite`, `MediaPipe .task`, `Safetensors`) are explicitly blocked and labeled `Unsupported Format`—never faked or mislabeled as runnable.
-- **Hardware- & Thermal-Aware Routing (`ModelRouter`):** Selects models and caps context windows dynamically based on available RAM, KV-cache estimates, battery level, `PowerManager` thermal status, and real measured benchmarks (`TTFT`, `tok/s`, peak memory).
-- **Strict Zero-Trust & Privacy Boundaries:** Cloud prompts, multimodal attachments, and screen uploads require explicit consent; password fields are redacted (`[REDACTED_PASSWORD]`); secrets are encrypted via **Android Keystore AES-256-GCM** (`SecureCredentialStore`); web fetches block private/loopback/metadata IPs (`PublicHttpSafetyGuard`); and logs are scrubbed by `SecurityLogRedactor`.
+### Core Engineering Principles
+- **No Root Required:** Prioritizes official **Shizuku (`13.1.5`)** `UserService` IPC and pure-Kotlin **Wireless ADB (`Kadb 1.3.0`)**, seamlessly falling back to native Android APIs and opt-in **Accessibility Service** automation.
+- **Observe → Reason → Act → Verify:** Runs a bounded 12-turn closed loop with screen state classification, stagnation/oscillation recovery, dynamic replanning (up to 3 replans per run), resumable checkpoints, and live Pause / Resume / Steer / Stop controls.
+- **Security by Default:** Protects all credentials with **Android Keystore AES-256-GCM**, enforces **SSRF protection** (`PublicHttpSafetyGuard`) across web/browser requests and redirects, blocks automated control inside banking/authenticator/installer packages (`AppBlocklistPolicy`), and gates high-risk actions behind explicit user confirmation.
+- **Honest Runtime Capabilities:** Never fakes unsupported model formats (`GGUF`, `.tflite`, `.task`, `.safetensors` are explicitly rejected as unsupported rather than mocked) and never fabricates telemetry or unavailable hardware permissions.
 
 ---
 
 ## Key Capabilities
 
-### 1. Autonomous Phone-Use, Screen Vision & Closed-Loop Agent (`core/agent/`, `core/vision/`, `core/overlay/`)
-- **12-Iteration Closed-Loop Agent (`Phase2AgentCore`, `IntentRouter`):** Executes bounded **Observe → Plan → Act → Verify → Recover** task loops across English, Arabic (`ar-SA`), Algerian Darija (`ar-DZ`), and French (`fr-FR`), supporting mid-run user steering, instant stop cancellation, missing-element recovery, stagnation `[RECOVERY_SIGNAL]` injection, and persistent **Room `agent_checkpoints`** pause/resume.
-- **34 Registered Android Tools (`ToolRegistryFactory`):** Covers app & settings control, telemetry, media/contacts/calls/SMS/reminders, privileged Shizuku/ADB diagnostics (`check_device_bridge`, `force_stop_app`, `trim_app_caches`), local memory & safe procedural skills (`RoomSkillEngine`), Accessibility + coordinate gestures (`tap_ui_element`, `tap_coordinates`, `long_press_coordinates`, `swipe_screen`, `scroll_screen`, `input_ui_text`), offline screen perception (`capture_screen_ocr`, `capture_screen_visual`), web actions (`open_url`, `web_search`, `fetch_webpage`), and remote MCP invocation (`mcp_call`).
-- **Pre-Action Safety Matrix (`ScreenRiskClassifier`, `AppBlocklistPolicy`):** Automatically blocks autonomous control and visual uploads inside sensitive banking/authenticator/installer apps and pauses irreversible or outbound actions behind explicit confirmation checkpoints.
-
-### 2. Shizuku-First & Pure-Kotlin Wireless ADB Device Control (`core/device/`, `aidl/`)
-- **Capability-Based Unified Router (`DeviceCommandRouter`):** Routes every command across `ShizukuController` → `WirelessAdbController` → `AndroidNativeController` → `AccessibilityController` fallback, verifying actual outcomes (`pidof`, `id`, binder exit codes, post-action screen diffs).
-- **Shizuku Integration (`dev.rikka.shizuku:api/provider:13.1.5`):** Tracks Shizuku availability, binder restarts/deaths (`DeadObjectException`), permission grants/denials, and `JarvisShizukuUserService` execution without assuming root (`UID 0`).
-- **Pure-Kotlin Wireless ADB (`com.flyfishxu:kadb:1.3.0`):** Dedicated **Shizuku & Wireless ADB Setup** screen supporting Android 11+ SPAKE2 + TLS 1.3 pairing, `NsdManager` mDNS port auto-discovery (`_adb-tls-pairing._tcp.` / `_adb-tls-connect._tcp.`), live `id` verification probes, and immediate redaction/wiping of 6-digit pairing codes.
-
-### 3. Local AI, Model Hub & Performance (`core/ai/`, `core/model/`, `core/hf/`)
-- **LiteRT-LM Runtime & Coordinator (`LiteRtLmAiEngine`, `RuntimeEngineCoordinator`):** Supports streaming generation, immediate cancellation without waiting for full decode, `ComponentCallbacks2` memory trimming, and single-heavy-model RAM mutual exclusion (requires verified `>= 2 GB` reserve for concurrent weights).
-- **Intelligent `ModelRouter` & `PromptCompressor`:** Estimates weight + KV-cache RAM footprints, enforces an 85% total-RAM load guard, offloads to consented Cloud AI under severe thermal/low-battery states (`AUTO_HYBRID`), and compacts older chat turns inside local context budgets.
-- **Model Hub (`ModelManagerScreen`):** Search Hugging Face repositories, inspect compatibility & hardware-fit badges, download `.litertlm` files with HTTP `Range` (`206`) pause/resume/cancel and `SHA-256` verification, view storage/quantization/measured benchmarks, and one-tap load/unload.
-
-### 4. MCP Client, SSRF-Safe Web Research & Multimodal Cloud (`core/mcp/`, `core/web/`, `core/cloud/`)
-- **Streamable HTTP & SSE MCP Client (`McpClient`, `McpManager`):** Supports JSON-RPC 2.0 `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, and `Mcp-Session-Id` session headers, backed by Room `mcp_servers`, encrypted bearer tokens, and confirmation gates on mutating tools.
-- **SSRF-Hardened Web Research (`PublicHttpSafetyGuard`, `WebPageExtractor`, `OkHttpWebResearchService`):** Blocks loopback/RFC-1918/link-local/CGNAT/ULA IPs before socket connection and across redirects; supports **Brave Search**, **SerpAPI**, **Tavily**, **Serper**, **Wikipedia**, **keyless DuckDuckGo fallback**, and readable HTML/JSON-LD page extraction (`fetch_webpage`) persisted to `research_history`.
-- **Multimodal Cloud & Voice (`OkHttpCloudAiClient`, `core/voice/`, `core/wakeword/`):** Supports Gemini REST (`inlineData`), OpenAI-compatible & OpenRouter (`image_url`), Anthropic (`image`), and custom SSE endpoints alongside multilingual `SpeechRecognizer`/`TextToSpeech` and Picovoice `porcupine-android:4.0.2` wake-word spotting.
-
-### 5. Dual-Mode Jetpack Compose M3 Interface (`ui/`)
-- **Claude-Inspired Clean Default Mode (`uiAdvancedModeEnabled = false`, Default):** Opens directly into a focused **Chat-first** interface with a model switcher pill, history & workspace drawer, inline Photo Picker (`PickVisualMedia` — zero broad storage permissions), voice trigger, and non-intrusive live step HUD + instant **Stop** button.
-- **Advanced Operator Mode (`uiAdvancedModeEnabled = true`):** Reveals the full **4-tab workspace** (`Home`, `Chat`, `Models`, `More`) plus dedicated sub-screens for **Voice (`JarvisOrb`)**, **Device Control Dashboard**, **Shizuku & Wireless ADB Setup**, **Permissions & Security**, **Activity & Benchmarks History**, **Resumable Checkpoints**, **MCP Servers**, and **Blocked Apps**.
-- **Dark Graphite + Light Alabaster Themes:** Dark Graphite (`#0E1015` / `#151922`) with restrained cyan-blue (`#38BDF8`) and teal (`#2DD4BF`) accents alongside Light Alabaster (`#F4F6F9` / `#FFFFFF`), bundled **Space Grotesk**, **Plus Jakarta Sans**, and **JetBrains Mono** fonts, and localized English / Arabic (RTL) / French copy.
+| Pillar | Capabilities |
+| :--- | :--- |
+| **Autonomous Agent Core** | `GoalTaskPlanner` multi-step goal decomposition, `Phase2AgentCore` 12-turn closed loop, explicit `AgentExecutionPhase` state machine (`THINKING`, `OBSERVING`, `EXECUTING`, `VERIFYING`, `RECOVERING`, `PAUSED`, etc.), bounded replanning (max 3), mid-run user steering, Room `agent_checkpoints` pause/resume, and `AgentBackgroundCoordinator` foreground notification controls. |
+| **Unified Phone Control (43 Tools)** | Priority-routed `DeviceCommandRouter` (`Shizuku AIDL → Wireless ADB → Native Android → Accessibility`), `AndroidAutomationEngine` (`wait_for_screen`, `locate_and_tap_visual`, `navigate_device`), semantic & coordinate gestures (`tap_ui_element`, `tap_coordinates`, `long_press_coordinates`, `swipe_screen`, `scroll_screen`, `input_ui_text`), and allowlisted privileged actions (`force_stop_app`, `trim_app_caches`). |
+| **Screen Perception & Offline Vision** | `ScreenPerceptionEngine` combining DFS Accessibility tree compression (`ScreenTreeCompressor` with `[REDACTED_PASSWORD]` masking), `ScreenClassifier` (9 screen types), `VisualElementLocator`, offline **ML Kit OCR (`16.0.1`)**, API 30+ `AccessibilityService.takeScreenshot()`, Android 14+ `MediaProjectionForegroundService` fallback, and context-aware cloud screenshot gating. |
+| **Stateful Browser & Web Research** | Multi-tab `BrowserAutomationEngine` (`browser_open`, `browser_read`, `browser_click_link`, `browser_fill_form`, `browser_back`, `browser_tabs`), HTML/JSON-LD extraction, Brave / SerpAPI / keyless search backends, and mandatory `PublicHttpSafetyGuard` SSRF blocking (loopback, RFC-1918 LAN, link-local / cloud metadata `169.254.169.254`, CGNAT, IPv6 ULA). |
+| **MCP, Memory, Skills & App Knowledge** | Streamable HTTP & SSE **Model Context Protocol (`McpClient` / `McpManager`)** JSON-RPC 2.0 client with write confirmation gates; Room v9 WAL persistence (12 tables) storing local factual memory, reusable procedural **Skills** (with JSON Export & Import), and an **Application Knowledge Base** (`AppKnowledgeRepository`) that learns verified UI patterns per package. |
+| **On-Device & Hybrid AI Routing** | Native **LiteRT-LM (`0.10.2`)** `.litertlm` inference with `GPU → CPU` fallback, Hugging Face Hub browsing with HTTP 206 resumable downloads & SHA-256 verification, `ModelRouter` hardware/thermal/battery scoring, `ModelCapabilityDetector` tiered cloud selection, and `PromptCompressor`. |
+| **Premium Dual-Mode Interface** | Deep Graphite (`#0E1015` / `#151922`) & Light Alabaster (`#F4F6F9` / `#FFFFFF`) palettes with cyan-blue accents, bundled **Space Grotesk / Plus Jakarta Sans / JetBrains Mono** typography, **Clean Chat Default Mode** + opt-in **4-Tab Advanced Operator Mode**, memoized Markdown bubbles, live `AgentPhaseBadge`, collapsible tool timeline, screen observation preview card, and Quick Autonomous Task launcher. |
 
 ---
 
-## Architecture Overview
+## System Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│     Jetpack Compose Material 3 UI (Clean Default Mode / Operator Mode)     │
-│  4 Tabs: Home │ Chat (+Drawer, Photo Picker, HUD) │ Models │ More          │
-│  Sub-Hubs: Voice │ Device │ Shizuku/ADB │ Security │ Activity │ Settings   │
-└────────────────────────────────────┬───────────────────────────────────────┘
-                                     │ StateFlow (MVVM + Navigation Compose)
-┌────────────────────────────────────▼───────────────────────────────────────┐
-│               Phase2AgentCore & Intelligent ModelRouter                    │
-│  PromptCompressor ─► IntentRouter ─► ToolRegistry (34 Tools) ─► Checkpts   │
-│    ├─► ScreenPerceptionEngine (A11y Tree + ML Kit OCR + MediaProjection)   │
-│    ├─► ScreenRiskClassifier + AppBlocklistPolicy + ExecutionOverlayManager │
-│    ├─► DeviceCommandRouter (Shizuku -> Wireless ADB -> Native -> A11y)     │
-│    └─► McpManager (JSON-RPC/SSE) + WebResearchService (SSRF-Guarded)       │
-└────────────────────────────────────┬───────────────────────────────────────┘
-                                     │
-┌────────────────────────────────────▼───────────────────────────────────────┐
-│  Room v8 WAL DB (11 Tables) │ DataStore + Keystore AES-256-GCM │ 16MB HTTP │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    UI["Jetpack Compose Material 3 UI<br/>Clean Chat Default / 4-Tab Operator Mode<br/>Home • Chat • Models • More + 6 Sub-Hubs"]
+    VM["MVVM ViewModels & StateFlow<br/>ChatVM • HomeVM • SettingsVM • DeviceControlVM • ModelsVM"]
+    CORE["Phase2AgentCore & GoalTaskPlanner<br/>Observation → Reasoning → Action → Verification<br/>Up to 12 Closed-Loop Turns • Dynamic Replanning (max 3)<br/>Pause / Resume / Steer / Stop • Checkpoints"]
+    ROUTER["ModelRouter & ModelCapabilityDetector<br/>Hardware/Thermal/Battery Fit + Tiered Cloud Selection"]
+    VISION["ScreenPerceptionEngine<br/>Accessibility Tree + ScreenClassifier + VisualElementLocator<br/>Offline ML Kit OCR + API 30+ / MediaProjection Capture"]
+    TOOLS["ToolRegistry (43 Tools)<br/>Device • Vision • Automation • Browser • Web • MCP • Memory • Skills"]
+    BRIDGE["DeviceCommandRouter<br/>1. Shizuku AIDL → 2. Wireless ADB (Kadb) → 3. Native → 4. Accessibility"]
+    BG["AgentBackgroundCoordinator & Foreground Service<br/>Live Notification Controls • Keyguard Safety • Checkpoint Recovery"]
+    MEM["Persistence & Security (Room v9 WAL • 12 Tables)<br/>LocalMemory • AppKnowledgeRepository • Skills • Keystore AES-256-GCM"]
+
+    UI --> VM --> CORE
+    CORE --> ROUTER
+    CORE --> VISION
+    CORE --> TOOLS
+    CORE --> BG
+    TOOLS --> BRIDGE
+    CORE --> MEM
+    VISION --> MEM
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`research/open-source/IMPLEMENTATION_REPORT.md`](research/open-source/IMPLEMENTATION_REPORT.md) for complete module contracts, threat mitigations, and database schemas.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the complete 43-tool catalog, execution pipeline, and Room v9 schema reference.
 
 ---
 
 ## Tech Stack
 
-| Component | Implementation |
-| --- | --- |
-| Language & Concurrency | Kotlin `2.2.10`, Coroutines & Flow `1.10.2` |
-| UI & Typography | Jetpack Compose (BOM `2024.09.00`), Material 3, Navigation Compose `2.8.9`, Space Grotesk / Plus Jakarta Sans / JetBrains Mono |
-| Device Control & Vision | Shizuku `13.1.5` (`dev.rikka.shizuku:api`, `provider` + AIDL), Kadb `1.3.0`, Google ML Kit Text Recognition `16.0.1`, `MediaProjection` + `AccessibilityService` |
-| Local AI Inference | Google `litertlm-android:0.10.2` (`.litertlm`, GPU OpenCL / CPU XNNPACK) |
-| Wake-Word Detection | Picovoice `porcupine-android:4.0.2` |
-| Persistence & Networking | Room `2.7.0` (SQLite WAL, DB v8 with migrations `1 → 8`), DataStore Preferences `1.1.7`, OkHttp `4.10.0` (16 MB disk cache + redirect/SSRF guards) |
-| Security & Serialization | Android Keystore `AES/GCM/NoPadding`, `SecurityLogRedactor`, `PublicHttpSafetyGuard`, `ScreenRiskClassifier`, `kotlinx-serialization-json:1.8.1` |
-| Build & Testing | AGP `9.1.1`, Gradle `9.3.1`, JDK `21`, `compileSdk 36`, `minSdk 24`, Robolectric `4.16.1`, AndroidX Test |
+| Layer | Technology / Library | Version |
+| :--- | :--- | :--- |
+| **Language & Build** | Kotlin / Android Gradle Plugin / Gradle | `2.2.10` / `9.1.1` / `9.3.1` |
+| **Android SDK** | `minSdk` / `compileSdk` / `targetSdk` | `24` / `36` / `36` |
+| **UI & Navigation** | Jetpack Compose BOM / Material 3 / Navigation Compose | `2024.09.00` / `2.8.9` |
+| **Persistence** | Room (WAL, v9, 12 tables) / Jetpack DataStore | `2.7.0` / `1.1.7` |
+| **Concurrency & Network** | Kotlinx Coroutines / Serialization / OkHttp (16 MB cache) | `1.10.2` / `1.8.1` / `4.10.0` |
+| **Local AI & Vision** | Google LiteRT-LM / Google ML Kit Text Recognition | `0.10.2` / `16.0.1` |
+| **Privileged Bridges** | Shizuku API & Provider / Kadb (Pure-Kotlin Wireless ADB) | `13.1.5` / `1.3.0` |
+| **Voice & Wake Word** | Android `SpeechRecognizer` & TTS / Picovoice Porcupine | Platform / `4.0.2` |
+| **Testing** | Robolectric / JUnit 4 / Coroutines Test / Compose Test | `4.16.1` / `4.13.2` / `1.10.2` |
 
 ---
 
-## Getting Started & Building
+## Visual Preview & Screenshots
+
+> **Note on Device Captures:** This repository intentionally avoids synthetic or mock UI screenshots. Real Android device captures (Dark Graphite & Light Alabaster themes, Clean Chat & Operator Mode, live `AgentPhaseBadge`, and Shizuku/ADB bridge status) are welcome via Pull Request under `docs/assets/screenshots/` — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+---
+
+## Getting Started
 
 ### Prerequisites
-- **JDK:** 21 (Temurin recommended; Java 11 bytecode target)
-- **Android SDK:** Compile SDK `36` (`minSdk 24`, `targetSdk 36`)
-- **Gradle:** `9.3.1` (system `gradle` CLI or Android Studio; `gradle/wrapper/gradle-wrapper.properties` targets `9.3.1` without a bundled `./gradlew` binary)
+- **JDK 21** (Temurin recommended; Java 11 bytecode target)
+- **Android SDK** with platform `android-36` and Build Tools installed (`ANDROID_SDK_ROOT` / `ANDROID_HOME` configured)
+- **Gradle `9.3.1`** (system `gradle` CLI or Android Studio; do not create or commit `local.properties`)
 
-### Clone
+### Build a Signed APK
 ```bash
-git clone https://github.com/zakmijo2-dotcom/Jarvis-.git
-cd Jarvis-
-```
-
-### One-Click Signed APK Build
-```bash
-# Linux / macOS / WSL — builds fast signed Release APK -> ./JARVIS-v1.0.1.apk
+# Linux / macOS / WSL — Fast signed Release APK (-PfastApk=true)
 bash build-apk.sh
 
-# Windows — outputs .\JARVIS-v1.0.1.apk
-build-apk.bat
-
-# R8-minified & resource-shrunk Release APK (verified 41.88 MB)
+# Full R8-minified & resource-shrunk Release APK
 bash build-apk.sh --optimize
 
 # Instant signed Debug APK via :app:fastApk
 bash build-apk.sh --debug
 ```
 
-### Gradle Tests, Instrumentation Compile & Audit Verification
+On Windows (Command Prompt / PowerShell):
+```bat
+build-apk.bat
+```
+
+All build modes write the output APK to `./JARVIS-v1.0.2.apk`.
+
+### Run Automated Verification
 ```bash
-# Run full JVM + Robolectric test suite (61 tests, 7 suites)
+# Run all 72 JVM & Robolectric tests across 8 test suites
 gradle :app:testDebugUnitTest --no-daemon
 
-# Compile Android instrumentation tests (4 tests in androidTest)
+# Compile Android instrumentation tests (androidTest)
 gradle :app:compileDebugAndroidTestKotlin --no-daemon
+```
 
-# Verify compliance, 34 tools, Room v8, JUnit XML totals, and APK hashes
-python3 research/open-source/verify_research_and_metrics.py
+### GitHub Actions CI/CD
+The workflow in [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) installs JDK 21, Android SDK, and Gradle `9.3.1`, executes `gradle :app:testDebugUnitTest --no-daemon`, and builds signed `fast-release`, `r8-release`, or `debug` APKs alongside `SHA256SUMS.txt`.
+
+For full signing, manual App Bundle (`.aab`), and on-device setup instructions, see [`docs/BUILD_AND_INSTALL.md`](docs/BUILD_AND_INSTALL.md).
+
+---
+
+## Configuration & Setup
+
+1. **Cloud AI & Search Keys (Recommended In-App):** Open **Settings → Cloud AI** or **Settings → Web Research** inside the app. Keys are stored locally encrypted with **Android Keystore AES-256-GCM** (`SecureCredentialStore`) and redacted from logs. Optional build-time placeholders are documented in [`.env.example`](.env.example).
+2. **Local `.litertlm` Models:** Open **Models**, search Hugging Face Hub or import a local `.litertlm` file (for example, `gemma3-1b-it-int4.litertlm`), wait for `SHA-256` verification, and tap **Load**.
+3. **Shizuku (Primary Non-Root Bridge):** Install and start Shizuku, then open **More → Shizuku & Wireless ADB Setup → Request Permission → Bind UserService**.
+4. **Wireless ADB (Android 11+ Fallback):** Enable **Developer options → Wireless debugging**, tap **Auto-Discover Ports** (mDNS) or enter your pairing port and 6-digit code, pair, and verify via the live `id` probe. Pairing codes are wiped from memory immediately after use.
+5. **Advanced Operator Mode:** J.A.R.V.I.S launches in **Clean Chat Default Mode**. Toggle **Settings → Appearance & UI Mode → Advanced Operator Mode** to unlock the full 4-tab operator workspace (`Home`, `Chat`, `Models`, `More`) and diagnostics sub-hubs.
+
+---
+
+## Android Permissions
+
+All permissions declared in [`app/src/main/AndroidManifest.xml`](app/src/main/AndroidManifest.xml) follow least-privilege principles. **Zero broad storage permissions** (`READ_EXTERNAL_STORAGE`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`) are declared; image attachments use the zero-permission Android Photo Picker (`ActivityResultContracts.PickVisualMedia`).
+
+| Permission | Scope | Purpose |
+| :--- | :--- | :--- |
+| `INTERNET` | Install-time | Cloud AI APIs, Hugging Face model downloads, SSRF-guarded web/browser/MCP requests |
+| `ACCESS_NETWORK_STATE` | Install-time | Offline detection and hybrid local/cloud routing decisions |
+| `RECORD_AUDIO` | Runtime (opt-in) | Voice input (`SpeechRecognizer`) and opt-in `"Jarvis"` wake-word spotting |
+| `READ_CONTACTS` | Runtime (opt-in) | Contact lookup for explicit `search_contacts` / call / message requests |
+| `POST_NOTIFICATIONS` | Runtime (API 33+) | Foreground agent progress notification with Pause / Resume / Stop actions |
+| `FOREGROUND_SERVICE` | Install-time | Base permission for active user-initiated foreground tasks |
+| `FOREGROUND_SERVICE_DATA_SYNC` | Install-time | Long-running model downloads and autonomous background task execution |
+| `FOREGROUND_SERVICE_MICROPHONE` | Install-time | Active hands-free voice listening service while explicitly enabled |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Install-time | Opt-in screen capture fallback on devices below Android 11 (API 30) |
+| `moe.shizuku.manager.permission.API_V23` | Shizuku runtime | Official Shizuku binder IPC for non-root privileged actions |
+
+---
+
+## Project Structure
+
+```text
+.
+├── app/
+│   ├── build.gradle.kts               # App module build, Room KSP, signing & fastApk task
+│   ├── proguard-rules.pro             # R8 rules for Shizuku AIDL, Kadb, LiteRT-LM, ML Kit, Room
+│   └── src/
+│       ├── main/
+│       │   ├── aidl/                  # IJarvisShizukuService.aidl
+│       │   ├── java/com/example/
+│       │   │   ├── core/
+│       │   │   │   ├── agent/         # Phase2AgentCore, GoalTaskPlanner, ToolRegistryFactory
+│       │   │   │   ├── ai/            # LiteRtLmAiEngine, ModelRouter, PromptCompressor
+│       │   │   │   ├── automation/    # PhoneAutomationEngine (AndroidAutomationEngine)
+│       │   │   │   ├── background/    # AgentBackgroundCoordinator, ForegroundService, VirtualDisplayProbe
+│       │   │   │   ├── browser/       # Stateful multi-tab BrowserAutomationEngine
+│       │   │   │   ├── cloud/         # OkHttpCloudAiClient, ModelCapabilityDetector, Providers
+│       │   │   │   ├── device/        # DeviceCommandRouter, ShizukuController, WirelessAdbController
+│       │   │   │   ├── hf/            # HuggingFaceApiClient
+│       │   │   │   ├── mcp/           # Streamable HTTP/SSE McpClient & McpManager
+│       │   │   │   ├── memory/        # RoomLocalMemory & AppKnowledgeRepository
+│       │   │   │   ├── model/         # ModelCompatibilityEngine, DownloadQueueManager
+│       │   │   │   ├── overlay/       # ExecutionOverlayManager (Accessibility overlay HUD)
+│       │   │   │   ├── security/      # Keystore AES-GCM, AppBlocklist, ScreenRiskClassifier, Redactor
+│       │   │   │   ├── skills/        # RoomSkillEngine (procedural skills + JSON import/export)
+│       │   │   │   ├── tools/         # 43 modular tools (Device, Vision, Automation, Browser, MCP)
+│       │   │   │   ├── vision/        # ScreenPerceptionEngine, ScreenClassifier, VisualElementLocator, OCR
+│       │   │   │   ├── voice/         # AndroidVoiceEngine (STT / TTS)
+│       │   │   │   ├── wakeword/      # ModularWakeWordEngine (Porcupine)
+│       │   │   │   └── web/           # PublicHttpSafetyGuard (SSRF), WebResearchService, Extractor
+│       │   │   ├── data/              # Room v9 JarvisDatabase (12 tables), DAOs, DataStore Repositories
+│       │   │   ├── di/                # Manual Constructor DI (JarvisContainer)
+│       │   │   └── ui/
+│       │   │       ├── components/    # JarvisDesignSystem, AgentActivityComponents, JarvisOrb
+│       │   │       ├── navigation/    # JarvisAppShell & @Serializable Navigation Compose routes
+│       │   │       ├── screens/       # home, chat, models, settings, device, bridge, security, history, voice
+│       │   │       └── theme/         # Theme, Color, Type, DesignTokens
+│       │   └── res/                   # Adaptive launcher icon, bundled TTF fonts, XML strings/configs
+│       ├── test/                      # 72 JVM & Robolectric unit tests across 8 suites
+│       └── androidTest/               # 4 on-device instrumentation tests
+├── docs/
+│   ├── ARCHITECTURE.md                # Full system architecture & 43-tool catalog
+│   ├── BUILD_AND_INSTALL.md           # Local scripts, Gradle, CI/CD & device bridge setup
+│   ├── OPEN_SOURCE_CREDITS.md         # Third-party dependencies & clean-room attributions
+│   ├── RELEASE_NOTES.md               # v1.0.2 release highlights
+│   ├── TEST_PLAN.md                   # Automated 72-test verification matrix & device scope
+│   └── assets/                        # Original brand banner (1280×640) & emblem (512×512)
+├── .github/                           # CI workflow, Issue Templates & PR Template
+├── build-apk.sh / build-apk.bat       # One-click signed APK build scripts
+├── CHANGELOG.md                       # Version history (v1.0.0 – v1.0.2)
+├── CONTRIBUTING.md                    # Contributor workflow & engineering standards
+├── SECURITY.md                        # Vulnerability disclosure & security model
+├── CODE_OF_CONDUCT.md                 # Community standards
+└── LICENSE                            # GNU General Public License v3.0
 ```
 
 ---
 
-## Measured Verification & CI/CD
+## Honest Limitations & Android 12–16 Constraints
 
-| Artifact / Suite | Result | Details |
-| --- | --- | --- |
-| **JVM / Robolectric Suite** (`:app:testDebugUnitTest`) | **61 / 61 Passed** | `JarvisFoundationTest` (37), `AiRouterAndSecurityTest` (6), `AutonomousPhoneUseTest` (6), `ExampleRobolectricTest` (6), `DeviceControlArchitectureTest` (3), `UiNavigationAndSecurityTest` (2), `ExampleUnitTest` (1) |
-| **Instrumentation Compile** (`:app:compileDebugAndroidTestKotlin`) | **Succeeded** | 4 tests (`JarvisInstrumentationTest` + `ExampleInstrumentedTest`) ready for device execution |
-| **R8 Release APK** (`bash build-apk.sh --optimize`) | **43,913,895 bytes (41.88 MB)** | `SHA256: 0f2e3e9028dfaea1e24e94a1cfa80d2c39c757334cfcce10023163fe93223c96` |
-| **Fast Release APK** (`bash build-apk.sh`) | **56 MB** | `SHA256: 0af152396384936828fc2df250dc2ad56c6d9480ae65c49346b655bb9536e408` |
-| **Debug APK** (`app-debug.apk`) | **69,545,010 bytes (66.32 MB)** | `SHA256: 0670941ea8610a1bbeb25008982f88b020b0aca1cd1b18e64fad685676f7ace1` |
-
-The GitHub Actions workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) provisions **JDK 21**, **Android SDK**, and **Gradle 9.3.1**, runs the **61-test** JVM/Robolectric suite, builds a signed `JARVIS-v1.0.1.apk` from source (`fast-release`, `r8-release`, or `debug`), generates `SHA256SUMS.txt`, uploads artifacts, and publishes **GitHub Releases**.
+- **Model Formats:** Only `.litertlm` models run natively on-device via `LiteRtLmAiEngine`. `GGUF`, `.tflite`, `.task`, and `.safetensors` files are intentionally flagged as unsupported (`isExecutionSupported = false`) until a native JNI runtime is bundled.
+- **Hidden Virtual Displays on Stock Android:** Standard non-system Android 12–16 apps cannot reliably launch arbitrary third-party apps inside invisible background `VirtualDisplay` surfaces without system privileges (`INTERNAL_SYSTEM_WINDOW` / `ACTIVITY_EMBEDDING`). `VirtualDisplayFeasibilityProbe` reports this honestly and defaults to transparent foreground execution with live notification controls.
+- **Protected & `FLAG_SECURE` Screens:** Banking, authenticator, and package-installer screens are deliberately blocked from automated control and cloud screenshot transmission (`AppBlocklistPolicy` & `ScreenRiskClassifier`). Android OS also blacks out `FLAG_SECURE` surfaces during capture.
+- **Physical Device Verification:** Live Shizuku daemon IPC, Android 11+ Wireless Debugging (`127.0.0.1` SPAKE2/TLS), hardware GPU OpenCL `.litertlm` inference, `SpeechRecognizer` / Porcupine microphone audio, `MediaProjection` consent dialogs, and OS `AccessibilityService` bindings require a physical Android device; headless JVM/Robolectric tests validate contracts via deterministic fakes and transports.
 
 ---
 
-## Honest Scope & Physical Device Requirements
-- **Verified Headlessly:** **61 / 61** JVM/Robolectric tests, `androidTest` Kotlin compilation (`4` instrumentation tests), Room migrations `1 → 8`, R8 release minification, clean-room compliance (`0` OpenPhone/PolyForm or QuickJS references in `app/src/main`), and signed APK packaging.
-- **Requires Physical Android Device:** Live `Shizuku` daemon IPC (`moe.shizuku.privileged.api`), Android 11+ Wireless Debugging (`127.0.0.1` SPAKE2/TLS handshake), `.litertlm` GPU OpenCL execution on `arm64-v8a` hardware, live `MediaProjection` consent screen capture, Picovoice Wake-Word audio capture (with user-supplied AccessKey), and real Android `AccessibilityService` OS bindings.
-- **Unbundled Local Formats:** `GGUF`, `.tflite`, `.task`, and `.safetensors` files are inspected transparently and blocked from execution (`isExecutionSupported = false`) in this APK build because their native C++/JNI runtimes are not bundled.
+## Roadmap
+
+- [ ] **Real Device Screenshot Gallery:** Capture and publish verified Dark Graphite & Light Alabaster device screenshots across compact phones and tablets.
+- [ ] **Optional Native GGUF Backend:** Evaluate modular optional JNI/NDK `llama.cpp` packaging without inflating base APK size.
+- [ ] **Multi-Step Skill Recording & Visual Editor:** Interactive step-by-step editor for inspecting and refining distilled procedural skills before export.
+- [ ] **Adaptive Tablet List-Detail Enhancements:** Dedicated two-pane conversation + live autonomous execution inspector for `Expanded` window size classes.
 
 ---
 
-## Documentation Index
-- [`LICENSE`](LICENSE) — GNU General Public License v3.0 (`GPL-3.0`)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Autonomous Phone-Use, Shizuku/ADB, ModelRouter, 34-tool catalog & Room v8 schema
-- [`BUILD_AND_INSTALL.md`](BUILD_AND_INSTALL.md) — Local build scripts, R8 Release signing, CI pipeline & device setup
-- [`CHANGELOG.md`](CHANGELOG.md) — `v1.0.1` and `v1.0.0` changelogs
-- [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — `v1.0.1` release highlights and safety boundaries
-- [`TEST_PLAN.md`](TEST_PLAN.md) — 61 JVM/Robolectric + 4 Android Instrumentation verification matrix
-- [`OPEN_SOURCE_CREDITS.md`](OPEN_SOURCE_CREDITS.md) — Third-party libraries, bundled fonts & clean-room attributions
-- [`PROGRESS.md`](PROGRESS.md) — Architecture upgrade & verification log
-- [`research/open-source/IMPLEMENTATION_REPORT.md`](research/open-source/IMPLEMENTATION_REPORT.md) — Full open-source research synthesis, compliance audit & verified APK metrics
+## Contributing & Community
+
+Contributions, bug reports, security disclosures, and device test reports are welcome:
+
+- Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a Pull Request.
+- Review [`SECURITY.md`](SECURITY.md) for responsible disclosure of security issues (SSRF, Keystore, Shizuku/ADB allowlists, prompt injection).
+- Follow our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+- See [`docs/OPEN_SOURCE_CREDITS.md`](docs/OPEN_SOURCE_CREDITS.md) for full dependency licenses and clean-room architectural attributions.
 
 ---
 
 ## License
 
-Copyright (C) 2026 J.A.R.V.I.S Contributors.  
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License as published by the Free Software Foundation, version 3 of the License (`GPL-3.0`)**. See [`LICENSE`](LICENSE) for full terms.
+**J.A.R.V.I.S Android** is free software licensed under the **GNU General Public License v3.0 (`GPL-3.0`)**. See [`LICENSE`](LICENSE) for the full license text.

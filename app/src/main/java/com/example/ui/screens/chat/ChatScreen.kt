@@ -77,8 +77,11 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -94,17 +97,23 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.core.agent.AgentExecutionPhase
 import com.example.core.agent.AgentRoutingMode
 import com.example.core.agent.PlanStepStatus
 import com.example.core.ai.EngineLoadState
 import com.example.core.model.ArtifactState
 import com.example.data.local.db.MessageEntity
 import com.example.data.local.db.MessageRole
+import com.example.ui.components.AgentLiveTimelineSection
+import com.example.ui.components.AgentPhaseBadge
+import com.example.ui.components.AgentStopSummaryBanner
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
+import com.example.ui.components.JarvisMarkdownText
 import com.example.ui.components.JarvisOrb
 import com.example.ui.components.OrbMode
+import com.example.ui.components.ScreenObservationPreviewCard
 import com.example.ui.components.hairlineDp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -141,13 +150,19 @@ fun ChatScreen(
     onAttachImageUri: (Uri) -> Unit = {},
     onClearAttachment: () -> Unit = {},
     onSubmitSteering: (String) -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onPauseAutonomousTask: () -> Unit = {},
+    onResumeAutonomousTask: () -> Unit = {},
+    onDismissStopSummary: () -> Unit = {},
+    onResumeCheckpoint: (String) -> Unit = {},
+    onOpenActivityHistory: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val palette = JarvisThemeTokens.palette
     var inputText by rememberSaveable { mutableStateOf("") }
     var steerExpanded by rememberSaveable { mutableStateOf(false) }
     var steerInput by rememberSaveable { mutableStateOf("") }
+    var timelineExpanded by rememberSaveable { mutableStateOf(false) }
     val isAdvancedMode = uiState.settings.uiAdvancedModeEnabled
     val listState = rememberLazyListState()
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -405,18 +420,40 @@ fun ChatScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${activePlan.routeDecision.route.label} ($completedCount/${activePlan.steps.size})",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    AgentPhaseBadge(phase = uiState.agentPhase)
+                                    Text(
+                                        text = "${activePlan.routeDecision.route.label} ($completedCount/${activePlan.steps.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (activePlan.replanCount > 0) {
+                                        HudBadge(
+                                            text = "${activePlan.replanCount} replan",
+                                            color = palette.warningAccent,
+                                            containerColor = palette.amberBadgeBg
+                                        )
+                                    }
+                                }
                                 val subMeta = buildString {
-                                    activePlan.routeDecision.matchedSkillName?.let { append("Skill: $it · ") }
-                                    if (activePlan.routeDecision.capabilitySummary.isNotBlank()) {
-                                        append(activePlan.routeDecision.capabilitySummary)
+                                    if (uiState.agentPhaseDetail.isNotBlank() && uiState.agentPhase != AgentExecutionPhase.IDLE) {
+                                        append(uiState.agentPhaseDetail)
                                     } else {
-                                        append(activePlan.goal.take(56))
+                                        activePlan.routeDecision.matchedSkillName?.let { append("Skill: $it · ") }
+                                        if (activePlan.routeDecision.capabilitySummary.isNotBlank()) {
+                                            append(activePlan.routeDecision.capabilitySummary)
+                                        } else {
+                                            append(activePlan.goal.take(56))
+                                        }
                                     }
                                 }
                                 Text(
@@ -429,6 +466,18 @@ fun ChatScreen(
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (inProgress) {
+                                    IconButton(
+                                        onClick = if (uiState.isAgentPaused) onResumeAutonomousTask else onPauseAutonomousTask,
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("chat_pause_resume_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (uiState.isAgentPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                            contentDescription = if (uiState.isAgentPaused) "Resume autonomous task" else "Pause autonomous task",
+                                            tint = palette.skyAccent
+                                        )
+                                    }
                                     TextButton(
                                         onClick = { steerExpanded = !steerExpanded },
                                         modifier = Modifier
@@ -443,7 +492,7 @@ fun ChatScreen(
                                             .minimumInteractiveComponentSize()
                                             .testTag("cancel_plan_button")
                                     ) {
-                                        Text("Stop")
+                                        Text("Stop", color = palette.errorAccent)
                                     }
                                 }
                                 Icon(
@@ -530,6 +579,63 @@ fun ChatScreen(
                                 }
                             }
                         }
+                        val obsPreview = uiState.lastObservationPreview
+                        if (obsPreview != null && (inProgress || monitorExpanded)) {
+                            ScreenObservationPreviewCard(preview = obsPreview)
+                        }
+                        if (uiState.liveTimeline.isNotEmpty() && (inProgress || monitorExpanded)) {
+                            AgentLiveTimelineSection(
+                                entries = uiState.liveTimeline,
+                                expanded = timelineExpanded,
+                                onToggleExpanded = { timelineExpanded = !timelineExpanded }
+                            )
+                        }
+                    }
+                }
+            }
+
+            val stopSummary = uiState.lastStopSummary
+            if (stopSummary != null) {
+                AgentStopSummaryBanner(
+                    summary = stopSummary,
+                    onResumeCheckpoint = onResumeCheckpoint,
+                    onDismiss = onDismissStopSummary,
+                    modifier = Modifier
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
+            if (uiState.recoveredInterruptedCount > 0 && uiState.activePlan == null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 840.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable(onClick = onOpenActivityHistory)
+                        .testTag("chat_recovered_checkpoints_banner"),
+                    shape = RoundedCornerShape(12.dp),
+                    color = palette.amberBadgeBg,
+                    border = BorderStroke(hairlineDp(), palette.warningAccent.copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${uiState.recoveredInterruptedCount} interrupted autonomous task(s) can be resumed from Activity History.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.text,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "View",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.warningAccent
+                        )
                     }
                 }
             }
@@ -1361,7 +1467,8 @@ private fun ChatMessageBubble(
     val isSystemNotice = message.role == MessageRole.SYSTEM_NOTICE
     val isToolSnapshot = message.role == MessageRole.TOOL_SNAPSHOT
 
-    val timestamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val timestamp = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
 
     val containerColor = when {
         isUser -> palette.skyContainer
@@ -1378,7 +1485,7 @@ private fun ChatMessageBubble(
         BorderStroke(hairlineDp(), palette.hairline)
     }
 
-    val segments = parseMessageSegments(message.content)
+    val segments = remember(message.content) { parseMessageSegments(message.content) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1472,16 +1579,21 @@ private fun ChatMessageBubble(
                         segments.forEach { seg ->
                             when (seg) {
                                 is MessageSegment.Prose -> {
-                                    Text(
-                                        text = seg.text,
-                                        style = if (isToolSnapshot) {
-                                            JarvisMonoCodeStyle
-                                        } else {
-                                            MaterialTheme.typography.bodyMedium
-                                        },
-                                        color = bubbleTextColor,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    if (isToolSnapshot) {
+                                        Text(
+                                            text = seg.text,
+                                            style = JarvisMonoCodeStyle,
+                                            color = bubbleTextColor,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    } else {
+                                        JarvisMarkdownText(
+                                            markdown = seg.text,
+                                            color = bubbleTextColor,
+                                            accentColor = bubbleAccentColor,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
                                 }
                                 is MessageSegment.CodeBlock -> {
                                     Surface(

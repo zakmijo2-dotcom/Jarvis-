@@ -48,7 +48,7 @@ class GoalTaskPlanner(
             lower.contains("fill form") ||
             lower.contains("click link")
 
-        val appWorkflow = detectMultiStepAppGoal(clean, lower)
+        val appWorkflow = if (targetUrl != null) null else detectMultiStepAppGoal(clean, lower)
         val wantsSummary = lower.contains("summarize") ||
             lower.contains("summary") ||
             lower.contains("لخص") ||

@@ -23,8 +23,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.outlined.Cable
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.GraphicEq
@@ -34,12 +38,18 @@ import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,20 +57,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.core.agent.AgentExecutionPhase
 import com.example.core.ai.EngineLoadState
 import com.example.core.device.DeviceCapabilitySnapshot
 import com.example.core.device.ShizukuAvailabilityState
 import com.example.core.device.WirelessAdbConnectionState
 import com.example.core.voice.MicStatus
 import com.example.data.local.db.ConversationWithPreview
+import com.example.ui.components.AgentPhaseBadge
 import com.example.ui.components.EditorialHairlineDivider
 import com.example.ui.components.HudBadge
 import com.example.ui.components.HudBackground
 import com.example.ui.components.HudPanel
+import com.example.ui.components.JarvisGlassCard
 import com.example.ui.components.JarvisOrb
 import com.example.ui.components.OrbMode
 import com.example.ui.components.TelemetryProgressBar
@@ -93,9 +107,14 @@ fun HomeScreen(
     onOpenActivityHistory: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onSelectConversation: (String) -> Unit,
-    onSeeAllHistory: () -> Unit
+    onSeeAllHistory: () -> Unit,
+    agentPhase: AgentExecutionPhase = AgentExecutionPhase.IDLE,
+    agentPhaseDetail: String = "Ready",
+    recoveredInterruptedCount: Int = 0,
+    onSubmitQuickTask: (String) -> Unit = {}
 ) {
     val palette = JarvisThemeTokens.palette
+    var quickTaskDraft by rememberSaveable { mutableStateOf("") }
     val effectiveName = displayName.ifBlank { stringResource(R.string.home_default_name) }
     val orbMode = when {
         micStatus == MicStatus.ACTIVE_STT -> OrbMode.LISTENING
@@ -209,6 +228,115 @@ fun HomeScreen(
                         color = palette.text,
                         modifier = Modifier.testTag("home_headline_text")
                     )
+                }
+            }
+
+            // Live autonomous phase or interrupted-checkpoint notice
+            if (agentPhase != AgentExecutionPhase.IDLE || recoveredInterruptedCount > 0) {
+                item {
+                    JarvisGlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 760.dp)
+                            .clickable(
+                                onClick = if (agentPhase != AgentExecutionPhase.IDLE) onOpenChat else onOpenActivityHistory
+                            )
+                            .testTag("home_agent_phase_strip"),
+                        accentBorder = if (agentPhase != AgentExecutionPhase.IDLE) palette.skyAccent.copy(alpha = 0.55f) else null
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                AgentPhaseBadge(phase = agentPhase)
+                                Text(
+                                    text = if (agentPhase != AgentExecutionPhase.IDLE) {
+                                        agentPhaseDetail
+                                    } else {
+                                        "$recoveredInterruptedCount resumable task(s) available"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = palette.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                contentDescription = "Open autonomous task",
+                                tint = palette.skyAccent
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Quick Autonomous Command / Task Bar
+            item {
+                JarvisGlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 760.dp)
+                        .testTag("home_quick_task_card")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = quickTaskDraft,
+                            onValueChange = { quickTaskDraft = it },
+                            placeholder = { Text("Ask JARVIS or launch a multi-step task…") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = palette.skyAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    val cmd = quickTaskDraft.trim()
+                                    if (cmd.isNotEmpty()) {
+                                        quickTaskDraft = ""
+                                        onSubmitQuickTask(cmd)
+                                    }
+                                }
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("home_quick_task_input")
+                        )
+                        IconButton(
+                            onClick = {
+                                val cmd = quickTaskDraft.trim()
+                                if (cmd.isNotEmpty()) {
+                                    quickTaskDraft = ""
+                                    onSubmitQuickTask(cmd)
+                                }
+                            },
+                            enabled = quickTaskDraft.isNotBlank(),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("home_quick_task_send")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Run quick task",
+                                tint = if (quickTaskDraft.isNotBlank()) palette.skyAccent else palette.textSecondary
+                            )
+                        }
+                    }
                 }
             }
 

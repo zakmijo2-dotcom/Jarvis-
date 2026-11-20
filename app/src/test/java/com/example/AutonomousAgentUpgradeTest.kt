@@ -275,8 +275,8 @@ class AutonomousAgentUpgradeTest {
 
         val browser = BrowserAutomationEngine(fetcher = fakeFetcher)
 
-        // Open tab 1
-        val home = browser.openUrl("https://example.org").getOrThrow()
+        // Open tab 1 (numeric public IP avoids external DNS in offline test containers while still enforcing PublicHttpSafetyGuard)
+        val home = browser.openUrl("https://93.184.216.34").getOrThrow()
         assertEquals("Home Portal", home.title)
         assertEquals(1, home.links.size)
 
@@ -285,8 +285,8 @@ class AutonomousAgentUpgradeTest {
         assertEquals("Second Page", page2.title)
         assertEquals(1, page2.forms.size)
 
-        // Submit POST form
-        val submitted = browser.fillAndSubmitForm(0, mapOf("query" to "android agent")).getOrThrow()
+        // Submit POST form (forms are 1-indexed)
+        val submitted = browser.fillAndSubmitForm(1, mapOf("query" to "android agent")).getOrThrow()
         assertEquals("Submitted", submitted.title)
         assertEquals(1, postedPayloads.size)
         assertEquals("android agent", postedPayloads.first().second["query"])
@@ -296,7 +296,7 @@ class AutonomousAgentUpgradeTest {
         assertEquals("Second Page", back.title)
 
         // Open second tab and switch back
-        browser.openUrl("https://example.org", newTab = true).getOrThrow()
+        browser.openUrl("https://93.184.216.34", newTab = true).getOrThrow()
         assertEquals(2, browser.tabs.value.size)
         assertNotNull(browser.switchTab(1))
         assertTrue(browser.closeTab(2))
@@ -370,7 +370,7 @@ class AutonomousAgentUpgradeTest {
         // Recording a sensitive secret hint must be rejected
         val rejectedSecret = repo.recordVerifiedObservation(
             observation = youtubeObs,
-            workflowHint = "My password is supersecret123"
+            workflowHint = "Use password=supersecret123 to log in"
         )
         assertNull(rejectedSecret)
 

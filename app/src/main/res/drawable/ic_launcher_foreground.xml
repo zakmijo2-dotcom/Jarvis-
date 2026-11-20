@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/jarvis_launcher_foreground_1794606792337"
+        android:drawable="@drawable/jarvis_brand_emblem_1795111930836"
         android:gravity="center" />
 </layer-list>

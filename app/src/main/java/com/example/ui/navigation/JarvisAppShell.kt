@@ -63,6 +63,7 @@ import com.example.R
 import com.example.core.ai.BatteryThermalSnapshot
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.ThermalAndMemoryPolicy
+import com.example.core.background.BackgroundTaskSnapshot
 import com.example.core.device.DeviceCapabilitySnapshot
 import com.example.core.device.ShizukuAvailabilityState
 import com.example.core.device.WirelessAdbConnectionState
@@ -152,6 +153,9 @@ fun JarvisAppShell(
     }
     val capabilities by container.deviceCapabilityManager.capabilities.collectAsStateWithLifecycle(
         initialValue = DeviceCapabilitySnapshot()
+    )
+    val backgroundSnapshot by container.backgroundCoordinator.snapshot.collectAsStateWithLifecycle(
+        initialValue = BackgroundTaskSnapshot()
     )
 
     // Cross-screen transient coordination flags so Chat/Device/Voice ViewModels initialize lazily
@@ -475,6 +479,13 @@ fun JarvisAppShell(
                                 onSeeAllHistory = {
                                     navigateToDestination(TopDestination.CHAT)
                                     scope.launch { drawerState.open() }
+                                },
+                                agentPhase = backgroundSnapshot.phase,
+                                agentPhaseDetail = backgroundSnapshot.phaseDetail,
+                                recoveredInterruptedCount = backgroundSnapshot.recoveredInterruptedCount,
+                                onSubmitQuickTask = { taskPrompt ->
+                                    pendingVoiceTranscript = taskPrompt
+                                    navigateToDestination(TopDestination.CHAT)
                                 }
                             )
                         }
@@ -493,7 +504,8 @@ fun JarvisAppShell(
                                     androidTools = container.androidTools,
                                     executionOverlayManager = container.executionOverlayManager,
                                     onDeviceOcrEngine = container.onDeviceOcrEngine,
-                                    screenPerceptionEngine = container.screenPerceptionEngine
+                                    screenPerceptionEngine = container.screenPerceptionEngine,
+                                    backgroundCoordinator = container.backgroundCoordinator
                                 )
                             )
                             val chatState by chatViewModel.uiState.collectAsStateWithLifecycle()
@@ -550,7 +562,12 @@ fun JarvisAppShell(
                                 onAttachImageUri = { uri -> chatViewModel.attachImageUri(context, uri) },
                                 onClearAttachment = chatViewModel::clearAttachedImage,
                                 onSubmitSteering = chatViewModel::submitSteering,
-                                onOpenSettings = { navigateToSubRoute(SettingsRoute) }
+                                onOpenSettings = { navigateToSubRoute(SettingsRoute) },
+                                onPauseAutonomousTask = chatViewModel::pauseAutonomousTask,
+                                onResumeAutonomousTask = chatViewModel::resumeAutonomousTask,
+                                onDismissStopSummary = chatViewModel::dismissStopSummary,
+                                onResumeCheckpoint = { checkpointId -> chatViewModel.resumeSavedCheckpoint(checkpointId) },
+                                onOpenActivityHistory = { navigateToSubRoute(ActivityHistoryRoute) }
                             )
                         }
 
@@ -903,7 +920,8 @@ fun JarvisAppShell(
                                     localMemory = container.localMemory,
                                     agentCore = container.agentCore,
                                     skillEngine = container.skillEngine,
-                                    mcpManager = container.mcpManager
+                                    mcpManager = container.mcpManager,
+                                    appKnowledgeRepository = container.appKnowledgeRepository
                                 )
                             )
                             val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
@@ -957,7 +975,12 @@ fun JarvisAppShell(
                                 onAddMcpServer = settingsViewModel::addOrUpdateMcpServer,
                                 onSetMcpServerEnabled = settingsViewModel::setMcpServerEnabled,
                                 onSyncMcpServer = settingsViewModel::syncMcpServerTools,
-                                onDeleteMcpServer = settingsViewModel::deleteMcpServer
+                                onDeleteMcpServer = settingsViewModel::deleteMcpServer,
+                                onExportSkillsJson = settingsViewModel::exportSkillsJson,
+                                onImportSkillsJson = settingsViewModel::importSkillsJson,
+                                onClearExportedSkillsJson = settingsViewModel::clearExportedSkillsJson,
+                                onDeleteAppKnowledge = settingsViewModel::deleteAppKnowledge,
+                                onClearAppKnowledge = settingsViewModel::clearAppKnowledge
                             )
                         }
                     }

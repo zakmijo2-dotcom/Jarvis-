@@ -148,7 +148,7 @@ class AutonomousPhoneUseTest {
         helper.close()
 
         val migratedDb = Room.databaseBuilder(context, JarvisDatabase::class.java, dbFile.absolutePath)
-            .addMigrations(JarvisDatabase.MIGRATION_7_8)
+            .addMigrations(JarvisDatabase.MIGRATION_7_8, JarvisDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
         try {
@@ -194,6 +194,22 @@ class AutonomousPhoneUseTest {
                 )
             )
             assertEquals("mcp_1", migratedDb.mcpServerDao().getByName("localnotes")?.id)
+
+            migratedDb.appKnowledgeDao().upsert(
+                com.example.data.local.db.AppKnowledgeEntity(
+                    id = "ak_1",
+                    packageName = "com.android.settings",
+                    appName = "Settings",
+                    screenSignature = "SETTINGS:abcd",
+                    screenType = "System Settings",
+                    knownElementsJson = """["Network & internet"]""",
+                    verifiedWorkflowHints = "Tap Network & internet for Wi-Fi",
+                    successCount = 1,
+                    failureCount = 0,
+                    lastVerifiedAt = now
+                )
+            )
+            assertEquals(1, migratedDb.appKnowledgeDao().getAllOnce().size)
         } finally {
             migratedDb.close()
         }

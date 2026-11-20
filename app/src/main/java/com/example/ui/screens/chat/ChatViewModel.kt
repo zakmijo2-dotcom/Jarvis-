@@ -8,14 +8,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.agent.AgentCore
+import com.example.core.agent.AgentExecutionPhase
 import com.example.core.agent.AgentPlanStep
 import com.example.core.agent.AgentPlanState
 import com.example.core.agent.AgentRoutingMode
+import com.example.core.agent.AgentTimelineEntry
 import com.example.core.agent.HybridAgentEvent
+import com.example.core.agent.ObservationPreviewSnapshot
+import com.example.core.agent.StopSummary
 import com.example.core.ai.AiEngine
 import com.example.core.ai.AiStreamEvent
 import com.example.core.ai.EngineLoadState
 import com.example.core.ai.GenerationBenchmark
+import com.example.core.background.AgentBackgroundCoordinator
+import com.example.core.background.BackgroundTaskSnapshot
 import com.example.core.cloud.CloudImageAttachment
 import com.example.core.memory.LocalMemory
 import com.example.core.model.ModelManager
@@ -79,7 +85,14 @@ data class ChatUiState(
     val permissionRationale: String? = null,
     val executionHudState: ExecutionHudState = ExecutionHudState(),
     val attachedImageLabel: String? = null,
-    val attachedImageOcrPreview: String? = null
+    val attachedImageOcrPreview: String? = null,
+    val agentPhase: AgentExecutionPhase = AgentExecutionPhase.IDLE,
+    val agentPhaseDetail: String = "Ready",
+    val isAgentPaused: Boolean = false,
+    val liveTimeline: List<AgentTimelineEntry> = emptyList(),
+    val lastObservationPreview: ObservationPreviewSnapshot? = null,
+    val lastStopSummary: StopSummary? = null,
+    val recoveredInterruptedCount: Int = 0
 )
 
 private data class ChatToolOverlayState(
@@ -91,7 +104,12 @@ private data class ChatToolOverlayState(
     val activePlan: AgentPlanState? = null,
     val streamingIsCloud: Boolean = false,
     val attachedImage: CloudImageAttachment? = null,
-    val attachedImageOcrText: String? = null
+    val attachedImageOcrText: String? = null,
+    val agentPhase: AgentExecutionPhase = AgentExecutionPhase.IDLE,
+    val agentPhaseDetail: String = "Ready",
+    val liveTimeline: List<AgentTimelineEntry> = emptyList(),
+    val lastObservationPreview: ObservationPreviewSnapshot? = null,
+    val lastStopSummary: StopSummary? = null
 )
 
 private data class PausedPlanResumeContext(
@@ -114,7 +132,8 @@ class ChatViewModel(
     private val androidTools: AndroidTools? = null,
     private val executionOverlayManager: ExecutionOverlayManager? = null,
     private val onDeviceOcrEngine: OnDeviceOcrEngine? = null,
-    private val screenPerceptionEngine: ScreenPerceptionEngine? = null
+    private val screenPerceptionEngine: ScreenPerceptionEngine? = null,
+    private val backgroundCoordinator: AgentBackgroundCoordinator? = null
 ) : ViewModel() {
 
     private val activeConversationId = MutableStateFlow<String?>(null)
@@ -160,6 +179,8 @@ class ChatViewModel(
     }
 
     private val hudStateFlow = executionOverlayManager?.hudState ?: flowOf(ExecutionHudState())
+    private val bgSnapshotFlow = backgroundCoordinator?.snapshot ?: flowOf(BackgroundTaskSnapshot())
+    private val executionSignalsFlow = combine(hudStateFlow, bgSnapshotFlow) { hud, bg -> hud to bg }
 
     val uiState: StateFlow<ChatUiState> = combine(
         baseDataFlow,
@@ -171,7 +192,7 @@ class ChatViewModel(
         aiEngine.lastBenchmark,
         aiEngine.nativeMemoryMb,
         toolOverlayState,
-        hudStateFlow
+        executionSignalsFlow
     ) { values ->
         val base = values[0] as BaseDataSnapshot
         val loadState = values[1] as EngineLoadState
@@ -182,7 +203,9 @@ class ChatViewModel(
         val lastBench = values[6] as GenerationBenchmark?
         val nativeMem = values[7] as Float
         val toolOverlay = values[8] as ChatToolOverlayState
-        val hudState = values[9] as ExecutionHudState
+        @Suppress("UNCHECKED_CAST")
+        val signalPair = values[9] as Pair<ExecutionHudState, BackgroundTaskSnapshot>
+        val (hudState, bgSnapshot) = signalPair
 
         val resolvedId = base.activeId ?: base.allConversations.firstOrNull()?.id
         val filteredConversations = if (base.query.isBlank()) {
@@ -196,6 +219,22 @@ class ChatViewModel(
         }
         val activeTitle = base.allConversations.firstOrNull { it.id == resolvedId }?.title
             ?: "Primary Core Session"
+        val resolvedPhase = if (toolOverlay.agentPhase != AgentExecutionPhase.IDLE) {
+            toolOverlay.agentPhase
+        } else {
+            bgSnapshot.phase
+        }
+        val resolvedPhaseDetail = if (toolOverlay.agentPhase != AgentExecutionPhase.IDLE) {
+            toolOverlay.agentPhaseDetail
+        } else {
+            bgSnapshot.phaseDetail
+        }
+        val resolvedTimeline = if (toolOverlay.liveTimeline.isNotEmpty()) {
+            toolOverlay.liveTimeline
+        } else {
+            bgSnapshot.timeline
+        }
+        val resolvedObservation = toolOverlay.lastObservationPreview ?: bgSnapshot.lastObservationPreview
 
         ChatUiState(
             activeConversationId = resolvedId,
@@ -206,7 +245,7 @@ class ChatViewModel(
             activeModel = base.activeModel,
             settings = base.settings,
             engineLoadState = loadState,
-            isGenerating = isGen || streamText != null,
+            isGenerating = isGen || streamText != null || bgSnapshot.isRunning,
             streamingReply = streamText,
             streamingBackend = streamBackend,
             streamingEstimatedTokens = streamTok,
@@ -221,7 +260,14 @@ class ChatViewModel(
             permissionRationale = toolOverlay.permissionRationale,
             executionHudState = hudState,
             attachedImageLabel = toolOverlay.attachedImage?.label,
-            attachedImageOcrPreview = toolOverlay.attachedImageOcrText
+            attachedImageOcrPreview = toolOverlay.attachedImageOcrText,
+            agentPhase = resolvedPhase,
+            agentPhaseDetail = resolvedPhaseDetail,
+            isAgentPaused = bgSnapshot.isPaused || resolvedPhase == AgentExecutionPhase.PAUSED,
+            liveTimeline = resolvedTimeline,
+            lastObservationPreview = resolvedObservation,
+            lastStopSummary = toolOverlay.lastStopSummary,
+            recoveredInterruptedCount = bgSnapshot.recoveredInterruptedCount
         )
     }.stateIn(
         scope = viewModelScope,
@@ -396,6 +442,50 @@ class ChatViewModel(
                 resumeCheckpointId = resumeCheckpointId
             ).collect { hybridEvent ->
                 when (hybridEvent) {
+                    is HybridAgentEvent.PhaseChanged -> {
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            agentPhase = hybridEvent.phase,
+                            agentPhaseDetail = hybridEvent.detail
+                        )
+                    }
+
+                    is HybridAgentEvent.TimelineRecorded -> {
+                        val updated = (toolOverlayState.value.liveTimeline + hybridEvent.entry).takeLast(30)
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            liveTimeline = updated
+                        )
+                    }
+
+                    is HybridAgentEvent.ObservationCaptured -> {
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            lastObservationPreview = hybridEvent.preview
+                        )
+                    }
+
+                    is HybridAgentEvent.ReplanTriggered -> {
+                        val replanEntry = AgentTimelineEntry(
+                            id = UUID.randomUUID().toString(),
+                            timestampMs = System.currentTimeMillis(),
+                            phase = AgentExecutionPhase.RECOVERING,
+                            title = "Replan: ${hybridEvent.record.failedStepTitle}",
+                            detail = "${hybridEvent.record.failureReason} -> ${hybridEvent.record.recoveryStrategy}",
+                            succeeded = false
+                        )
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            agentPhase = AgentExecutionPhase.RECOVERING,
+                            agentPhaseDetail = hybridEvent.record.recoveryStrategy,
+                            liveTimeline = (toolOverlayState.value.liveTimeline + replanEntry).takeLast(30)
+                        )
+                    }
+
+                    is HybridAgentEvent.TaskStopped -> {
+                        toolOverlayState.value = toolOverlayState.value.copy(
+                            agentPhase = AgentExecutionPhase.CANCELLED,
+                            agentPhaseDetail = hybridEvent.summary.reason,
+                            lastStopSummary = hybridEvent.summary
+                        )
+                    }
+
                     is HybridAgentEvent.PlanUpdated -> {
                         toolOverlayState.value = toolOverlayState.value.copy(
                             activePlan = hybridEvent.plan
@@ -857,6 +947,26 @@ class ChatViewModel(
         }
     }
 
+    fun pauseAutonomousTask() {
+        backgroundCoordinator?.requestPause()
+        toolOverlayState.value = toolOverlayState.value.copy(
+            agentPhase = AgentExecutionPhase.PAUSED,
+            agentPhaseDetail = "Paused by user"
+        )
+    }
+
+    fun resumeAutonomousTask() {
+        backgroundCoordinator?.requestResume()
+        toolOverlayState.value = toolOverlayState.value.copy(
+            agentPhase = AgentExecutionPhase.EXECUTING,
+            agentPhaseDetail = "Resuming task..."
+        )
+    }
+
+    fun dismissStopSummary() {
+        toolOverlayState.value = toolOverlayState.value.copy(lastStopSummary = null)
+    }
+
     fun updateSearchQuery(query: String) {
         drawerSearchQuery.value = query
     }
@@ -882,7 +992,8 @@ class ChatViewModel(
             androidTools: AndroidTools? = null,
             executionOverlayManager: ExecutionOverlayManager? = null,
             onDeviceOcrEngine: OnDeviceOcrEngine? = null,
-            screenPerceptionEngine: ScreenPerceptionEngine? = null
+            screenPerceptionEngine: ScreenPerceptionEngine? = null,
+            backgroundCoordinator: AgentBackgroundCoordinator? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -897,7 +1008,8 @@ class ChatViewModel(
                     androidTools = androidTools,
                     executionOverlayManager = executionOverlayManager,
                     onDeviceOcrEngine = onDeviceOcrEngine,
-                    screenPerceptionEngine = screenPerceptionEngine
+                    screenPerceptionEngine = screenPerceptionEngine,
+                    backgroundCoordinator = backgroundCoordinator
                 ) as T
             }
         }

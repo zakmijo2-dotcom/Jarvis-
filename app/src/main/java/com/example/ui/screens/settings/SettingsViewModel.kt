@@ -10,6 +10,8 @@ import com.example.core.cloud.CloudProviderKind
 import com.example.core.cloud.CloudUsageStats
 import com.example.core.mcp.McpManager
 import com.example.core.mcp.McpServerConfig
+import com.example.core.memory.AppKnowledgeRecord
+import com.example.core.memory.AppKnowledgeRepository
 import com.example.core.memory.LocalMemory
 import com.example.core.memory.MemoryFact
 import com.example.core.memory.MemoryKind
@@ -40,6 +42,8 @@ data class SettingsUiState(
     val memories: List<MemoryFact> = emptyList(),
     val skills: List<AgentSkill> = emptyList(),
     val mcpServers: List<McpServerConfig> = emptyList(),
+    val appKnowledge: List<AppKnowledgeRecord> = emptyList(),
+    val exportedSkillsJson: String? = null,
     val cloudUsageStats: CloudUsageStats = CloudUsageStats(),
     val executionHistory: List<AgentExecutionRecord> = emptyList(),
     val statusBannerMessage: String? = null
@@ -52,16 +56,22 @@ class SettingsViewModel(
     private val localMemory: LocalMemory,
     private val agentCore: AgentCore? = null,
     private val skillEngine: SkillEngine? = null,
-    private val mcpManager: McpManager? = null
+    private val mcpManager: McpManager? = null,
+    private val appKnowledgeRepository: AppKnowledgeRepository? = null
 ) : ViewModel() {
 
     private val statusBanner = MutableStateFlow<String?>(null)
     private val memorySearchQuery = MutableStateFlow("")
+    private val exportedSkillsJson = MutableStateFlow<String?>(null)
 
     private val cloudUsageFlow = agentCore?.cloudUsageStats ?: flowOf(CloudUsageStats())
     private val executionHistoryFlow = agentCore?.observeExecutionHistory() ?: flowOf(emptyList())
     private val skillsFlow = skillEngine?.observeSkills() ?: flowOf(emptyList())
     private val mcpServersFlow = mcpManager?.observeServers() ?: flowOf(emptyList())
+    private val appKnowledgeFlow = appKnowledgeRepository?.observeAll() ?: flowOf(emptyList())
+    private val knowledgeAndExportFlow = combine(appKnowledgeFlow, exportedSkillsJson) { knowledge, json ->
+        knowledge to json
+    }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.settingsFlow,
@@ -72,7 +82,8 @@ class SettingsViewModel(
         executionHistoryFlow,
         skillsFlow,
         mcpServersFlow,
-        statusBanner
+        statusBanner,
+        knowledgeAndExportFlow
     ) { values ->
         val settings = values[0] as JarvisSettings
         val wakeState = values[1] as WakeWordState
@@ -87,6 +98,9 @@ class SettingsViewModel(
         @Suppress("UNCHECKED_CAST")
         val mcpServers = values[7] as List<McpServerConfig>
         val banner = values[8] as String?
+        @Suppress("UNCHECKED_CAST")
+        val knowledgePair = values[9] as Pair<List<AppKnowledgeRecord>, String?>
+        val (appKnowledge, skillsExport) = knowledgePair
 
         val filtered = if (query.isBlank()) {
             allFacts
@@ -108,6 +122,8 @@ class SettingsViewModel(
             memories = filtered,
             skills = skills,
             mcpServers = mcpServers,
+            appKnowledge = appKnowledge,
+            exportedSkillsJson = skillsExport,
             cloudUsageStats = usage,
             executionHistory = executions,
             statusBannerMessage = banner
@@ -420,6 +436,53 @@ class SettingsViewModel(
         }
     }
 
+    fun exportSkillsJson() {
+        viewModelScope.launch {
+            val engine = skillEngine
+            if (engine == null) {
+                statusBanner.value = "Skills engine is unavailable."
+                return@launch
+            }
+            val json = engine.exportSkillsJson()
+            exportedSkillsJson.value = json
+            statusBanner.value = "Exported saved skills to JSON."
+        }
+    }
+
+    fun clearExportedSkillsJson() {
+        exportedSkillsJson.value = null
+    }
+
+    fun importSkillsJson(rawJson: String) {
+        viewModelScope.launch {
+            val engine = skillEngine
+            if (engine == null) {
+                statusBanner.value = "Skills engine is unavailable."
+                return@launch
+            }
+            val res = engine.importSkillsJson(rawJson)
+            statusBanner.value = if (res.isSuccess) {
+                "Imported ${res.getOrDefault(0)} skill(s) into Skills Library."
+            } else {
+                res.exceptionOrNull()?.localizedMessage ?: "Failed to import skills JSON."
+            }
+        }
+    }
+
+    fun deleteAppKnowledge(id: String) {
+        viewModelScope.launch {
+            appKnowledgeRepository?.delete(id)
+            statusBanner.value = "Removed learned screen profile."
+        }
+    }
+
+    fun clearAppKnowledge() {
+        viewModelScope.launch {
+            appKnowledgeRepository?.clearAll()
+            statusBanner.value = "Cleared all learned app screen knowledge."
+        }
+    }
+
     fun purgeConversationArchive() {
         viewModelScope.launch {
             conversationRepository.clearAllAndReset()
@@ -440,7 +503,8 @@ class SettingsViewModel(
             localMemory: LocalMemory,
             agentCore: AgentCore? = null,
             skillEngine: SkillEngine? = null,
-            mcpManager: McpManager? = null
+            mcpManager: McpManager? = null,
+            appKnowledgeRepository: AppKnowledgeRepository? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -451,7 +515,8 @@ class SettingsViewModel(
                     localMemory = localMemory,
                     agentCore = agentCore,
                     skillEngine = skillEngine,
-                    mcpManager = mcpManager
+                    mcpManager = mcpManager,
+                    appKnowledgeRepository = appKnowledgeRepository
                 ) as T
             }
         }

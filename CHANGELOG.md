@@ -5,6 +5,32 @@ License: **GNU General Public License v3.0 (`GPL-3.0`)**
 
 ---
 
+## [1.0.2] — Autonomous Agent Core, Browser Automation, App Knowledge, Visual Identity & Repo Cleanup (`versionCode = 3`)
+
+### Added & Upgraded
+- **Autonomous Goal Planning & Closed-Loop Orchestration (`core/agent/`, `core/background/`):**
+  - Added `GoalTaskPlanner` for multi-step goal decomposition (`MEMORY_LOOKUP -> ANDROID_TOOL -> CONTEXT_OBSERVE -> AI_SYNTHESIS -> RESULT_VERIFY`) with explicit URL precedence over incidental app-name collisions.
+  - Upgraded `Phase2AgentCore` with explicit `AgentExecutionPhase` states, structured `AgentTimelineEntry` logs, bounded dynamic replanning (maximum 3 replans per run), and 5 new `HybridAgentEvent` variants (`PhaseChanged`, `TimelineRecorded`, `ObservationCaptured`, `ReplanTriggered`, `TaskStopped`).
+  - Added `AgentBackgroundCoordinator`, `AgentExecutionForegroundService` (live Pause / Resume / Stop notification controls, keyguard lock-state safety checks, interrupted checkpoint recovery), and `VirtualDisplayFeasibilityProbe`.
+- **Unified Automation, Vision Classification & Stateful Browser Engine (`core/automation/`, `core/vision/`, `core/browser/`, `core/tools/`):**
+  - Added `PhoneAutomationEngine` (`AndroidAutomationEngine`) and registered `wait_for_screen`, `locate_and_tap_visual`, and `navigate_device`.
+  - Added `ScreenClassifier` (9 screen types), `VisualElementLocator` (hybrid Accessibility + OCR matching), and context-aware cloud screenshot gating (`ScreenPerceptionEngine.shouldAttachScreenshotToCloud`).
+  - Added stateful multi-tab `BrowserAutomationEngine` guarded by `PublicHttpSafetyGuard` (SSRF protection) and registered 6 browser tools (`browser_open`, `browser_read`, `browser_click_link`, `browser_fill_form`, `browser_back`, `browser_tabs`), bringing `ToolRegistry` to **43 registered tools**.
+  - Added `ModelCapabilityDetector` for capability-aware tiered cloud model selection.
+- **Application Knowledge Base, Skills JSON Exchange & Room Database v9 (`core/memory/`, `core/skills/`, `data/local/db/`):**
+  - Upgraded `JarvisDatabase` cleanly from v8 to **v9** via deterministic `MIGRATION_8_9` (**12** total tables), adding `app_knowledge` (`AppKnowledgeRepository`) with sensitive-data and blocked-package safeguards.
+  - Added Skills Library search filtering plus JSON Export (with clipboard copy) and JSON Import in `SettingsScreen`, along with an interactive **App Knowledge Base** management section.
+- **Visual Identity, Design System & Autonomous Agent UI (`ui/`, `res/`):**
+  - Added centralized design tokens (`DesignTokens.kt`), `JarvisDesignSystem.kt` (`JarvisGlassCard`, `JarvisStatusIndicator`, `JarvisSectionHeader`, `JarvisEmptyStateCard`, memoized `JarvisMarkdownText`), and `AgentActivityComponents.kt` (`AgentPhaseBadge`, `AgentLiveTimelineSection`, `ScreenObservationPreviewCard`, `AgentStopSummaryBanner`).
+  - Upgraded `ChatScreen` and `HomeScreen` with live `AgentPhaseBadge`, Pause / Resume / Steer / Stop controls, Replan count pill, collapsible live tool timeline, observation preview card, stop summary banner, interrupted checkpoint notices, and an inline Quick Autonomous Task launcher.
+  - Replaced default/legacy branding with an original J.A.R.V.I.S adaptive launcher icon, 5-density mipmap set, `docs/assets/jarvis-logo.png` (512×512), and `docs/assets/jarvis-banner.png` (1280×640).
+- **Repository Cleanup, Open-Source Governance & Verification:**
+  - Removed temporary `/research` workspace clutter, obsolete scratch files, unused fonts/drawables, and dead theme wrappers; organized technical documentation cleanly under `/docs/`.
+  - Added `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/*`, and `.github/PULL_REQUEST_TEMPLATE.md`.
+  - Added `AutonomousAgentUpgradeTest` (**11 tests**) and upgraded Room migration & tool registry assertions; verified **72 / 72** passing JVM & Robolectric tests across **8 suites** (`0` failures, `0` errors, `0` skipped).
+
+---
+
 ## [1.0.1] — Autonomous Non-Root Phone-Use, Vision/OCR, MCP, SSRF Guard & Dual-Mode UI (`versionCode = 2`)
 
 ### Added & Upgraded
