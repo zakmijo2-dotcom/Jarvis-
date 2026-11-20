@@ -101,11 +101,49 @@ object PublicHttpSafetyGuard {
             if ((firstByte and 0xFE) == 0xFC) return false
             // Link-local fe80::/10
             if (firstByte == 0xFE && (secondByte and 0xC0) == 0x80) return false
-            // IPv4-mapped ::ffff:0:0/96
+            // Documentation 2001:db8::/32
+            if (firstByte == 0x20 && secondByte == 0x01 &&
+                (bytes[2].toInt() and 0xFF) == 0x0D && (bytes[3].toInt() and 0xFF) == 0xB8
+            ) return false
+            // Local-use NAT64 64:ff9b:1::/48 (RFC 8215)
+            if (firstByte == 0x00 && secondByte == 0x64 &&
+                (bytes[2].toInt() and 0xFF) == 0xFF && (bytes[3].toInt() and 0xFF) == 0x9B &&
+                (bytes[4].toInt() and 0xFF) == 0x00 && (bytes[5].toInt() and 0xFF) == 0x01
+            ) return false
+            // Well-known NAT64 64:ff9b::/96 (RFC 6052) -> inspect embedded IPv4 in bytes 12..15
+            val isNat64WellKnown = firstByte == 0x00 && secondByte == 0x64 &&
+                (bytes[2].toInt() and 0xFF) == 0xFF && (bytes[3].toInt() and 0xFF) == 0x9B &&
+                (4..11).all { bytes[it].toInt() == 0 }
+            if (isNat64WellKnown) {
+                val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
+                return isPublicRoutableAddress(v4, allowLoopback)
+            }
+            // 6to4 2002::/16 (RFC 3056) -> inspect embedded IPv4 in bytes 2..5
+            if (firstByte == 0x20 && secondByte == 0x02) {
+                val v4 = InetAddress.getByAddress(bytes.copyOfRange(2, 6))
+                return isPublicRoutableAddress(v4, allowLoopback)
+            }
+            // IPv4-mapped ::ffff:0:0/96 -> inspect embedded IPv4 in bytes 12..15
             val isV4Mapped = (0..9).all { bytes[it].toInt() == 0 } &&
                 (bytes[10].toInt() and 0xFF) == 0xFF &&
                 (bytes[11].toInt() and 0xFF) == 0xFF
             if (isV4Mapped) {
+                val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
+                return isPublicRoutableAddress(v4, allowLoopback)
+            }
+            // IPv4-translated ::ffff:0:0:0/96 -> inspect embedded IPv4 in bytes 12..15
+            val isV4Translated = (0..7).all { bytes[it].toInt() == 0 } &&
+                (bytes[8].toInt() and 0xFF) == 0xFF &&
+                (bytes[9].toInt() and 0xFF) == 0xFF &&
+                bytes[10].toInt() == 0 &&
+                bytes[11].toInt() == 0
+            if (isV4Translated) {
+                val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
+                return isPublicRoutableAddress(v4, allowLoopback)
+            }
+            // IPv4-compatible ::/96 (deprecated RFC 4291, excluding :: and ::1 already handled above)
+            val isV4Compatible = (0..11).all { bytes[it].toInt() == 0 }
+            if (isV4Compatible) {
                 val v4 = InetAddress.getByAddress(bytes.copyOfRange(12, 16))
                 return isPublicRoutableAddress(v4, allowLoopback)
             }
@@ -119,9 +157,15 @@ object PublicHttpSafetyGuard {
         return host.startsWith("10.") ||
             host.startsWith("192.168.") ||
             host.startsWith("169.254.") ||
+            host.startsWith("172.") ||
+            host.startsWith("100.") ||
             host == "0.0.0.0" ||
             host.startsWith("fc") ||
             host.startsWith("fd") ||
-            host.startsWith("fe80:")
+            host.startsWith("fe80:") ||
+            host.startsWith("64:ff9b:") ||
+            host.startsWith("2002:") ||
+            host.startsWith("::ffff:") ||
+            host.startsWith("::")
     }
 }
